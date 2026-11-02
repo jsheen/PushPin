@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 import yaml
 
-from pushnyt.features import EMBEDDING_FEATURES
+from pushnyt.features import VECTOR_FEATURES
 
 REPO = Path(__file__).resolve().parents[1]
 WORDS = ["election", "senate", "vote", "budget", "storm", "flood", "hurricane", "game", "season",
@@ -64,7 +64,7 @@ def train_config(mind_dir, tmp_path) -> dict:
     config = yaml.safe_load((REPO / "configs/train.yml").read_text())
     config["data"]["dir"] = str(mind_dir)
     config["output"]["dir"] = str(tmp_path / "run")
-    config["features"].update(text_dim=4, exclude=list(EMBEDDING_FEATURES))
+    config["features"].update(text_dim=4, exclude=list(VECTOR_FEATURES))
     config["model"].update(n_estimators=20, early_stopping_rounds=5)
     config["evaluation"].update(bootstrap_samples=20, min_auc=None)
     return config

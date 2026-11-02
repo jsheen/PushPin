@@ -13,7 +13,7 @@ from sklearn.metrics import log_loss, roc_auc_score
 
 from pushnyt.calibration import apply_platt, calibration_metrics, fit_platt
 from pushnyt.data import SLOTS, load_behaviors, load_entity_embeddings, load_news
-from pushnyt.features import EMBEDDING_FEATURES, FEATURES, build_features, temporal_features
+from pushnyt.features import FEATURES, VECTOR_FEATURES, build_features, temporal_features
 from pushnyt.plots import plot_calibration, plot_importance
 from pushnyt.risk import fit_return_model
 from pushnyt.vectordb import ArticleStore
@@ -101,7 +101,7 @@ def train(config: dict) -> None:
     news = load_news(data_dir / config["data"]["news"])
     emb = load_entity_embeddings(data_dir / config["data"]["entity_embeddings"])
     store = abstract_vec = None
-    if set(EMBEDDING_FEATURES) & set(features):  # the vector database is only needed for these
+    if set(VECTOR_FEATURES) & set(features):  # the vector database is only needed for these
         store = ArticleStore(data_dir / config["embeddings"]["chroma_dir"], config["embeddings"]["collection"])
         abstract_vec = store.vectors(news["news_id"].tolist())
 

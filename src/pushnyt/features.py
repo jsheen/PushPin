@@ -1,6 +1,6 @@
 """Features for predicting a click on (user, article) at a time slot (morning/afternoon/evening).
 
-Seven feature groups:
+Nine feature groups:
   - time-slot engagement: how the user has engaged in this slot before
   - similarity: candidate article vs. the user's reading history
   - complementarity: Alibaba-style s_ab = p_ab - q_ab over subcategories
@@ -9,6 +9,9 @@ Seven feature groups:
   - push fatigue: articles recently shown and skipped in this slot, plus overall volume
   - embedding retrieval: candidate vs. history in sentence-embedding space, using the
     abstract vectors in the local vector database (see embed.py)
+  - subcategory skips: the user's shrunk click rate and skip count in the candidate's subcategory
+  - click/skip contrast: candidate's closest match among what the user clicked vs. what they
+    were shown and skipped, in the same embedding space
   - article recency: hours since the article was first seen (MIND has no publish time)
   - user depth: how much we know about the user (pre-period history, impressions logged so far)
 
@@ -28,6 +31,8 @@ from pushnyt.data import explode_impressions
 from pushnyt.vectordb import ArticleStore
 
 EMBEDDING_FEATURES = ["emb_sim_mean", "emb_sim_max", "emb_sim_top5", "emb_n_close", "emb_retrieval_rank"]
+CONTRAST_FEATURES = ["emb_sim_clicked_max", "emb_sim_skipped_max", "emb_contrast"]
+VECTOR_FEATURES = EMBEDDING_FEATURES + CONTRAST_FEATURES  # need the vector database
 
 FEATURES = [
     # time-slot engagement
@@ -41,6 +46,10 @@ FEATURES = [
     "hours_since_last_impr", "hours_since_last_slot_impr",
     # embedding retrieval
     *EMBEDDING_FEATURES,
+    # subcategory skips
+    "subcat_engaged_rate", "subcat_prior_skips",
+    # click/skip contrast
+    *CONTRAST_FEATURES,
     # article recency
     "article_age_hours",
     # user depth
@@ -190,6 +199,22 @@ def subcat_novelty(rows: pd.DataFrame, H: sparse.csr_matrix, subcat: np.ndarray,
     return 1.0 - share
 
 
+def subcat_engagement(rows: pd.DataFrame, prior_rate: np.ndarray, prior_strength: float):
+    """The user's click rate and skip count in the candidate's subcategory over earlier impressions.
+
+    The rate is shrunk toward the subcategory's global click rate `prior_rate` with
+    `prior_strength` pseudo-impressions, like slot_engaged_rate. Pre-period history is not used:
+    it holds clicks only, with nothing shown and skipped.
+    """
+    u, b, r = rows["user"].to_numpy(), rows["subcat"].to_numpy(), rows["row"].to_numpy()
+    per_sub = rows.groupby(["user", "subcat", "row"])["label"].agg(["sum", "size"])
+    prior = (per_sub.groupby(level=[0, 1]).cumsum() - per_sub).reindex(
+        pd.MultiIndex.from_arrays([u, b, r]))
+    clicks, shown = prior["sum"].to_numpy(float), prior["size"].to_numpy(float)
+    rate = (clicks + prior_rate[b] * prior_strength) / (shown + prior_strength)
+    return rate, shown - clicks
+
+
 def embedding_features(u: np.ndarray, a: np.ndarray, H: sparse.csr_matrix, abstract_vec: np.ndarray,
                        store: ArticleStore, news_ids: np.ndarray, cfg: dict) -> pd.DataFrame:
     """Candidate vs. the user's history articles in abstract-embedding space (cosine)."""
@@ -226,6 +251,37 @@ def embedding_features(u: np.ndarray, a: np.ndarray, H: sparse.csr_matrix, abstr
     return pd.DataFrame(out)
 
 
+def contrast_features(rows: pd.DataFrame, H: sparse.csr_matrix, abstract_vec: np.ndarray,
+                      score: np.ndarray) -> pd.DataFrame:
+    """Candidate vs. what the user clicked and what they skipped, in abstract-embedding space.
+
+    Clicked = pre-period history plus clicks in earlier impressions; skipped = shown but not
+    clicked in earlier impressions, minus anything clicked since. Only rows where `score` is
+    set are computed (the rest only build up the sets); NaN where a set is empty.
+    """
+    u, r, a = rows["user"].to_numpy(), rows["row"].to_numpy(), rows["news"].to_numpy()
+    label = rows["label"].to_numpy()
+    clicked_max, skipped_max = np.full(len(rows), np.nan), np.full(len(rows), np.nan)
+    order = np.lexsort((r, u))
+    users, starts = np.unique(u[order], return_index=True)
+    for user, idx in zip(users, np.split(order, starts[1:])):
+        if not score[idx].any():
+            continue
+        clicked = set(H.indices[H.indptr[user]:H.indptr[user + 1]].tolist())
+        skipped = set()
+        for imp in np.split(idx, np.flatnonzero(np.diff(r[idx])) + 1):
+            if score[imp[0]]:
+                cand = abstract_vec[a[imp]]
+                if clicked:
+                    clicked_max[imp] = (cand @ abstract_vec[list(clicked)].T).max(1)
+                if skipped - clicked:
+                    skipped_max[imp] = (cand @ abstract_vec[list(skipped - clicked)].T).max(1)
+            clicked.update(a[imp][label[imp] == 1].tolist())
+            skipped.update(a[imp][label[imp] == 0].tolist())
+    return pd.DataFrame({"emb_sim_clicked_max": clicked_max, "emb_sim_skipped_max": skipped_max,
+                         "emb_contrast": clicked_max - skipped_max})
+
+
 def build_features(beh: pd.DataFrame, news: pd.DataFrame, entity_emb: dict[str, np.ndarray],
                    abstract_vec: np.ndarray | None, store: ArticleStore | None,
                    fit_end: pd.Timestamp, cfg: dict, seed: int) -> pd.DataFrame:
@@ -253,6 +309,17 @@ def build_features(beh: pd.DataFrame, news: pd.DataFrame, entity_emb: dict[str, 
     is_fit = (beh["time"] < fit_end).to_numpy()[rows["row"]]
     first_seen = article_first_seen(beh, rows, H)  # uses all rows; min over times <= t never looks ahead
     rows["novelty"] = subcat_novelty(rows, H, subcat, n_sub)
+
+    # per-user subcategory engagement, shrunk toward each subcategory's click rate in the fit period
+    k = cfg["ctr_prior_strength"]
+    fit_sub, fit_label = rows.loc[is_fit, "subcat"].to_numpy(), rows.loc[is_fit, "label"].to_numpy()
+    sub_clicks = np.bincount(fit_sub, weights=fit_label, minlength=n_sub)
+    sub_shown = np.bincount(fit_sub, minlength=n_sub)
+    sub_rate = (sub_clicks + fit_label.mean() * k) / (sub_shown + k)
+    rows["subcat_engaged_rate"], rows["subcat_prior_skips"] = subcat_engagement(rows, sub_rate, k)
+    if abstract_vec is not None:
+        contrast = contrast_features(rows, H, abstract_vec, ~is_fit)
+        rows[contrast.columns] = contrast.to_numpy()
 
     s = fit_complements(rows[is_fit], sparse.csr_matrix(subcat_weights > 0), n_sub)
     complement_by_user = subcat_weights @ s  # weighted mean of s[a, b] over the user's subcategories a
