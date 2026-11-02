@@ -26,7 +26,9 @@ gs://pushnyt-data ──sync-data.sh──▶ data/
                                      │
           news.tsv ──pushnyt-embed──▶ data/chroma   (MiniLM abstract embeddings)
                                      │
- behaviors.tsv + news.tsv + entity embeddings + chroma
+ behaviors.tsv + chroma ──pushnyt-profile──▶ data/llm + chroma  (Claude click/skip summaries per user-day)
+                                     │
+ behaviors.tsv + news.tsv + entity embeddings + chroma + profiles
                                      │
                               pushnyt-train            (train container)
                                      │
@@ -45,15 +47,21 @@ gs://pushnyt-data ──sync-data.sh──▶ data/
 2. **Embed** — `pushnyt-embed` encodes every article abstract (falling back to the title when
    the abstract is empty) with `sentence-transformers/all-MiniLM-L6-v2` and stores the vectors
    in Chroma (`data/chroma`, collection `abstracts`).
-3. **Train** — `pushnyt-train` builds features, trains XGBoost with early stopping, calibrates its
+3. **Profile** — `pushnyt-profile` is the RAG + LLM step. For each user active on a train or test
+   day, it retrieves their most recent clicks and, for each one, the skipped articles nearest to it
+   in embedding space (from that user's earlier impressions only). Claude Haiku then writes two
+   summaries through the Message Batches API: what the user clicks and what they skip. These are
+   embedded with the same MiniLM model into a `profiles` Chroma collection. See
+   [LLM reader profiles](#llm-reader-profiles).
+4. **Train** — `pushnyt-train` builds features, trains XGBoost with early stopping, calibrates its
    probabilities, fits a return model (a churn proxy), evaluates on a held-out day, and writes
    artifacts to `outputs/<run>/`, including per-candidate test-set predictions in `predictions.parquet`.
-4. **Objective** — `pushnyt-objective` picks one push per impression with the push objective below
+5. **Objective** — `pushnyt-objective` picks one push per impression with the push objective below
    (engagement vs. novelty, set by a friction parameter), then decides whether to send it (a
    calibrated, risk-adjusted threshold and a daily cap). It runs in its own lightweight image, so
    both can be changed in seconds without retraining.
-5. **Serve** — `pushnyt-api` exposes scores and push decisions over HTTP (see [API](#api)).
-6. **Analyze** — `pushnyt-exploration` and `pushnyt-fatigue` look at user behavior over the whole
+6. **Serve** — `pushnyt-api` exposes scores and push decisions over HTTP (see [API](#api)).
+7. **Analyze** — `pushnyt-exploration` and `pushnyt-fatigue` look at user behavior over the whole
    log (do novel clicks stick? does heavy exposure tire users?) and write to `outputs/analysis/`.
 
 ### Time-based split
@@ -68,7 +76,7 @@ Every per-user temporal feature uses only impressions strictly before the curren
 
 ### Features
 
-Defined in `src/pushnyt/features.py`, in seven groups:
+Defined in `src/pushnyt/features.py`, in ten groups:
 
 | Group | Features | Idea |
 |-------|----------|------|
@@ -79,6 +87,9 @@ Defined in `src/pushnyt/features.py`, in seven groups:
 | Embedding retrieval | `emb_sim_mean`, `emb_sim_max`, `emb_sim_top5`, `emb_n_close`, `emb_retrieval_rank` | Candidate vs. history in abstract-embedding space, plus its rank among the user's nearest neighbors in Chroma |
 | Article recency | `article_age_hours` | Hours since the article was first shown in any impression — a proxy for publish time, which MIND lacks. Articles in a pre-period click history are capped at the start of the log, so their age is a lower bound |
 | User depth | `user_history_len`, `user_prior_impr` | How much we know about the user: clicks in their pre-period history (0 = cold start, long-time readers are high) and impressions logged so far across all slots |
+| Subcategory skips | `subcat_engaged_rate`, `subcat_prior_skips` | The user's click rate in the candidate's subcategory over earlier impressions, shrunk toward that subcategory's global rate, and how often they have skipped it |
+| Click/skip contrast | `emb_sim_clicked_max`, `emb_sim_skipped_max`, `emb_contrast` | The candidate's closest match among what the user clicked (history plus earlier in-log clicks) and among what they were shown and skipped; contrast = clicked − skipped, positive when it looks more like what they read |
+| LLM reader profile | `llm_sim_click`, `llm_sim_skip`, `llm_contrast` | The candidate's similarity to Claude's summary of what the user clicks and of what they skip, from the profile for the impression's day; contrast = click − skip |
 
 ### Evaluation
 
@@ -348,6 +359,7 @@ scripts/smoke-api.sh    # start the API image on a fixture run and check it resp
 src/pushnyt/
   data.py               # MIND loaders, time-slot bucketing
   embed.py              # pushnyt-embed: abstract embeddings -> Chroma
+  profile.py            # pushnyt-profile: RAG + Claude click/skip summaries per user-day -> Chroma
   vectordb.py           # thin Chroma wrapper (add / fetch vectors / nearest neighbors)
   features.py           # feature engineering
   train.py              # pushnyt-train: fit, evaluate, save artifacts
@@ -414,7 +426,17 @@ pushnyt-embed --config configs/train.yml
 pushnyt-train --config configs/train.yml
 ```
 
-Training fails with `run pushnyt-embed first` if the Chroma collection is missing. The vector
+The LLM profile features also need `pushnyt-profile`, which runs after embedding and needs an
+Anthropic API key in `.env` (`ANTHROPIC_API_KEY=...`; the train service loads it):
+
+```bash
+docker compose run --rm train "pushnyt-profile --estimate"     # token count + cost; submits nothing
+docker compose run --rm train "pushnyt-profile --sample 200"   # small trial batch
+docker compose run --rm train "pushnyt-profile"                # all user-days
+```
+
+Training fails with `run pushnyt-embed first` if the Chroma collection is missing, or with
+`run pushnyt-profile first` if the profiles are. The vector
 database is only needed for the embedding retrieval features, so training without them skips it
 (see below).
 
@@ -434,6 +456,32 @@ pushnyt-train --config configs/train.yml \
 
 Hyperparameters, split dates, and feature settings all live in `configs/train.yml`. The resolved
 config is copied into the output directory with each run.
+
+### LLM reader profiles
+
+The click/skip contrast features compare a candidate with the user's own clicked and skipped
+articles. The LLM profile asks whether an LLM, given the same evidence, captures *why* a reader
+clicks one article and passes over a similar one better than the raw nearest neighbors do.
+
+- **Retrieve.** For day D, a user's 10 most recent clicks before D, and for each the 2 skipped
+  articles closest to it (cosine in the abstract embedding space), drawn from that user's
+  impressions before D. Skips they later clicked are dropped. Skips close to a click are the
+  informative ones: they show within-topic preferences that subcategory counts can't.
+- **Generate.** One request per user-day to `claude-haiku-5-5` through the Message Batches API
+  (half price), with structured output `{click_summary, skip_summary}`. The prompt asks the model to
+  describe the articles' content (subjects, kinds of stories), not the reader, so the summaries sit
+  closer to article abstracts in embedding space, and to use only the articles listed.
+- **Embed and score.** Both summaries go into the `profiles` Chroma collection; each candidate row
+  uses the profile for its own day. Users with no clicks get no profile, and users with no earlier
+  skips get no skip summary; their features are missing, which XGBoost handles.
+
+Profiles use only data before their day, so a profile never sees the impressions it scores.
+`data/llm/batches.json` records the submitted batch ids per prompt version (a hash of the prompt,
+schema, model, and settings), so a rerun resumes the same batches and a changed prompt submits new
+ones. `data/llm/report.json` has token usage, cost, and failures. MIND-small has about 41k
+user-days to profile (users active on the train or test day).
+
+To measure the uplift, train the same model with and without the three `llm_*` features.
 
 ### Objective options
 

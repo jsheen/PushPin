@@ -15,6 +15,7 @@ dependencies = [
 
 [project.optional-dependencies]
 train = [
+    "anthropic>=1.0",
     "chromadb>=0.5",
     "scikit-learn>=1.5",
     "sentence-transformers>=3.0",
@@ -41,6 +42,7 @@ pushnyt-objective = "pushnyt.objective:main"
 pushnyt-api = "pushnyt.api:main"
 pushnyt-exploration = "pushnyt.exploration:main"
 pushnyt-fatigue = "pushnyt.fatigue:main"
+pushnyt-profile = "pushnyt.profile:main"
 
 [build-system]
 requires = ["hatchling"]

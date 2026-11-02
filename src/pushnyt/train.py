@@ -13,8 +13,15 @@ from sklearn.metrics import log_loss, roc_auc_score
 
 from pushnyt.calibration import apply_platt, calibration_metrics, fit_platt
 from pushnyt.data import SLOTS, load_behaviors, load_entity_embeddings, load_news
-from pushnyt.features import FEATURES, VECTOR_FEATURES, build_features, temporal_features
+from pushnyt.features import (
+    FEATURES,
+    LLM_FEATURES,
+    VECTOR_FEATURES,
+    build_features,
+    temporal_features,
+)
 from pushnyt.plots import plot_calibration, plot_importance
+from pushnyt.profile import load_profiles
 from pushnyt.risk import fit_return_model
 from pushnyt.vectordb import ArticleStore
 
@@ -104,11 +111,12 @@ def train(config: dict) -> None:
     if set(VECTOR_FEATURES) & set(features):  # the vector database is only needed for these
         store = ArticleStore(data_dir / config["embeddings"]["chroma_dir"], config["embeddings"]["collection"])
         abstract_vec = store.vectors(news["news_id"].tolist())
+    profiles = load_profiles(data_dir, config) if set(LLM_FEATURES) & set(features) else None
 
     print("building features")
     split = config["split"]
     rows = build_features(beh, news, emb, abstract_vec, store, pd.Timestamp(split["fit_end"]),
-                          config["features"], seed)
+                          config["features"], seed, profiles)
     train_end = pd.Timestamp(split["train_end"])
     train_df = rows[rows["time"] < train_end]
     test_df = rows[rows["time"] >= train_end].reset_index(drop=True)

@@ -1,6 +1,6 @@
 """Features for predicting a click on (user, article) at a time slot (morning/afternoon/evening).
 
-Nine feature groups:
+Ten feature groups:
   - time-slot engagement: how the user has engaged in this slot before
   - similarity: candidate article vs. the user's reading history
   - complementarity: Alibaba-style s_ab = p_ab - q_ab over subcategories
@@ -12,6 +12,8 @@ Nine feature groups:
   - subcategory skips: the user's shrunk click rate and skip count in the candidate's subcategory
   - click/skip contrast: candidate's closest match among what the user clicked vs. what they
     were shown and skipped, in the same embedding space
+  - LLM reader profile: candidate vs. an LLM's summaries of what the user clicks and what they
+    skip, written from retrieved clicks and nearest skips (see profile.py)
   - article recency: hours since the article was first seen (MIND has no publish time)
   - user depth: how much we know about the user (pre-period history, impressions logged so far)
 
@@ -32,7 +34,8 @@ from pushnyt.vectordb import ArticleStore
 
 EMBEDDING_FEATURES = ["emb_sim_mean", "emb_sim_max", "emb_sim_top5", "emb_n_close", "emb_retrieval_rank"]
 CONTRAST_FEATURES = ["emb_sim_clicked_max", "emb_sim_skipped_max", "emb_contrast"]
-VECTOR_FEATURES = EMBEDDING_FEATURES + CONTRAST_FEATURES  # need the vector database
+LLM_FEATURES = ["llm_sim_click", "llm_sim_skip", "llm_contrast"]
+VECTOR_FEATURES = EMBEDDING_FEATURES + CONTRAST_FEATURES + LLM_FEATURES  # need the vector database
 
 FEATURES = [
     # time-slot engagement
@@ -50,6 +53,8 @@ FEATURES = [
     "subcat_engaged_rate", "subcat_prior_skips",
     # click/skip contrast
     *CONTRAST_FEATURES,
+    # LLM reader profile
+    *LLM_FEATURES,
     # article recency
     "article_age_hours",
     # user depth
@@ -282,9 +287,30 @@ def contrast_features(rows: pd.DataFrame, H: sparse.csr_matrix, abstract_vec: np
                          "emb_contrast": clicked_max - skipped_max})
 
 
+def llm_features(rows: pd.DataFrame, abstract_vec: np.ndarray,
+                 profiles: tuple[pd.DataFrame, np.ndarray, np.ndarray]) -> pd.DataFrame:
+    """Candidate vs. the user's LLM click and skip summaries, from the latest profile at or before
+    the impression's day (each profile only saw data before its day). NaN without a profile."""
+    keys, click_vec, skip_vec = profiles
+    days = np.sort(keys["day"].unique())
+    i = np.searchsorted(days, rows["time"].to_numpy(), "right") - 1
+    day = np.where(i >= 0, days[np.maximum(i, 0)], np.datetime64("NaT", "ns"))
+    pos = pd.Series(np.arange(len(keys)), index=pd.MultiIndex.from_arrays([keys["day"], keys["user_id"]]))
+    p = pos.reindex(pd.MultiIndex.from_arrays([day, rows["user_id"]])).to_numpy()
+    has = ~np.isnan(p)
+    cand = abstract_vec[rows["news"].to_numpy()[has]]
+    sims = {}
+    for name, vecs in (("llm_sim_click", click_vec), ("llm_sim_skip", skip_vec)):
+        sims[name] = np.full(len(rows), np.nan)
+        sims[name][has] = np.einsum("ij,ij->i", vecs[p[has].astype(int)], cand)
+    sims["llm_contrast"] = sims["llm_sim_click"] - sims["llm_sim_skip"]
+    return pd.DataFrame(sims)
+
+
 def build_features(beh: pd.DataFrame, news: pd.DataFrame, entity_emb: dict[str, np.ndarray],
                    abstract_vec: np.ndarray | None, store: ArticleStore | None,
-                   fit_end: pd.Timestamp, cfg: dict, seed: int) -> pd.DataFrame:
+                   fit_end: pd.Timestamp, cfg: dict, seed: int,
+                   profiles: tuple[pd.DataFrame, np.ndarray, np.ndarray] | None = None) -> pd.DataFrame:
     """Feature rows for every candidate shown at or after `fit_end`.
 
     Impressions before `fit_end` are used only to fit the complement matrix
@@ -350,4 +376,6 @@ def build_features(beh: pd.DataFrame, news: pd.DataFrame, entity_emb: dict[str, 
     rows["user_id"] = beh["user_id"].to_numpy()[rows["row"]]
     rows["time"] = beh["time"].to_numpy()[rows["row"]]
     rows["article_age_hours"] = (rows["time"].to_numpy() - first_seen[a]) / np.timedelta64(1, "h")
+    if profiles is not None:
+        rows[LLM_FEATURES] = llm_features(rows, abstract_vec, profiles).to_numpy()
     return rows
