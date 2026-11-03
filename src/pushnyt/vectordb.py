@@ -22,16 +22,24 @@ class ArticleStore:
             self.col.add(ids=ids[i:j], embeddings=vectors[i:j], documents=documents[i:j],
                          metadatas=metadatas[i:j])
 
+    def iter_vectors(self, ids: list[str]):
+        """(start, block) pairs: stored vectors for ids[start:start + len(block)], in order.
+
+        Fetches one batch at a time, so a caller can copy each block where it belongs
+        without holding every vector twice."""
+        for i in range(0, len(ids), self.batch):
+            chunk = ids[i:i + self.batch]
+            res = self.col.get(ids=chunk, include=["embeddings"])
+            found = dict(zip(res["ids"], res["embeddings"]))
+            if len(found) < len(chunk):
+                raise KeyError(f"{len(chunk) - len(found)} ids are not in the vector database; "
+                               "run pushnyt-embed / pushnyt-profile first")
+            yield i, np.asarray([found[x] for x in chunk], dtype=np.float32)
+
     def vectors(self, ids: list[str]) -> np.ndarray:
         """Stored vectors in the order of `ids`."""
-        found = {}
-        for i in range(0, len(ids), self.batch):
-            res = self.col.get(ids=ids[i:i + self.batch], include=["embeddings"])
-            found.update(zip(res["ids"], res["embeddings"]))
-        missing = len(ids) - len(found)
-        if missing:
-            raise KeyError(f"{missing} articles are not in the vector database; run pushnyt-embed first")
-        return np.asarray([found[i] for i in ids], dtype=np.float32)
+        blocks = [b for _, b in self.iter_vectors(ids)]
+        return np.concatenate(blocks) if blocks else np.asarray([], dtype=np.float32)
 
     def nearest(self, queries: np.ndarray, k: int) -> list[list[str]]:
         """IDs of the k nearest articles to each query vector, closest first."""

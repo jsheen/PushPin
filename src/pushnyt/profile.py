@@ -12,8 +12,9 @@ built only from data before D, so it never sees the impressions it is used to sc
 One vector per theme rather than one per summary: a reader of football, diets and politics gets
 three sharp vectors instead of one blurred average. features.llm_features scores each candidate
 by its best-matching theme, for the profile of its day.
-Outputs under data/<profile.dir>/: profiles.parquet, and batches.json (the submitted batch ids,
-so a rerun resumes the same batches instead of paying twice).
+Outputs under data/<profile.dir>/: profiles.parquet, theme_vectors_{click,skip}.npy (the padded
+theme vectors, read memory-mapped at training time instead of through Chroma), and batches.json
+(the submitted batch ids, so a rerun resumes the same batches instead of paying twice).
 """
 
 import argparse
@@ -224,29 +225,63 @@ def embed_profiles(profiles: pd.DataFrame, data_dir: Path, config: dict) -> None
     meta = [{"user_id": u, "day": d.strftime("%Y-%m-%d"), "kind": k}
             for u, d, k in zip(rows["user_id"], rows["day"], rows["kind"])]
     store.add(rows["id"].tolist(), vectors, rows["text"].tolist(), meta)
+    save_theme_vectors(data_dir / config["profile"]["dir"], padded_themes(profiles, rows, [(0, vectors)]))
+
+
+def padded_themes(profiles: pd.DataFrame, rows: pd.DataFrame, blocks) -> list[np.ndarray]:
+    """One (n_profiles, MAX_THEMES, dim) array per kind, NaN-padded, from (start, block) pairs of
+    theme vectors in `rows` order. Each block is copied straight into place."""
+    pos = pd.Series(np.arange(len(profiles)), index=profiles["custom_id"])[rows["custom_id"]].to_numpy()
+    kind_idx = np.asarray([KINDS.index(k) for k in rows["kind"]])
+    j = rows["j"].to_numpy()
+    out = None
+    for s, block in blocks:
+        if out is None:
+            out = [np.full((len(profiles), MAX_THEMES, block.shape[1]), np.nan, np.float32) for _ in KINDS]
+        sl = slice(s, s + len(block))
+        for k in range(len(KINDS)):
+            m = kind_idx[sl] == k
+            out[k][pos[sl][m], j[sl][m]] = block[m]
+    if out is None:
+        out = [np.full((len(profiles), MAX_THEMES, 1), np.nan, np.float32) for _ in KINDS]
+    return out
+
+
+def theme_paths(out_dir: Path) -> list[Path]:
+    return [out_dir / f"theme_vectors_{kind}.npy" for kind in KINDS]
+
+
+def save_theme_vectors(out_dir: Path, arrays: list[np.ndarray]) -> None:
+    for path, arr in zip(theme_paths(out_dir), arrays):
+        tmp = path.with_suffix(".tmp.npy")
+        np.save(tmp, arr)
+        tmp.replace(path)
 
 
 def load_profiles(data_dir: Path, config: dict) -> tuple[pd.DataFrame, np.ndarray, np.ndarray]:
     """(keys with day and user_id, click theme vectors, skip theme vectors).
 
     Theme vectors are (n_profiles, MAX_THEMES, dim), NaN-padded where a profile has fewer themes.
+    They are read memory-mapped from theme_vectors_*.npy: pages are loaded from disk as they are
+    used and can be dropped again under memory pressure, and Chroma is never opened. If the files
+    are missing or older than profiles.parquet, they are rebuilt from Chroma first.
     """
     pcfg = config["profile"]
-    path = data_dir / pcfg["dir"] / "profiles.parquet"
+    out_dir = data_dir / pcfg["dir"]
+    path = out_dir / "profiles.parquet"
     if not path.exists():
         raise FileNotFoundError(f"{path} not found; run pushnyt-profile first")
     profiles = pd.read_parquet(path)
-    store = ArticleStore(data_dir / config["embeddings"]["chroma_dir"], pcfg["collection"])
-    rows = theme_rows(profiles)
-    found = store.vectors(rows["id"].tolist())
-    pos = pd.Series(np.arange(len(profiles)), index=profiles["custom_id"])[rows["custom_id"]].to_numpy()
-    out = []
-    for kind in KINDS:
-        vecs = np.full((len(profiles), MAX_THEMES, found.shape[1] if len(found) else 1), np.nan, np.float32)
-        m = (rows["kind"] == kind).to_numpy()
-        vecs[pos[m], rows.loc[m, "j"].to_numpy()] = found[m]
-        out.append(vecs)
-    return profiles[["day", "user_id"]], out[0], out[1]
+    paths = theme_paths(out_dir)
+    fresh = all(p.exists() and p.stat().st_mtime >= path.stat().st_mtime for p in paths)
+    arrays = [np.load(p, mmap_mode="r") for p in paths] if fresh else None
+    if arrays is None or any(len(a) != len(profiles) for a in arrays):
+        print("caching theme vectors from Chroma")
+        store = ArticleStore(data_dir / config["embeddings"]["chroma_dir"], pcfg["collection"])
+        rows = theme_rows(profiles)
+        save_theme_vectors(out_dir, padded_themes(profiles, rows, store.iter_vectors(rows["id"].tolist())))
+        arrays = [np.load(p, mmap_mode="r") for p in paths]
+    return profiles[["day", "user_id"]], arrays[0], arrays[1]
 
 
 def profile(config: dict, sample: int | None = None, estimate: bool = False) -> None:

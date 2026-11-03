@@ -117,6 +117,7 @@ def train(config: dict) -> None:
     split = config["split"]
     rows = build_features(beh, news, emb, abstract_vec, store, pd.Timestamp(split["fit_end"]),
                           config["features"], seed, profiles)
+    del profiles, abstract_vec  # only feature building uses these; free them before training
     train_end = pd.Timestamp(split["train_end"])
     train_df = rows[rows["time"] < train_end]
     test_df = rows[rows["time"] >= train_end].reset_index(drop=True)

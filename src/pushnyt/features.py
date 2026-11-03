@@ -94,6 +94,17 @@ def history_matrix(behaviors: pd.DataFrame, news_idx: dict[str, int]):
     return H, user_idx
 
 
+CHUNK = 100_000  # rows per slice when gathering per-row vectors; bounds peak memory
+
+
+def _rowdot(A: np.ndarray, ia: np.ndarray, B: np.ndarray, ib: np.ndarray) -> np.ndarray:
+    """A[ia[i]] . B[ib[i]] for each i, without materializing A[ia] and B[ib] in full."""
+    out = np.empty(len(ia), np.result_type(A, B))
+    for s in range(0, len(ia), CHUNK):
+        out[s:s + CHUNK] = np.einsum("ij,ij->i", A[ia[s:s + CHUNK]], B[ib[s:s + CHUNK]])
+    return out
+
+
 def _onehot(codes: np.ndarray, n: int) -> sparse.csr_matrix:
     return sparse.csr_matrix((np.ones(len(codes), np.float32), (np.arange(len(codes)), codes)),
                              shape=(len(codes), n))
@@ -226,12 +237,13 @@ def embedding_features(u: np.ndarray, a: np.ndarray, H: sparse.csr_matrix, abstr
     n = len(u)
     out = {f: np.full(n, np.nan) for f in ("emb_sim_max", "emb_sim_top5", "emb_n_close")}
     profile = normalize(H @ abstract_vec)
-    out["emb_sim_mean"] = np.einsum("ij,ij->i", profile[u], abstract_vec[a])
+    out["emb_sim_mean"] = _rowdot(profile, u, abstract_vec, a)
 
     # max / top-k / count over the individual history articles, one user at a time
     order = np.argsort(u, kind="stable")
     users, starts = np.unique(u[order], return_index=True)
-    for user, idx in zip(users, np.split(order, starts[1:])):
+    groups = np.split(order, starts[1:])  # row indices of each user's candidates
+    for user, idx in zip(users, groups):
         hist = H.indices[H.indptr[user]:H.indptr[user + 1]]
         if len(hist) == 0:
             continue
@@ -242,17 +254,20 @@ def embedding_features(u: np.ndarray, a: np.ndarray, H: sparse.csr_matrix, abstr
 
     # rank of the candidate among the user's nearest articles in the vector database,
     # skipping articles already in their history; k + 1 = not retrieved
+    # Users are queried in batches and each batch is turned into ranks right away, so only
+    # one batch of retrieved IDs is ever held in memory.
     k = cfg["retrieval_k"]
-    users = users[np.diff(H.indptr)[users] > 0]
-    nearest = store.nearest(profile[users], 2 * k)
     news_pos = dict(zip(news_ids, range(len(news_ids))))
-    ranked = []
-    for user, ids in zip(users, nearest):
-        hist = set(H.indices[H.indptr[user]:H.indptr[user + 1]])
-        hits = [news_pos[i] for i in ids if news_pos[i] not in hist][:k]
-        ranked += [(user, art, r) for r, art in enumerate(hits, 1)]
-    ranks = pd.DataFrame(ranked, columns=["u", "a", "rank"]).set_index(["u", "a"])["rank"]
-    out["emb_retrieval_rank"] = ranks.reindex(pd.MultiIndex.from_arrays([u, a])).fillna(k + 1).to_numpy()
+    out["emb_retrieval_rank"] = np.full(n, k + 1, np.float64)
+    keep = np.flatnonzero(np.diff(H.indptr)[users] > 0)
+    for s in range(0, len(keep), 2000):
+        batch = keep[s:s + 2000]
+        for j, ids in zip(batch, store.nearest(profile[users[batch]], 2 * k)):
+            user, idx = users[j], groups[j]
+            hist = set(H.indices[H.indptr[user]:H.indptr[user + 1]])
+            hits = [p for p in map(news_pos.__getitem__, ids) if p not in hist][:k]
+            rank = dict(zip(hits, range(1, len(hits) + 1)))
+            out["emb_retrieval_rank"][idx] = [rank.get(art, k + 1) for art in a[idx].tolist()]
     return pd.DataFrame(out)
 
 
@@ -296,17 +311,25 @@ def llm_features(rows: pd.DataFrame, abstract_vec: np.ndarray,
     keys, click_vec, skip_vec = profiles
     days = np.sort(keys["day"].unique())
     i = np.searchsorted(days, rows["time"].to_numpy(), "right") - 1
-    day = np.where(i >= 0, days[np.maximum(i, 0)], np.datetime64("NaT", "ns"))
-    pos = pd.Series(np.arange(len(keys)), index=pd.MultiIndex.from_arrays([keys["day"], keys["user_id"]]))
-    p = pos.reindex(pd.MultiIndex.from_arrays([day, rows["user_id"]])).to_numpy()
-    has = ~np.isnan(p)
-    cand = abstract_vec[rows["news"].to_numpy()[has]]
+    # (day, user) -> profile row via a small days x users table; a MultiIndex over every
+    # impression row hashes millions of (day, user_id string) pairs and costs far more memory
+    user_index = pd.Index(keys["user_id"].unique())
+    lut = np.full((len(days), len(user_index)), -1, np.int64)
+    lut[np.searchsorted(days, keys["day"].to_numpy()), user_index.get_indexer(keys["user_id"])] = np.arange(len(keys))
+    uc = user_index.get_indexer(rows["user_id"])
+    p = np.full(len(rows), -1, np.int64)
+    ok = (i >= 0) & (uc >= 0)
+    p[ok] = lut[i[ok], uc[ok]]
+    has = np.flatnonzero(p >= 0)
+    prof, news = p[has], rows["news"].to_numpy()[has]
     sims = {}
     for name, vecs in (("llm_sim_click", click_vec), ("llm_sim_skip", skip_vec)):
-        per_theme = np.einsum("itd,id->it", vecs[p[has].astype(int)], cand)  # NaN for padded themes
-        best = np.where(np.isnan(per_theme), -np.inf, per_theme).max(axis=1)
         sims[name] = np.full(len(rows), np.nan)
-        sims[name][has] = np.where(np.isfinite(best), best, np.nan)
+        for s in range(0, len(has), CHUNK):  # gathering (rows, themes, dim) at once needs ~15 GB
+            sl = slice(s, s + CHUNK)
+            per_theme = np.einsum("itd,id->it", vecs[prof[sl]], abstract_vec[news[sl]])  # NaN = padded
+            best = np.where(np.isnan(per_theme), -np.inf, per_theme).max(axis=1)
+            sims[name][has[sl]] = np.where(np.isfinite(best), best, np.nan)
     sims["llm_contrast"] = sims["llm_sim_click"] - sims["llm_sim_skip"]
     return pd.DataFrame(sims)
 
@@ -358,8 +381,8 @@ def build_features(beh: pd.DataFrame, news: pd.DataFrame, entity_emb: dict[str, 
     u, a, b = rows["user"].to_numpy(), rows["news"].to_numpy(), rows["subcat"].to_numpy()
     no_hist = ~has_history[u]
 
-    rows["sim_text"] = np.einsum("ij,ij->i", profile_text[u], text_vec[a])
-    rows["sim_entity"] = np.einsum("ij,ij->i", profile_ent[u], ent_vec[a])
+    rows["sim_text"] = _rowdot(profile_text, u, text_vec, a)
+    rows["sim_entity"] = _rowdot(profile_ent, u, ent_vec, a)
     rows["subcat_affinity"] = subcat_weights[u, b]
     other_weight = 1.0 - subcat_weights[u, b]  # exclude the candidate's own subcategory
     rows["complement_score"] = complement_by_user[u, b] / np.where(other_weight > 1e-6, other_weight, np.nan)

@@ -35,12 +35,24 @@ def load_entity_embeddings(path) -> dict[str, np.ndarray]:
 
 
 def explode_impressions(behaviors: pd.DataFrame, news_idx: dict[str, int]) -> pd.DataFrame:
-    """One row per (impression, candidate article) with its click label."""
-    items = behaviors["impressions"].str.split()
-    flat = pd.Series(np.concatenate(items.to_numpy()))
-    rows = pd.DataFrame({
-        "row": np.repeat(np.arange(len(behaviors)), items.str.len().to_numpy()),
-        "news": flat.str[:-2].map(news_idx),
-        "label": (flat.str[-1] == "1").astype(np.int8),
-    })
-    return rows.dropna(subset=["news"]).astype({"news": np.int32})
+    """One row per (impression, candidate article) with its click label.
+
+    Parsed 20k impressions at a time: splitting all of them at once creates millions of
+    temporary Python strings (over 1 GB), while the parsed output is only a few numeric columns.
+    """
+    parts, offset = [], 0
+    for s in range(0, len(behaviors), 20_000):
+        items = behaviors["impressions"].iloc[s:s + 20_000].str.split()
+        flat = pd.Series(np.concatenate(items.to_numpy()))
+        flat.index += offset  # index = position among all candidates, as if parsed in one go
+        offset += len(flat)
+        part = pd.DataFrame({
+            "row": np.repeat(np.arange(s, s + len(items)), items.str.len().to_numpy()),
+            "news": flat.str[:-2].map(news_idx),
+            "label": (flat.str[-1] == "1").astype(np.int8),
+        })
+        parts.append(part.dropna(subset=["news"]).astype({"news": np.int32}))
+    if not parts:
+        return pd.DataFrame({"row": np.array([], np.int64), "news": np.array([], np.int32),
+                             "label": np.array([], np.int8)})
+    return pd.concat(parts)
