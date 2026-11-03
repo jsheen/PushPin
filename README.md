@@ -394,6 +394,7 @@ src/pushnyt/
   features.py           # feature engineering
   train.py              # pushnyt-train: fit, evaluate, save artifacts
   compare.py            # pushnyt-compare: paired bootstrap of two runs (ablations)
+  live.py               # request-time scoring from per-user state; pushnyt-live-parity replay
   calibration.py        # Platt scaling, reliability bins, ECE
   risk.py               # return model (churn proxy)
   exploration.py        # pushnyt-exploration: do clicks on unfamiliar subcategories stick?
@@ -608,9 +609,12 @@ compose and CI) is unchanged. API builds use `Dockerfile.api.dockerignore`, whic
 four files per run into the build context.
 
 The API serves **precomputed** scores: it looks up the batch predictions for impressions in the
-run and can't score new users or articles. What live scoring would take (per-request features,
-an online state store, saving the remaining fitted transforms, and a training/serving parity
-test) is outlined in [docs/live-scoring.md](docs/live-scoring.md).
+run and can't score new users or articles. Request-time scoring exists as an offline replay:
+`pushnyt-live-parity outputs/<run> --users 100` scores each test-day impression from that
+user's earlier events only (`src/pushnyt/live.py`, same feature code as training) and checks the
+result against batch: on 100 users, P(click), novelty and P(return) match exactly, at about
+110 ms per request. What a live endpoint would still need (an online state store, event
+ingestion, daily jobs) is in [docs/live-scoring.md](docs/live-scoring.md).
 
 ### Monitoring
 

@@ -1,6 +1,19 @@
 # Live scoring: what it would take
 
-Status: **not built**. This is a plan for later review, written 2026-11-03.
+Status (2026-11-03): **phases 1–3 done as an offline replay; no live endpoint or online store yet.**
+
+- `features.py` is split into `fit_globals` (shared state fitted on the log) and `features_for`
+  (features for any set of events). Batch training calls both; output is unchanged.
+- Training now also saves the return model (`xgb_return.json`).
+- `live.py`: `LiveScorer.score(user, time, candidates)` computes features from that user's own
+  event log plus the shared state, using the same `features_for` code; `observe()` records an
+  impression's outcome. `pushnyt-live-parity <run>` replays the test day request by request.
+  On a 100-user sample (6,740 rows) P(click), novelty and P(return) match batch exactly; median
+  latency 112 ms per request. `tests/test_live.py` checks exact parity on synthetic data.
+- Article first-seen time is the one piece of state shared across users: a replay over a user
+  sample must still observe every user's impressions.
+
+The rest of this document is the original plan; phases 4–6 are still open.
 
 ## Where things stand
 
@@ -105,7 +118,8 @@ that quietly disagree. Plan:
 
 ## Phased plan
 
-1. **Persist the missing artifacts** from training (list above). Small, useful on its own.
+1. **Persist the missing artifacts** from training (list above). Partly done: the return model is
+   saved; the replay refits the other shared state deterministically instead of loading it.
 2. **State model:** define the per-user and per-article state schemas, plus the event-replay code
    that builds them from `behaviors.tsv`.
 3. **Per-request feature functions** + the parity test against `build_features`.

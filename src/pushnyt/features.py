@@ -21,6 +21,7 @@ Every per-user temporal feature uses only impressions strictly before the curren
 """
 
 import json
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
@@ -143,16 +144,29 @@ def _window_sum(keys: np.ndarray, t: np.ndarray, window: int, weights: np.ndarra
     return out
 
 
-def temporal_features(beh: pd.DataFrame, fit_end: pd.Timestamp, prior_strength: float) -> pd.DataFrame:
-    """Per-impression time-slot engagement and fatigue, using only earlier impressions."""
+def fit_base_rate(beh: pd.DataFrame, fit_end: pd.Timestamp) -> float:
+    """Click rate per article shown over impressions before fit_end."""
+    fit = beh["time"] < fit_end
+    clicks = beh.loc[fit, "impressions"].str.count("-1").sum()
+    shown = (beh.loc[fit, "impressions"].str.count(" ") + 1).sum()
+    return clicks / shown
+
+
+def temporal_features(beh: pd.DataFrame, fit_end: pd.Timestamp, prior_strength: float,
+                      base_rate: float | None = None) -> pd.DataFrame:
+    """Per-impression time-slot engagement and fatigue, using only earlier impressions.
+
+    `base_rate` (the fit-period click rate the engagement rate shrinks toward) is computed from
+    `beh` unless given; live scoring passes the training value, since it sees one user at a time.
+    """
     # Every MIND impression contains at least one click, so engagement and fatigue
     # are measured per article shown rather than per impression.
     df = beh[["user_id", "time", "slot"]].copy()
     df["n_clicks"] = beh["impressions"].str.count("-1")
     df["n_shown"] = beh["impressions"].str.count(" ") + 1
     df["n_skipped"] = df["n_shown"] - df["n_clicks"]
-    fit = df["time"] < fit_end
-    base_rate = df.loc[fit, "n_clicks"].sum() / df.loc[fit, "n_shown"].sum()
+    if base_rate is None:
+        base_rate = fit_base_rate(beh, fit_end)
 
     by_slot = df.groupby(["user_id", "slot"], sort=False)
     by_user = df.groupby("user_id", sort=False)
@@ -232,11 +246,16 @@ def subcat_engagement(rows: pd.DataFrame, prior_rate: np.ndarray, prior_strength
 
 
 def embedding_features(u: np.ndarray, a: np.ndarray, H: sparse.csr_matrix, abstract_vec: np.ndarray,
-                       store: ArticleStore, news_ids: np.ndarray, cfg: dict) -> pd.DataFrame:
-    """Candidate vs. the user's history articles in abstract-embedding space (cosine)."""
+                       store: ArticleStore, news_pos: dict[str, int], cfg: dict,
+                       profile: np.ndarray | None = None) -> pd.DataFrame:
+    """Candidate vs. the user's history articles in abstract-embedding space (cosine).
+
+    `profile` = normalize(H @ abstract_vec), the users' mean history embeddings, if precomputed.
+    """
     n = len(u)
     out = {f: np.full(n, np.nan) for f in ("emb_sim_max", "emb_sim_top5", "emb_n_close")}
-    profile = normalize(H @ abstract_vec)
+    if profile is None:
+        profile = normalize(H @ abstract_vec)
     out["emb_sim_mean"] = _rowdot(profile, u, abstract_vec, a)
 
     # max / top-k / count over the individual history articles, one user at a time
@@ -257,7 +276,6 @@ def embedding_features(u: np.ndarray, a: np.ndarray, H: sparse.csr_matrix, abstr
     # Users are queried in batches and each batch is turned into ranks right away, so only
     # one batch of retrieved IDs is ever held in memory.
     k = cfg["retrieval_k"]
-    news_pos = dict(zip(news_ids, range(len(news_ids))))
     out["emb_retrieval_rank"] = np.full(n, k + 1, np.float64)
     keep = np.flatnonzero(np.diff(H.indptr)[users] > 0)
     for s in range(0, len(keep), 2000):
@@ -302,20 +320,26 @@ def contrast_features(rows: pd.DataFrame, H: sparse.csr_matrix, abstract_vec: np
                          "emb_contrast": clicked_max - skipped_max})
 
 
-def llm_features(rows: pd.DataFrame, abstract_vec: np.ndarray,
-                 profiles: tuple[pd.DataFrame, np.ndarray, np.ndarray]) -> pd.DataFrame:
-    """Candidate vs. the user's LLM click and skip themes: cosine similarity to the best-matching
-    theme, from the latest profile at or before the impression's day (each profile only saw data
-    before its day). Theme vectors are (n_profiles, n_themes, dim), NaN-padded. NaN without a
-    profile, or without any theme of that kind."""
-    keys, click_vec, skip_vec = profiles
+def profile_lookup(keys: pd.DataFrame) -> tuple[np.ndarray, pd.Index, np.ndarray]:
+    """(profile days, user index, days x users table of profile rows, -1 = none)."""
     days = np.sort(keys["day"].unique())
-    i = np.searchsorted(days, rows["time"].to_numpy(), "right") - 1
-    # (day, user) -> profile row via a small days x users table; a MultiIndex over every
-    # impression row hashes millions of (day, user_id string) pairs and costs far more memory
+    # a small days x users table; a MultiIndex over every impression row hashes millions of
+    # (day, user_id string) pairs and costs far more memory
     user_index = pd.Index(keys["user_id"].unique())
     lut = np.full((len(days), len(user_index)), -1, np.int64)
     lut[np.searchsorted(days, keys["day"].to_numpy()), user_index.get_indexer(keys["user_id"])] = np.arange(len(keys))
+    return days, user_index, lut
+
+
+def llm_features(rows: pd.DataFrame, abstract_vec: np.ndarray,
+                 profiles: tuple[pd.DataFrame, np.ndarray, np.ndarray], lookup=None) -> pd.DataFrame:
+    """Candidate vs. the user's LLM click and skip themes: cosine similarity to the best-matching
+    theme, from the latest profile at or before the impression's day (each profile only saw data
+    before its day). Theme vectors are (n_profiles, n_themes, dim), NaN-padded. NaN without a
+    profile, or without any theme of that kind. `lookup` is profile_lookup(keys), if precomputed."""
+    keys, click_vec, skip_vec = profiles
+    days, user_index, lut = lookup if lookup is not None else profile_lookup(keys)
+    i = np.searchsorted(days, rows["time"].to_numpy(), "right") - 1
     uc = user_index.get_indexer(rows["user_id"])
     p = np.full(len(rows), -1, np.int64)
     ok = (i >= 0) & (uc >= 0)
@@ -334,16 +358,43 @@ def llm_features(rows: pd.DataFrame, abstract_vec: np.ndarray,
     return pd.DataFrame(sims)
 
 
-def build_features(beh: pd.DataFrame, news: pd.DataFrame, entity_emb: dict[str, np.ndarray],
-                   abstract_vec: np.ndarray | None, store: ArticleStore | None,
-                   fit_end: pd.Timestamp, cfg: dict, seed: int,
-                   profiles: tuple[pd.DataFrame, np.ndarray, np.ndarray] | None = None) -> pd.DataFrame:
-    """Feature rows for every candidate shown at or after `fit_end`.
+@dataclass
+class Globals:
+    """Everything feature computation needs beyond a user's own events, fitted once on the log.
 
-    Impressions before `fit_end` are used only to fit the complement matrix
-    (and as earlier history for the temporal features). With no `store`, the embedding
-    retrieval features are skipped.
+    Batch training fits these from all impressions; live scoring reuses them and computes
+    features for one user at a time from that user's events (see live.py).
     """
+    fit_end: pd.Timestamp
+    cfg: dict
+    news_ids: np.ndarray
+    news_idx: dict[str, int]
+    subcat: np.ndarray            # subcategory code per article
+    n_sub: int
+    text_vec: np.ndarray          # TF-IDF -> SVD, fitted on all articles
+    ent_vec: np.ndarray
+    abstract_vec: np.ndarray | None
+    store: ArticleStore | None
+    profiles: tuple | None        # LLM theme profiles (keys, click vectors, skip vectors)
+    profile_lookup: tuple | None
+    H: sparse.csr_matrix          # users x articles pre-period click history
+    user_idx: dict[str, int]
+    profile_text: np.ndarray
+    profile_ent: np.ndarray
+    profile_abs: np.ndarray | None  # users' mean history embedding (for embedding retrieval)
+    subcat_weights: np.ndarray
+    has_history: np.ndarray
+    complement_by_user: np.ndarray
+    sub_rate: np.ndarray          # fit-period click rate per subcategory (shrunk)
+    base_rate: float              # fit-period click rate per article shown
+
+
+def fit_globals(beh: pd.DataFrame, news: pd.DataFrame, entity_emb: dict[str, np.ndarray],
+                abstract_vec: np.ndarray | None, store: ArticleStore | None,
+                fit_end: pd.Timestamp, cfg: dict, seed: int,
+                profiles: tuple[pd.DataFrame, np.ndarray, np.ndarray] | None = None,
+                rows: pd.DataFrame | None = None) -> Globals:
+    """Fit the shared state from the impression log (`rows` = its exploded candidates, if at hand)."""
     news_idx = dict(zip(news["news_id"], range(len(news))))
     subcat, subcat_names = news["subcategory"].factorize()
     n_sub = len(subcat_names)
@@ -351,58 +402,104 @@ def build_features(beh: pd.DataFrame, news: pd.DataFrame, entity_emb: dict[str, 
     ent_vec = entity_vectors(news, entity_emb)
 
     H, user_idx = history_matrix(beh, news_idx)
-    profile_text = normalize(H @ text_vec)
-    profile_ent = normalize(H @ ent_vec)
     subcat_weights = normalize(H @ _onehot(subcat, n_sub), norm="l1").toarray()
-    has_history = np.asarray(H.sum(1)).ravel() > 0
 
-    rows = explode_impressions(beh, news_idx)
-    rows["user"] = beh["user_id"].map(user_idx).to_numpy()[rows["row"]]
-    rows["subcat"] = subcat[rows["news"]]
+    if rows is None:
+        rows = _candidate_rows(beh, news_idx, user_idx, subcat)
     is_fit = (beh["time"] < fit_end).to_numpy()[rows["row"]]
-    first_seen = article_first_seen(beh, rows, H)  # uses all rows; min over times <= t never looks ahead
-    rows["novelty"] = subcat_novelty(rows, H, subcat, n_sub)
-
-    # per-user subcategory engagement, shrunk toward each subcategory's click rate in the fit period
+    # per-subcategory click rate in the fit period, shrunk toward the overall rate
     k = cfg["ctr_prior_strength"]
     fit_sub, fit_label = rows.loc[is_fit, "subcat"].to_numpy(), rows.loc[is_fit, "label"].to_numpy()
     sub_clicks = np.bincount(fit_sub, weights=fit_label, minlength=n_sub)
     sub_shown = np.bincount(fit_sub, minlength=n_sub)
     sub_rate = (sub_clicks + fit_label.mean() * k) / (sub_shown + k)
-    rows["subcat_engaged_rate"], rows["subcat_prior_skips"] = subcat_engagement(rows, sub_rate, k)
-    if abstract_vec is not None:
-        contrast = contrast_features(rows, H, abstract_vec, ~is_fit)
-        rows[contrast.columns] = contrast.to_numpy()
-
     s = fit_complements(rows[is_fit], sparse.csr_matrix(subcat_weights > 0), n_sub)
-    complement_by_user = subcat_weights @ s  # weighted mean of s[a, b] over the user's subcategories a
+
+    return Globals(
+        fit_end=fit_end, cfg=cfg, news_ids=news["news_id"].to_numpy(), news_idx=news_idx,
+        subcat=subcat, n_sub=n_sub, text_vec=text_vec, ent_vec=ent_vec, abstract_vec=abstract_vec,
+        store=store, profiles=profiles,
+        profile_lookup=profile_lookup(profiles[0]) if profiles is not None else None,
+        H=H, user_idx=user_idx, profile_text=normalize(H @ text_vec), profile_ent=normalize(H @ ent_vec),
+        profile_abs=normalize(H @ abstract_vec) if store is not None else None,
+        subcat_weights=subcat_weights, has_history=np.asarray(H.sum(1)).ravel() > 0,
+        complement_by_user=subcat_weights @ s,  # weighted mean of s[a, b] over the user's subcategories a
+        sub_rate=sub_rate, base_rate=fit_base_rate(beh, fit_end))
+
+
+def _candidate_rows(beh: pd.DataFrame, news_idx: dict[str, int], user_idx: dict[str, int],
+                    subcat: np.ndarray) -> pd.DataFrame:
+    rows = explode_impressions(beh, news_idx)
+    rows["user"] = beh["user_id"].map(user_idx).to_numpy()[rows["row"]]
+    rows["subcat"] = subcat[rows["news"]]
+    return rows
+
+
+def features_for(beh: pd.DataFrame, g: Globals, first_seen: np.ndarray,
+                 rows: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Feature rows for every candidate in `beh` shown at or after g.fit_end.
+
+    Earlier impressions in `beh` only build up per-user history (temporal, subcategory and
+    click/skip features). `beh` can be the whole log (batch) or one user's events ending with
+    the impression being scored (live): every feature depends only on the user's own earlier
+    events and on `g`, plus `first_seen` (earliest time each article was shown to anyone).
+    """
+    cfg, H = g.cfg, g.H
+    if rows is None:
+        rows = _candidate_rows(beh, g.news_idx, g.user_idx, g.subcat)
+    is_fit = (beh["time"] < g.fit_end).to_numpy()[rows["row"]]
+    rows["novelty"] = subcat_novelty(rows, H, g.subcat, g.n_sub)
+    rows["subcat_engaged_rate"], rows["subcat_prior_skips"] = subcat_engagement(
+        rows, g.sub_rate, cfg["ctr_prior_strength"])
+    if g.abstract_vec is not None:
+        contrast = contrast_features(rows, H, g.abstract_vec, ~is_fit)
+        rows[contrast.columns] = contrast.to_numpy()
 
     rows = rows[~is_fit].reset_index(drop=True)
     u, a, b = rows["user"].to_numpy(), rows["news"].to_numpy(), rows["subcat"].to_numpy()
-    no_hist = ~has_history[u]
+    no_hist = ~g.has_history[u]
 
-    rows["sim_text"] = _rowdot(profile_text, u, text_vec, a)
-    rows["sim_entity"] = _rowdot(profile_ent, u, ent_vec, a)
-    rows["subcat_affinity"] = subcat_weights[u, b]
-    other_weight = 1.0 - subcat_weights[u, b]  # exclude the candidate's own subcategory
-    rows["complement_score"] = complement_by_user[u, b] / np.where(other_weight > 1e-6, other_weight, np.nan)
+    rows["sim_text"] = _rowdot(g.profile_text, u, g.text_vec, a)
+    rows["sim_entity"] = _rowdot(g.profile_ent, u, g.ent_vec, a)
+    rows["subcat_affinity"] = g.subcat_weights[u, b]
+    other_weight = 1.0 - g.subcat_weights[u, b]  # exclude the candidate's own subcategory
+    rows["complement_score"] = g.complement_by_user[u, b] / np.where(other_weight > 1e-6, other_weight, np.nan)
     rows.loc[no_hist, ["sim_text", "sim_entity", "subcat_affinity", "complement_score"]] = np.nan
     rows.loc[rows["sim_entity"] == 0, "sim_entity"] = np.nan  # article or history has no entities
 
-    if store is not None:
-        emb_cols = embedding_features(u, a, H, abstract_vec, store, news["news_id"].to_numpy(), cfg)
+    if g.store is not None:
+        emb_cols = embedding_features(u, a, H, g.abstract_vec, g.store, g.news_idx, cfg, g.profile_abs)
         rows[emb_cols.columns] = emb_cols.to_numpy()
         rows.loc[no_hist, emb_cols.columns] = np.nan
 
     rows["user_history_len"] = np.diff(H.indptr)[u]  # 0 = cold-start user; deliberately not NaN
 
-    temporal = temporal_features(beh, fit_end, cfg["ctr_prior_strength"])
+    temporal = temporal_features(beh, g.fit_end, cfg["ctr_prior_strength"], g.base_rate)
     rows = rows.join(temporal, on="row")
     rows["slot"] = beh["slot"].to_numpy()[rows["row"]]
     rows["impression_id"] = beh["impression_id"].to_numpy()[rows["row"]]
     rows["user_id"] = beh["user_id"].to_numpy()[rows["row"]]
     rows["time"] = beh["time"].to_numpy()[rows["row"]]
     rows["article_age_hours"] = (rows["time"].to_numpy() - first_seen[a]) / np.timedelta64(1, "h")
-    if profiles is not None:
-        rows[LLM_FEATURES] = llm_features(rows, abstract_vec, profiles).to_numpy()
+    if g.profiles is not None:
+        rows[LLM_FEATURES] = llm_features(rows, g.abstract_vec, g.profiles, g.profile_lookup).to_numpy()
     return rows
+
+
+def build_features(beh: pd.DataFrame, news: pd.DataFrame, entity_emb: dict[str, np.ndarray],
+                   abstract_vec: np.ndarray | None, store: ArticleStore | None,
+                   fit_end: pd.Timestamp, cfg: dict, seed: int,
+                   profiles: tuple[pd.DataFrame, np.ndarray, np.ndarray] | None = None) -> pd.DataFrame:
+    """Feature rows for every candidate shown at or after `fit_end` (batch).
+
+    Impressions before `fit_end` are used only to fit the shared state (complement matrix,
+    click-rate priors) and as earlier history for the per-user features. With no `store`, the
+    embedding retrieval features are skipped.
+    """
+    news_idx = dict(zip(news["news_id"], range(len(news))))
+    subcat = news["subcategory"].factorize()[0]
+    user_idx = history_matrix(beh, news_idx)[1]
+    rows = _candidate_rows(beh, news_idx, user_idx, subcat)
+    g = fit_globals(beh, news, entity_emb, abstract_vec, store, fit_end, cfg, seed, profiles, rows)
+    first_seen = article_first_seen(beh, rows, g.H)  # min over times <= t never looks ahead
+    return features_for(beh, g, first_seen, rows)

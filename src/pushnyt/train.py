@@ -143,7 +143,7 @@ def train(config: dict) -> None:
 
     print("fitting return model")
     temporal = temporal_features(beh, pd.Timestamp(split["fit_end"]), config["features"]["ctr_prior_strength"])
-    p_return, metrics["return_model"] = fit_return_model(
+    p_return, metrics["return_model"], return_model = fit_return_model(
         beh, temporal, pd.Timestamp(split["fit_end"]), train_end, config["risk"], seed)
     p_return = pd.Series(p_return, index=beh["impression_id"])
     metrics["best_iteration"] = int(model.best_iteration)
@@ -154,6 +154,7 @@ def train(config: dict) -> None:
     print(importance.round(1).to_string())
 
     model.save_model(output_dir / "xgb_click.json")
+    return_model.save_model(output_dir / "xgb_return.json")  # needed to score P(return) live
     (output_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))
     importance.rename("gain").to_csv(output_dir / "feature_importance.csv")
     # handoff to the push objective (pushnyt-objective), which runs in its own container

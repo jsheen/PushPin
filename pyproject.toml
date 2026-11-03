@@ -44,6 +44,7 @@ pushnyt-exploration = "pushnyt.exploration:main"
 pushnyt-fatigue = "pushnyt.fatigue:main"
 pushnyt-profile = "pushnyt.profile:main"
 pushnyt-compare = "pushnyt.compare:main"
+pushnyt-live-parity = "pushnyt.live:main"
 
 [build-system]
 requires = ["hatchling"]

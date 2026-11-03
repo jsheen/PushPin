@@ -13,7 +13,7 @@ from pushnyt.train import train
 def test_train_then_objective(train_config, tmp_path, monkeypatch):
     train(train_config)
     run = tmp_path / "run"
-    for name in ("xgb_click.json", "metrics.json", "feature_importance.csv", "feature_importance.png",
+    for name in ("xgb_click.json", "xgb_return.json", "metrics.json", "feature_importance.csv", "feature_importance.png",
                  "config.yml", "predictions.parquet"):
         assert (run / name).exists(), name
     metrics = json.loads((run / "metrics.json").read_text())

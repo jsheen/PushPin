@@ -29,11 +29,16 @@ def return_labels(beh: pd.DataFrame, horizon_hours: float) -> np.ndarray:
     return np.where(returned, 1.0, np.where(observable, 0.0, np.nan))
 
 
-def fit_return_model(beh: pd.DataFrame, temporal: pd.DataFrame, fit_end: pd.Timestamp,
-                     train_end: pd.Timestamp, cfg: dict, seed: int) -> tuple[np.ndarray, dict]:
-    """P(return within the horizon) for every impression in `beh`, plus held-out metrics."""
-    X = temporal.assign(slot=beh["slot"].to_numpy(), hour=beh["time"].dt.hour.to_numpy(),
-                        user_history_len=beh["history"].str.len().to_numpy())[RETURN_FEATURES]
+def return_features(beh: pd.DataFrame, temporal: pd.DataFrame) -> pd.DataFrame:
+    """The return model's inputs for each impression in `beh` (temporal = temporal_features(beh))."""
+    return temporal.assign(slot=beh["slot"].to_numpy(), hour=beh["time"].dt.hour.to_numpy(),
+                           user_history_len=beh["history"].str.len().to_numpy())[RETURN_FEATURES]
+
+
+def fit_return_model(beh: pd.DataFrame, temporal: pd.DataFrame, fit_end: pd.Timestamp, train_end: pd.Timestamp,
+                     cfg: dict, seed: int) -> tuple[np.ndarray, dict, xgb.XGBClassifier]:
+    """P(return within the horizon) for every impression in `beh`, held-out metrics, and the model."""
+    X = return_features(beh, temporal)
     y = return_labels(beh, cfg["horizon_hours"])
     labeled = ~np.isnan(y)
     fit = labeled & (beh["time"] < fit_end).to_numpy()
@@ -46,4 +51,4 @@ def fit_return_model(beh: pd.DataFrame, temporal: pd.DataFrame, fit_end: pd.Time
     p = model.predict_proba(X)[:, 1]
     metrics = {"horizon_hours": cfg["horizon_hours"], "rows_fit": int(fit.sum()), "rows_eval": int(held.sum()),
                "return_rate_eval": float(y[held].mean()), "auc": float(roc_auc_score(y[held], p[held]))}
-    return p, metrics
+    return p, metrics, model
