@@ -1,4 +1,4 @@
-"""pushnyt-profile: an LLM summary of what each reader clicks and what they skip.
+"""pushnyt-profile: LLM themes of what each reader clicks and what they skip.
 
 For each day D from split.fit_end on, every user with an impression that day gets one profile
 built only from data before D, so it never sees the impressions it is used to score:
@@ -6,10 +6,12 @@ built only from data before D, so it never sees the impressions it is used to sc
   retrieve  their most recent clicks (pre-period history + clicks in earlier impressions) and,
             for each, the skipped articles closest to it in abstract-embedding space, searched
             within the user's own earlier impressions (shown, not clicked, and not clicked since)
-  generate  Claude writes click_summary and skip_summary (Message Batches API, structured output)
-  embed     both summaries with the same sentence model as the abstracts, into Chroma
+  generate  Claude names 2-4 click_themes and 2-4 skip_themes (Message Batches API, structured output)
+  embed     each theme on its own, with the same sentence model as the abstracts, into Chroma
 
-features.llm_features compares each candidate's abstract with the profile for its day.
+One vector per theme rather than one per summary: a reader of football, diets and politics gets
+three sharp vectors instead of one blurred average. features.llm_features scores each candidate
+by its best-matching theme, for the profile of its day.
 Outputs under data/<profile.dir>/: profiles.parquet, and batches.json (the submitted batch ids,
 so a rerun resumes the same batches instead of paying twice).
 """
@@ -27,28 +29,35 @@ import yaml
 from pushnyt.data import explode_impressions, load_behaviors, load_news
 from pushnyt.vectordb import ArticleStore
 
-SYSTEM = """You summarize a news reader's behavior from articles they clicked and articles they \
-were shown but skipped.
+SYSTEM = """You name the themes in two sets of news articles: articles a reader clicked and \
+articles they were shown but skipped.
 
-Write two summaries:
-- click_summary: what the clicked articles are about.
-- skip_summary: what the skipped articles are about, emphasizing how they differ from the clicked \
-ones (subject, angle, or kind of story).
+Return:
+- click_themes: the 2-4 dominant themes of the clicked articles.
+- skip_themes: the 2-4 dominant themes of the skipped articles.
 
-Describe the articles' content the way a description of news articles would: subjects, topics, \
-and kinds of stories, for example "Game recaps and injury news about the New England Patriots". \
-Do not write about the reader ("This reader likes..."). Use one to three sentences each. Base \
-both only on the articles listed and do not mention events or facts that are not in them. If no \
-skipped articles are listed, return an empty skip_summary."""
+A theme groups several articles. Write each as a short phrase in the style of a news headline or \
+section topic, for example "NFL game recaps, injuries and trade rumors" or "Healthy Thanksgiving \
+recipes and side dishes". Do not list individual articles, and ignore one-off stories that fit no \
+theme. A theme can be a kind of item, such as "Celebrity photo galleries" or "NFL video \
+highlights", when that is what the articles have in common.
+
+Each set's themes describe only that set. Never mention, compare with, or contrast against the \
+other set, and do not use words like "rather than", "unlike" or "instead of". Describe the \
+articles, not the reader. Use only what the listed articles contain. If no skipped articles are \
+listed, return an empty skip_themes list."""
 
 SCHEMA = {
     "type": "object",
-    "properties": {"click_summary": {"type": "string"}, "skip_summary": {"type": "string"}},
-    "required": ["click_summary", "skip_summary"],
+    "properties": {"click_themes": {"type": "array", "items": {"type": "string"}},
+                   "skip_themes": {"type": "array", "items": {"type": "string"}}},
+    "required": ["click_themes", "skip_themes"],
     "additionalProperties": False,
 }
 PRICE = {"claude-haiku-5-5": (0.10, 0.50)}  # $ per 1M input / output tokens; batches are half
 BATCH_SIZE = 10_000  # requests per batch (the API allows up to 100,000)
+MAX_THEMES = 4  # the prompt asks for 2-4; extra themes past this are dropped
+KINDS = ("click", "skip")
 
 
 def snapshot_days(beh: pd.DataFrame, fit_end: pd.Timestamp) -> list[pd.Timestamp]:
@@ -139,7 +148,7 @@ def run_batches(client, requests: dict[str, dict], state_path: Path, version: st
                 poll_seconds: int = 60) -> tuple[dict[str, dict], dict]:
     """Submit (or resume) the batches, wait for them, and parse each summary.
 
-    Returns {custom_id: {"click_summary", "skip_summary"}} for the successes and a report with
+    Returns {custom_id: {"click_themes", "skip_themes"}} for the successes and a report with
     token usage and failures. batches.json records submitted batch ids per prompt version.
     """
     state = json.loads(state_path.read_text()) if state_path.exists() else {}
@@ -186,37 +195,56 @@ def cost(model: str, input_tokens: float, output_tokens: float) -> float | None:
     return 0.5 * (input_tokens * price_in + output_tokens * price_out) / 1e6
 
 
+def clean_themes(themes: list) -> list[str]:
+    """Stripped, non-empty, de-duplicated, at most MAX_THEMES."""
+    return list(dict.fromkeys(t.strip() for t in themes if isinstance(t, str) and t.strip()))[:MAX_THEMES]
+
+
+def theme_rows(profiles: pd.DataFrame) -> pd.DataFrame:
+    """One row per (profile, kind, theme): the Chroma id '<custom_id>-<kind>-<j>' and its text."""
+    out = []
+    for kind in KINDS:
+        part = profiles[["custom_id", "user_id", "day", f"{kind}_themes"]].explode(f"{kind}_themes").dropna()
+        part["j"] = part.groupby("custom_id").cumcount()
+        part["id"] = part["custom_id"] + f"-{kind}-" + part["j"].astype(str)
+        out.append(part.rename(columns={f"{kind}_themes": "text"}).assign(kind=kind))
+    return pd.concat(out, ignore_index=True)
+
+
 def embed_profiles(profiles: pd.DataFrame, data_dir: Path, config: dict) -> None:
-    """Embed both summaries into their own Chroma collection, ids '<custom_id>-click' / '-skip'."""
+    """Embed every theme into its own Chroma collection, ids '<custom_id>-<kind>-<j>'."""
     from sentence_transformers import SentenceTransformer  # heavy; only this step needs it
 
     emb = config["embeddings"]
     model = SentenceTransformer(emb["model"], cache_folder=str(data_dir / "models"))
     store = ArticleStore(data_dir / emb["chroma_dir"], config["profile"]["collection"], reset=True)
-    for kind in ("click", "skip"):
-        part = profiles[profiles[f"{kind}_summary"].str.len() > 0]
-        text = part[f"{kind}_summary"].tolist()
-        vectors = model.encode(text, batch_size=emb["batch_size"], normalize_embeddings=True,
-                               convert_to_numpy=True, show_progress_bar=True)
-        meta = [{"user_id": u, "day": d.strftime("%Y-%m-%d"), "kind": kind}
-                for u, d in zip(part["user_id"], part["day"])]
-        store.add((part["custom_id"] + f"-{kind}").tolist(), vectors, text, meta)
+    rows = theme_rows(profiles)
+    vectors = model.encode(rows["text"].tolist(), batch_size=emb["batch_size"], normalize_embeddings=True,
+                           convert_to_numpy=True, show_progress_bar=True)
+    meta = [{"user_id": u, "day": d.strftime("%Y-%m-%d"), "kind": k}
+            for u, d, k in zip(rows["user_id"], rows["day"], rows["kind"])]
+    store.add(rows["id"].tolist(), vectors, rows["text"].tolist(), meta)
 
 
 def load_profiles(data_dir: Path, config: dict) -> tuple[pd.DataFrame, np.ndarray, np.ndarray]:
-    """(keys with day and user_id, click vectors, skip vectors); NaN rows where a summary is empty."""
+    """(keys with day and user_id, click theme vectors, skip theme vectors).
+
+    Theme vectors are (n_profiles, MAX_THEMES, dim), NaN-padded where a profile has fewer themes.
+    """
     pcfg = config["profile"]
     path = data_dir / pcfg["dir"] / "profiles.parquet"
     if not path.exists():
         raise FileNotFoundError(f"{path} not found; run pushnyt-profile first")
     profiles = pd.read_parquet(path)
     store = ArticleStore(data_dir / config["embeddings"]["chroma_dir"], pcfg["collection"])
+    rows = theme_rows(profiles)
+    found = store.vectors(rows["id"].tolist())
+    pos = pd.Series(np.arange(len(profiles)), index=profiles["custom_id"])[rows["custom_id"]].to_numpy()
     out = []
-    for kind in ("click", "skip"):
-        has = (profiles[f"{kind}_summary"].str.len() > 0).to_numpy()
-        found = store.vectors((profiles.loc[has, "custom_id"] + f"-{kind}").tolist())
-        vecs = np.full((len(profiles), found.shape[1] if len(found) else 1), np.nan, np.float32)
-        vecs[has] = found
+    for kind in KINDS:
+        vecs = np.full((len(profiles), MAX_THEMES, found.shape[1] if len(found) else 1), np.nan, np.float32)
+        m = (rows["kind"] == kind).to_numpy()
+        vecs[pos[m], rows.loc[m, "j"].to_numpy()] = found[m]
         out.append(vecs)
     return profiles[["day", "user_id"]], out[0], out[1]
 
@@ -253,10 +281,10 @@ def profile(config: dict, sample: int | None = None, estimate: bool = False) -> 
         counts = [client.messages.count_tokens(model=pcfg["model"], system=SYSTEM,
                                                messages=requests[c]["messages"]).input_tokens for c in ids]
         n_in = float(np.mean(counts)) * len(requests)
-        n_out = 150.0 * len(requests)  # two short summaries
+        n_out = 200.0 * len(requests)  # two short theme lists
         dollars = cost(pcfg["model"], n_in, n_out)
         print(f"~{n_in / 1e6:.1f}M input tokens (mean {np.mean(counts):.0f} per request), "
-              f"~{n_out / 1e6:.1f}M output tokens (assumed 150 per request)")
+              f"~{n_out / 1e6:.1f}M output tokens (assumed 200 per request)")
         print(f"estimated batch cost: ${dollars:.2f}" if dollars is not None else "no price listed for this model")
         (out_dir / "prompt_sample.txt").write_text("\n\n=====\n\n".join(
             requests[c]["messages"][0]["content"] for c in ids[:5]))
@@ -273,13 +301,13 @@ def profile(config: dict, sample: int | None = None, estimate: bool = False) -> 
         print("failures by type:", pd.Series(report["failed"]).value_counts().to_dict())
 
     done = inputs[inputs["custom_id"].isin(summaries)].copy()
-    done["click_summary"] = [summaries[c]["click_summary"].strip() for c in done["custom_id"]]
-    done["skip_summary"] = [summaries[c]["skip_summary"].strip() for c in done["custom_id"]]
+    for kind in KINDS:
+        done[f"{kind}_themes"] = [clean_themes(summaries[c].get(f"{kind}_themes", [])) for c in done["custom_id"]]
     done["model"], done["version"] = pcfg["model"], version
-    profiles = done[["day", "user_id", "custom_id", "click_summary", "skip_summary", "model", "version"]]
+    profiles = done[["day", "user_id", "custom_id", "click_themes", "skip_themes", "model", "version"]]
     profiles.to_parquet(out_dir / "profiles.parquet", index=False)
     (out_dir / "report.json").write_text(json.dumps({**report, "cost_usd": dollars}, indent=2))
-    print("embedding summaries")
+    print("embedding themes")
     embed_profiles(profiles, data_dir, config)
     print(f"wrote {len(profiles):,} profiles to {out_dir / 'profiles.parquet'}")
 

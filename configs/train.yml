@@ -21,14 +21,14 @@ embeddings:
   chroma_dir: chroma       # vector database, under data.dir
   collection: abstracts
   batch_size: 256
-profile:                   # pushnyt-profile: LLM click/skip summaries per user and day (see profile.py)
+profile:                   # pushnyt-profile: LLM click/skip themes per user and day (see profile.py)
   model: claude-haiku-5-5
   max_clicks: 10           # most recent clicks shown to the LLM
   skips_per_click: 2       # nearest skipped articles retrieved for each click
   max_words: 80            # abstract words per article in the prompt
-  max_tokens: 400          # output cap per profile
+  max_tokens: 600          # output cap per profile (headroom; themes need ~200)
   dir: llm                 # under data.dir: profiles.parquet, batches.json, report.json
-  collection: profiles     # Chroma collection for the summary embeddings
+  collection: profiles     # Chroma collection for the theme embeddings
 model:
   n_estimators: 1000
   max_depth: 6

@@ -12,8 +12,8 @@ Ten feature groups:
   - subcategory skips: the user's shrunk click rate and skip count in the candidate's subcategory
   - click/skip contrast: candidate's closest match among what the user clicked vs. what they
     were shown and skipped, in the same embedding space
-  - LLM reader profile: candidate vs. an LLM's summaries of what the user clicks and what they
-    skip, written from retrieved clicks and nearest skips (see profile.py)
+  - LLM reader profile: candidate vs. its best-matching LLM theme of what the user clicks and
+    what they skip, written from retrieved clicks and nearest skips (see profile.py)
   - article recency: hours since the article was first seen (MIND has no publish time)
   - user depth: how much we know about the user (pre-period history, impressions logged so far)
 
@@ -289,8 +289,10 @@ def contrast_features(rows: pd.DataFrame, H: sparse.csr_matrix, abstract_vec: np
 
 def llm_features(rows: pd.DataFrame, abstract_vec: np.ndarray,
                  profiles: tuple[pd.DataFrame, np.ndarray, np.ndarray]) -> pd.DataFrame:
-    """Candidate vs. the user's LLM click and skip summaries, from the latest profile at or before
-    the impression's day (each profile only saw data before its day). NaN without a profile."""
+    """Candidate vs. the user's LLM click and skip themes: cosine similarity to the best-matching
+    theme, from the latest profile at or before the impression's day (each profile only saw data
+    before its day). Theme vectors are (n_profiles, n_themes, dim), NaN-padded. NaN without a
+    profile, or without any theme of that kind."""
     keys, click_vec, skip_vec = profiles
     days = np.sort(keys["day"].unique())
     i = np.searchsorted(days, rows["time"].to_numpy(), "right") - 1
@@ -301,8 +303,10 @@ def llm_features(rows: pd.DataFrame, abstract_vec: np.ndarray,
     cand = abstract_vec[rows["news"].to_numpy()[has]]
     sims = {}
     for name, vecs in (("llm_sim_click", click_vec), ("llm_sim_skip", skip_vec)):
+        per_theme = np.einsum("itd,id->it", vecs[p[has].astype(int)], cand)  # NaN for padded themes
+        best = np.where(np.isnan(per_theme), -np.inf, per_theme).max(axis=1)
         sims[name] = np.full(len(rows), np.nan)
-        sims[name][has] = np.einsum("ij,ij->i", vecs[p[has].astype(int)], cand)
+        sims[name][has] = np.where(np.isfinite(best), best, np.nan)
     sims["llm_contrast"] = sims["llm_sim_click"] - sims["llm_sim_skip"]
     return pd.DataFrame(sims)
 

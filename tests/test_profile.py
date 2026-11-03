@@ -5,7 +5,15 @@ import numpy as np
 import pandas as pd
 
 from pushnyt.features import llm_features
-from pushnyt.profile import build_prompt, retrieve, run_batches, snapshot_days
+from pushnyt.profile import (
+    MAX_THEMES,
+    build_prompt,
+    clean_themes,
+    retrieve,
+    run_batches,
+    snapshot_days,
+    theme_rows,
+)
 
 T0 = pd.Timestamp("2019-11-12")
 
@@ -83,7 +91,7 @@ def _ok(cid, payload, stop="end_turn"):
 
 
 def test_run_batches_parses_results_and_resumes(tmp_path):
-    summary = {"click_summary": "NFL recaps", "skip_summary": "Fantasy football"}
+    summary = {"click_themes": ["NFL recaps"], "skip_themes": ["Fantasy football"]}
     batches = FakeBatches([_ok("x", summary), _ok("y", summary, stop="max_tokens"),
                            SimpleNamespace(custom_id="z", result=SimpleNamespace(type="errored"))])
     client = SimpleNamespace(messages=SimpleNamespace(batches=batches))
@@ -102,10 +110,19 @@ def test_run_batches_parses_results_and_resumes(tmp_path):
     assert len(batches.created) == 2
 
 
+def _themes(*rows):
+    """(n, MAX_THEMES, 2) theme vectors, NaN-padded."""
+    out = np.full((len(rows), MAX_THEMES, 2), np.nan, dtype=np.float32)
+    for i, r in enumerate(rows):
+        if r:
+            out[i, :len(r)] = r
+    return out
+
+
 def test_llm_features_use_the_profile_for_the_impression_day():
     keys = pd.DataFrame({"day": [T0, T0 + pd.Timedelta(days=1)], "user_id": ["a", "a"]})
-    click = np.array([[1, 0], [0, 1]], dtype=np.float32)
-    skip = np.array([[0, 1], [np.nan, np.nan]], dtype=np.float32)  # no skip summary on day 2
+    click = _themes([[1, 0]], [[0, 1]])
+    skip = _themes([[0, 1]], [])  # no skip themes on day 2
     rows = pd.DataFrame({"time": [T0 + pd.Timedelta(hours=5), T0 + pd.Timedelta(days=1, hours=5),
                                   T0 - pd.Timedelta(hours=1), T0 + pd.Timedelta(hours=5)],
                          "user_id": ["a", "a", "a", "b"], "news": [0, 0, 0, 0]})
@@ -113,3 +130,24 @@ def test_llm_features_use_the_profile_for_the_impression_day():
     assert out.loc[0].tolist() == [1.0, 0.0, 1.0]
     assert out.loc[1, "llm_sim_click"] == 0 and out.loc[1, ["llm_sim_skip", "llm_contrast"]].isna().all()
     assert out.loc[2].isna().all() and out.loc[3].isna().all()  # before any profile; no profile
+
+
+def test_llm_features_score_the_best_matching_theme():
+    keys = pd.DataFrame({"day": [T0], "user_id": ["a"]})
+    s = np.sqrt(0.5)
+    click = _themes([[0, 1], [1, 0], [s, s]])  # politics, football, a mix
+    skip = _themes([[s, -s], [-1, 0]])
+    rows = pd.DataFrame({"time": [T0 + pd.Timedelta(hours=1)] * 2, "user_id": ["a", "a"], "news": [0, 1]})
+    vec = np.array([[1, 0], [0, -1]], dtype=np.float32)
+    out = llm_features(rows, vec, (keys, click, skip))
+    assert np.allclose(out.loc[0].tolist(), [1.0, s, 1 - s])  # football theme matches exactly
+    assert np.allclose(out.loc[1].tolist(), [0.0, s, -s], atol=1e-6)  # best click theme only reaches 0
+
+
+def test_clean_themes_and_theme_rows():
+    assert clean_themes([" NFL ", "", "NFL", "Diets", 3, "A", "B", "C"]) == ["NFL", "Diets", "A", "B"]
+    profiles = pd.DataFrame({"custom_id": ["d-a", "d-b"], "user_id": ["a", "b"], "day": [T0, T0],
+                             "click_themes": [["NFL", "Diets"], ["Politics"]], "skip_themes": [["Galleries"], []]})
+    rows = theme_rows(profiles)
+    assert rows["id"].tolist() == ["d-a-click-0", "d-a-click-1", "d-b-click-0", "d-a-skip-0"]
+    assert rows["text"].tolist() == ["NFL", "Diets", "Politics", "Galleries"]

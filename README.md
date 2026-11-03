@@ -26,7 +26,7 @@ gs://pushnyt-data ──sync-data.sh──▶ data/
                                      │
           news.tsv ──pushnyt-embed──▶ data/chroma   (MiniLM abstract embeddings)
                                      │
- behaviors.tsv + chroma ──pushnyt-profile──▶ data/llm + chroma  (Claude click/skip summaries per user-day)
+ behaviors.tsv + chroma ──pushnyt-profile──▶ data/llm + chroma  (Claude click/skip themes per user-day)
                                      │
  behaviors.tsv + news.tsv + entity embeddings + chroma + profiles
                                      │
@@ -49,9 +49,9 @@ gs://pushnyt-data ──sync-data.sh──▶ data/
    in Chroma (`data/chroma`, collection `abstracts`).
 3. **Profile** — `pushnyt-profile` is the RAG + LLM step. For each user active on a train or test
    day, it retrieves their most recent clicks and, for each one, the skipped articles nearest to it
-   in embedding space (from that user's earlier impressions only). Claude Haiku then writes two
-   summaries through the Message Batches API: what the user clicks and what they skip. These are
-   embedded with the same MiniLM model into a `profiles` Chroma collection. See
+   in embedding space (from that user's earlier impressions only). Claude Haiku then names 2-4
+   themes of what the user clicks and 2-4 of what they skip, through the Message Batches API. Each
+   theme is embedded on its own with the same MiniLM model into a `profiles` Chroma collection. See
    [LLM reader profiles](#llm-reader-profiles).
 4. **Train** — `pushnyt-train` builds features, trains XGBoost with early stopping, calibrates its
    probabilities, fits a return model (a churn proxy), evaluates on a held-out day, and writes
@@ -89,7 +89,7 @@ Defined in `src/pushnyt/features.py`, in ten groups:
 | User depth | `user_history_len`, `user_prior_impr` | How much we know about the user: clicks in their pre-period history (0 = cold start, long-time readers are high) and impressions logged so far across all slots |
 | Subcategory skips | `subcat_engaged_rate`, `subcat_prior_skips` | The user's click rate in the candidate's subcategory over earlier impressions, shrunk toward that subcategory's global rate, and how often they have skipped it |
 | Click/skip contrast | `emb_sim_clicked_max`, `emb_sim_skipped_max`, `emb_contrast` | The candidate's closest match among what the user clicked (history plus earlier in-log clicks) and among what they were shown and skipped; contrast = clicked − skipped, positive when it looks more like what they read |
-| LLM reader profile | `llm_sim_click`, `llm_sim_skip`, `llm_contrast` | The candidate's similarity to Claude's summary of what the user clicks and of what they skip, from the profile for the impression's day; contrast = click − skip |
+| LLM reader profile | `llm_sim_click`, `llm_sim_skip`, `llm_contrast` | The candidate's similarity to its best-matching Claude theme of what the user clicks and of what they skip, from the profile for the impression's day; contrast = click − skip |
 
 ### Evaluation
 
@@ -359,7 +359,7 @@ scripts/smoke-api.sh    # start the API image on a fixture run and check it resp
 src/pushnyt/
   data.py               # MIND loaders, time-slot bucketing
   embed.py              # pushnyt-embed: abstract embeddings -> Chroma
-  profile.py            # pushnyt-profile: RAG + Claude click/skip summaries per user-day -> Chroma
+  profile.py            # pushnyt-profile: RAG + Claude click/skip themes per user-day -> Chroma
   vectordb.py           # thin Chroma wrapper (add / fetch vectors / nearest neighbors)
   features.py           # feature engineering
   train.py              # pushnyt-train: fit, evaluate, save artifacts
@@ -468,12 +468,19 @@ clicks one article and passes over a similar one better than the raw nearest nei
   impressions before D. Skips they later clicked are dropped. Skips close to a click are the
   informative ones: they show within-topic preferences that subcategory counts can't.
 - **Generate.** One request per user-day to `claude-haiku-5-5` through the Message Batches API
-  (half price), with structured output `{click_summary, skip_summary}`. The prompt asks the model to
-  describe the articles' content (subjects, kinds of stories), not the reader, so the summaries sit
-  closer to article abstracts in embedding space, and to use only the articles listed.
-- **Embed and score.** Both summaries go into the `profiles` Chroma collection; each candidate row
-  uses the profile for its own day. Users with no clicks get no profile, and users with no earlier
-  skips get no skip summary; their features are missing, which XGBoost handles.
+  (half price), with structured output `{click_themes: [...], skip_themes: [...]}`, 2-4 themes each.
+  Themes are written like headlines or section topics ("NFL game recaps, injuries and trade
+  rumors"), not reader descriptions, so they sit close to article abstracts in embedding space.
+  A theme can be a format ("Celebrity photo galleries"), since many skips are galleries and videos
+  on topics the user does click. Each set's themes describe only that set: MiniLM ignores
+  "rather than", so naming clicked topics in a skip theme would pull it toward the clicks and
+  wash out the contrast. The comparison is left to `llm_contrast`.
+- **Embed and score.** Each theme is its own vector in the `profiles` Chroma collection, and a
+  candidate is scored by its best-matching theme (max, like `emb_sim_clicked_max`). One vector per
+  summary would average a reader of football, diets and politics into a point that matches none of
+  them. Each candidate row uses the profile for its own day. Users with no clicks get no profile,
+  and users with no earlier skips get no skip themes; their features are missing, which XGBoost
+  handles.
 
 Profiles use only data before their day, so a profile never sees the impressions it scores.
 `data/llm/batches.json` records the submitted batch ids per prompt version (a hash of the prompt,
