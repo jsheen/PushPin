@@ -62,6 +62,19 @@ def map_subcategories(vec: np.ndarray, mind_vec: np.ndarray, mind_subcat: np.nda
     return names[keep[best]], sims[np.arange(len(vec)), best]
 
 
+def release_memory() -> None:
+    """Collect garbage and, on Linux (glibc), return freed heap pages to the OS. Without the
+    trim, a container keeps its peak RSS from startup even after the temporaries are gone."""
+    import ctypes
+    import gc
+
+    gc.collect()
+    try:
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except (OSError, AttributeError):
+        pass  # not glibc (e.g. macOS)
+
+
 class LocalScorer:
     """The scorer interface (see push_job.py) backed by an in-process LiveScorer.
 
@@ -84,18 +97,6 @@ class LocalScorer:
         del beh
         release_memory()  # hand the build's temporaries back before the embedder loads torch
 
-
-def release_memory() -> None:
-    """Collect garbage and, on Linux (glibc), return freed heap pages to the OS. Without the
-    trim, a container keeps its peak RSS from startup even after the temporaries are gone."""
-    import ctypes
-    import gc
-
-    gc.collect()
-    try:
-        ctypes.CDLL("libc.so.6").malloc_trim(0)
-    except (OSError, AttributeError):
-        pass  # not glibc (e.g. macOS)
 
     def info(self) -> dict:
         return {"log_end": self.log_end.isoformat(), "articles": len(self.live.g.news_ids),

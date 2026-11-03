@@ -95,3 +95,12 @@ def test_scorer_api_endpoints():
     out = client.post("/score", json={"requests": [
         {"user_id": "U0", "time": "2019-11-15T09:00:00", "news_ids": ["A"], "impression_id": 7}]})
     assert out.status_code == 200 and "NaN" in out.text  # missing features travel as NaN
+
+
+def test_local_scorer_implements_the_scorer_interface():
+    from pushnyt.nyt import LocalScorer
+    from pushnyt.push_job import HttpScorer
+
+    for method in ("info", "users", "add_articles", "score"):
+        assert callable(getattr(LocalScorer, method, None)), method
+        assert callable(getattr(HttpScorer, method, None)), method
