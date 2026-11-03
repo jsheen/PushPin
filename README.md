@@ -51,7 +51,8 @@ gs://pushnyt-data ──sync-data.sh──▶ data/
    day, it retrieves their most recent clicks and, for each one, the skipped articles nearest to it
    in embedding space (from that user's earlier impressions only). Claude Haiku then names 2-4
    themes of what the user clicks and 2-4 of what they skip, through the Message Batches API. Each
-   theme is embedded on its own with the same MiniLM model into a `profiles` Chroma collection. See
+   theme is embedded on its own with the same MiniLM model into a `profiles` Chroma collection,
+   and also saved as `data/llm/theme_vectors_{click,skip}.npy` for training to read. See
    [LLM reader profiles](#llm-reader-profiles).
 4. **Train** — `pushnyt-train` builds features, trains XGBoost with early stopping, calibrates its
    probabilities, fits a return model (a churn proxy), evaluates on a held-out day, and writes
@@ -121,6 +122,34 @@ impression-level bootstrap CIs (1,000 replicates):
 | AUC, evening | 0.642 (0.635–0.648) | **0.645** (0.638–0.651) |
 
 `article_age_hours` ranks third by gain, behind `subcat_affinity` and `sim_text`.
+
+**LLM reader profiles.** Same test day, all features (including embedding retrieval and the
+click/skip contrast group), with and without the three `llm_*` features:
+
+| Metric | Without LLM (`ablation-no-llm`) | With LLM (`ablation-with-llm`) |
+|--------|---------------------------------|--------------------------------|
+| AUC | 0.7026 (0.700–0.705) | 0.7032 (0.701–0.706) |
+| Group AUC | 0.6757 (0.673–0.679) | 0.6766 (0.673–0.680) |
+| Log loss (calibrated) | 0.1520 | 0.1520 |
+| AUC, morning | 0.706 (0.703–0.710) | 0.708 (0.704–0.712) |
+| AUC, afternoon | 0.700 (0.695–0.705) | 0.699 (0.694–0.703) |
+| AUC, evening | 0.697 (0.691–0.703) | 0.697 (0.691–0.703) |
+
+Separate CIs overlap almost entirely, but most of their width is test-set noise the two runs
+share. `pushnyt-compare` resamples impressions once per replicate and scores both runs on the same
+sample, so its CI is for the difference (1,000 paired replicates, 30,270 impressions):
+
+| Metric | With − without | 95% CI | P(no gain) |
+|--------|----------------|--------|------------|
+| AUC | +0.0006 | −0.0000 to +0.0013 | 0.027 |
+| Group AUC | +0.0009 | −0.0003 to +0.0021 | 0.082 |
+
+The LLM themes add at most about a thousandth of AUC on top of the embedding and contrast
+features; the AUC gain is borderline and the group-AUC gain is not significant. The three
+features rank 23rd, 24th and 27th of 30 by gain (about 2% each), well behind
+`emb_sim_clicked_max` and `emb_contrast`, which already use the same clicked/skipped evidence.
+Both runs are one training seed each, so the CI covers test-set sampling but not run-to-run
+model variance.
 
 ### Push objective
 
@@ -363,6 +392,7 @@ src/pushnyt/
   vectordb.py           # thin Chroma wrapper (add / fetch vectors / nearest neighbors)
   features.py           # feature engineering
   train.py              # pushnyt-train: fit, evaluate, save artifacts
+  compare.py            # pushnyt-compare: paired bootstrap of two runs (ablations)
   calibration.py        # Platt scaling, reliability bins, ECE
   risk.py               # return model (churn proxy)
   exploration.py        # pushnyt-exploration: do clicks on unfamiliar subcategories stick?
@@ -408,6 +438,15 @@ They never call each other: the only thing passed between them is a run's
 
 `src/`, `configs/`, `data/`, and `outputs/` are bind-mounted, so code and config edits
 take effect without rebuilding. Rebuild after changing `pyproject.toml`.
+
+**Memory.** On macOS, all containers share Docker Desktop's Linux VM, which defaults to half the
+host's RAM (4 GB on an 8 GB Mac); a process over the limit is killed with exit code 137. Full
+training with the LLM features peaks at about 3.7 GB and without them about 3.4 GB, so both fit
+in 4 GB. To stay under it, feature building works on fixed-size slices (100k rows for per-row
+vector math, 2,000 users per Chroma query, 20k impressions per parse) rather than materializing
+whole-dataset intermediates, and the LLM theme vectors are memory-mapped from disk. If runs are
+killed, raise Settings → Resources → Memory; setting Swap to 0 there makes an out-of-memory run
+fail fast instead of slowing down.
 
 ### Running the pipeline
 
@@ -488,7 +527,23 @@ schema, model, and settings), so a rerun resumes the same batches and a changed 
 ones. `data/llm/report.json` has token usage, cost, and failures. MIND-small has about 41k
 user-days to profile (users active on the train or test day).
 
-To measure the uplift, train the same model with and without the three `llm_*` features.
+At training time the theme vectors are read memory-mapped from
+`data/llm/theme_vectors_{click,skip}.npy` (NaN-padded `(profiles, 4, 384)` arrays) instead of
+through Chroma, which would load the whole 275k-vector collection into RAM. `pushnyt-profile`
+writes them; if they are missing or older than `profiles.parquet`, training rebuilds them from
+Chroma first.
+
+To measure the uplift, train with and without the three `llm_*` features, then compare the two
+runs on the same test impressions (results under [Results](#results)):
+
+```bash
+docker compose run --rm train "pushnyt-train --exclude llm_sim_click llm_sim_skip llm_contrast --output-dir outputs/ablation-no-llm"
+docker compose run --rm train "pushnyt-train --output-dir outputs/ablation-with-llm"
+docker compose run --rm train "pushnyt-compare outputs/ablation-no-llm outputs/ablation-with-llm"
+```
+
+`pushnyt-compare` prints the paired difference and writes it to
+`outputs/ablation-with-llm/compare_vs_ablation-no-llm.json`.
 
 ### Objective options
 
