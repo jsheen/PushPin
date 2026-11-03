@@ -385,6 +385,7 @@ configs/train.yml       # all data, split, feature, embedding, and model setting
 configs/objective.yml   # push objective: which run to re-rank, friction, sweep
 scripts/sync-data.sh    # pull gs://pushnyt-data into ./data
 scripts/smoke-api.sh    # start the API image on a fixture run and check it responds (used by CI)
+scripts/build-api-image.sh  # build + smoke-test a production API image with one run baked in
 src/pushnyt/
   data.py               # MIND loaders, time-slot bucketing
   embed.py              # pushnyt-embed: abstract embeddings -> Chroma
@@ -404,9 +405,10 @@ tests/                  # pytest suite on synthetic MIND-style data
 .github/workflows/      # ci.yml (lint, test, build images), release.yml (publish images)
 Dockerfile              # training image (torch, xgboost, chroma: the `train` extra)
 Dockerfile.objective    # objective image (numpy, pandas, pyarrow, matplotlib)
-Dockerfile.api          # API image (core deps + the `api` extra: fastapi, uvicorn)
+Dockerfile.api          # API image (core deps + the `api` extra: fastapi, uvicorn); `baked` target = production
+Dockerfile.api.dockerignore  # build-context rules for API builds (lets a run's serving files in)
 docker-compose.yml, docker-shell.sh
-docs/                   # images used by this README
+docs/                   # images used by this README, live-scoring.md (plan for request-time scoring)
 data/                   # git-ignored; populated by sync-data.sh and pushnyt-embed
 outputs/                # git-ignored; one folder of artifacts per run
 ```
@@ -586,6 +588,29 @@ impression's candidates. Friction outside [0, 1] returns 422; unknown impression
 
 The send decision uses the threshold and risk penalty from `configs/objective.yml`. The daily cap
 needs to know what the user was already sent today, so the caller enforces it.
+
+#### Production image
+
+The compose service reads a run from the mounted `outputs/` folder. For deployment, build an
+image with one run baked in, so it serves with no mounts and the image tag names the model:
+
+```bash
+scripts/build-api-image.sh ablation-with-llm   # builds pushnyt-api:ablation-with-llm, then smoke-tests it
+docker run -p 8000:8000 pushnyt-api:ablation-with-llm
+```
+
+The `baked` target of `Dockerfile.api` copies the run's `predictions.parquet`, `metrics.json`,
+`config.yml` and `xgb_click.json` (about 20 MB) into `/app/model/<run>` and points
+`PUSHNYT_RUN_DIR` there. The script then starts the image without volumes and checks that
+`/health` reports the run and `/push` answers for one of its impressions. Deploy a new model by
+building a new tag; roll back by redeploying the previous one. The default target (used by
+compose and CI) is unchanged. API builds use `Dockerfile.api.dockerignore`, which lets only those
+four files per run into the build context.
+
+The API serves **precomputed** scores: it looks up the batch predictions for impressions in the
+run and can't score new users or articles. What live scoring would take (per-request features,
+an online state store, saving the remaining fitted transforms, and a training/serving parity
+test) is outlined in [docs/live-scoring.md](docs/live-scoring.md).
 
 ### Monitoring
 

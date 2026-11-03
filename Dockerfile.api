@@ -1,6 +1,14 @@
 # syntax=docker/dockerfile:1.7
 # Serving API: push decisions over a training run's predictions. Core deps + FastAPI.
-FROM python:3.12-slim-bookworm
+#
+# Two images from this file:
+#   default         reads a run from the mounted outputs/ folder (PUSHNYT_RUN_DIR); used by
+#                   docker compose and CI
+#   --target baked  one trained run copied into the image, so it serves with no mounts (production):
+#                   docker build -f Dockerfile.api --target baked \
+#                     --build-arg MODEL_RUN=ablation-with-llm -t pushnyt-api:ablation-with-llm .
+#                   or scripts/build-api-image.sh ablation-with-llm (builds and smoke-tests it)
+FROM python:3.12-slim-bookworm AS serve
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -35,3 +43,18 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=4)"]
 CMD ["pushnyt-api"]
+
+
+# Production: the run's predictions, metrics, config and model weights live inside the image,
+# under /app/model/<run> so /health and /model report the run name.
+FROM serve AS baked
+ARG MODEL_RUN
+RUN test -n "${MODEL_RUN}" || { echo "set --build-arg MODEL_RUN=<run folder under outputs/>"; exit 1; }
+COPY --chown=app:app outputs/${MODEL_RUN}/predictions.parquet outputs/${MODEL_RUN}/metrics.json \
+     outputs/${MODEL_RUN}/config.yml outputs/${MODEL_RUN}/xgb_click.json /app/model/${MODEL_RUN}/
+ENV PUSHNYT_RUN_DIR=/app/model/${MODEL_RUN}
+LABEL pushnyt.model_run=${MODEL_RUN}
+
+
+# Default target (last stage): the mount-based image, unchanged
+FROM serve

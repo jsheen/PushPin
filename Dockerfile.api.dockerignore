@@ -1,0 +1,19 @@
+# Used instead of .dockerignore when building Dockerfile.api (BuildKit picks up
+# <Dockerfile>.dockerignore). Same as .dockerignore, except the `baked` target may copy the
+# serving files of a run under outputs/.
+.git
+.venv
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+data/
+*.ipynb_checkpoints
+.DS_Store
+.env
+
+outputs/**
+!outputs/*/predictions.parquet
+!outputs/*/metrics.json
+!outputs/*/config.yml
+!outputs/*/xgb_click.json
