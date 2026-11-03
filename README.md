@@ -395,6 +395,7 @@ src/pushnyt/
   train.py              # pushnyt-train: fit, evaluate, save artifacts
   compare.py            # pushnyt-compare: paired bootstrap of two runs (ablations)
   live.py               # request-time scoring from per-user state; pushnyt-live-parity replay
+  nyt.py                # pushnyt-nyt-sim: push a week of NYT articles to MIND users, scored live
   calibration.py        # Platt scaling, reliability bins, ECE
   risk.py               # return model (churn proxy)
   exploration.py        # pushnyt-exploration: do clicks on unfamiliar subcategories stick?
@@ -615,6 +616,41 @@ user's earlier events only (`src/pushnyt/live.py`, same feature code as training
 result against batch: on 100 users, P(click), novelty and P(return) match exactly, at about
 110 ms per request. What a live endpoint would still need (an online state store, event
 ingestion, daily jobs) is in [docs/live-scoring.md](docs/live-scoring.md).
+
+#### Simulation: pushing NYT articles live
+
+`pushnyt-nyt-sim outputs/ablation-with-llm` runs the live scorer on articles the model never saw:
+NYT articles from `data/nyt-recent.csv` for one week (default Dec 2–8, 2024), pushed to 1,000
+MIND test-day users at 8:00, 13:00 and 19:00 New York time. At each slot a user's candidates are
+the articles published since the previous slot; the push objective and send policy from
+`configs/objective.yml` pick one and decide whether to send it.
+
+- **Users** keep their real MIND state (history, logged impressions, LLM themes) as of the end of
+  the log, frozen for the week: there are no NYT clicks to add.
+- **Articles** are embedded with the training MiniLM model, projected into the training text
+  space, and mapped to the nearest MIND subcategory centroid (median cosine 0.40; puzzles and
+  food map loosely, since MIND has no such sections). NYT has no entity annotations, so
+  `sim_entity` is missing. Article age uses the real publish time, and the retrieval index holds
+  MIND plus the NYT articles published so far.
+- The NYT week is shifted to start the day after the MIND log, so gaps since each user's last
+  visit stay realistic.
+
+| | |
+|---|---|
+| NYT articles / push slots | 918 / 21 |
+| User-article scores / push decisions | 918,000 / 21,000 |
+| Pushes sent | 4,411 (21%; 0.63 per user per day, daily cap 2) |
+| Latency | 4.3 ms per request, scoring 250 users per pass |
+
+There are no labels, so these are sanity checks, not accuracy. The chosen push is closer to the
+user than the average candidate on every signal (P(click) 0.071 vs 0.034, similarity to their
+LLM click themes 0.224 vs 0.156, best match to their history 0.275 vs 0.193). Sent pushes lean
+toward U.S. news (35% of sends vs 17% of articles published), which matches MIND readers'
+news-heavy histories, and average 3.3 distinct sections per user over the week. The model is
+applied to another outlet and era, so its P(click) is a ranking signal here, not a click rate.
+Outputs go to `outputs/nyt-sim/`: `scores.parquet` (every user-article score),
+`pushes.parquet` (each slot's pick, with title, section and whether it was sent), and
+`summary.json`.
 
 ### Monitoring
 

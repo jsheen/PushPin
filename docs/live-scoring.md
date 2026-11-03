@@ -12,6 +12,10 @@ Status (2026-11-03): **phases 1–3 done as an offline replay; no live endpoint 
   latency 112 ms per request. `tests/test_live.py` checks exact parity on synthetic data.
 - Article first-seen time is the one piece of state shared across users: a replay over a user
   sample must still observe every user's impressions.
+- New articles can join the catalog after training (`LiveScorer.add_articles`: text projected
+  with the saved TF-IDF/SVD, a training subcategory, a publish time), and `score_many` scores
+  many users in one pass (4 ms per request). `pushnyt-nyt-sim` uses both to push a week of NYT
+  articles to 1,000 MIND users; see the README.
 
 The rest of this document is the original plan; phases 4–6 are still open.
 

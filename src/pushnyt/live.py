@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 import xgboost as xgb
 import yaml
+from scipy import sparse
 from sklearn.metrics import roc_auc_score
 
 from pushnyt.calibration import apply_platt
@@ -38,6 +39,7 @@ from pushnyt.features import (
     article_first_seen,
     features_for,
     fit_globals,
+    project_text,
 )
 from pushnyt.profile import load_profiles
 from pushnyt.risk import RETURN_FEATURES
@@ -71,24 +73,69 @@ class LiveScorer:
         `history` is the user's pre-period click history (MIND carries it on every impression);
         defaults to the history from the user's logged impressions.
         """
-        past = self.log.get(user_id, [])
-        if history is None:
-            history = past[0][3] if past else []
-        when = pd.Timestamp(when)
-        # articles in this impression are being shown now (batch first-seen includes the current one)
-        self._seen(news_ids, when)
-        request = (impression_id, user_id, when, history, " ".join(f"{n}-0" for n in news_ids),
-                   int(time_slot(pd.Series([when.hour]))[0]))
-        events = pd.DataFrame(past + [request], columns=LOG_COLUMNS)
+        return self.score_many([{"user_id": user_id, "time": when, "news_ids": news_ids,
+                                 "history": history, "impression_id": impression_id}])
+
+    def score_many(self, requests: list[dict]) -> pd.DataFrame:
+        """Score several requests (one per user) in a single pass of the feature code.
+
+        Each request: user_id, time, news_ids, and optionally history and impression_id. Features
+        are per-user, so this equals scoring each request alone; it is just faster.
+        """
+        users = [r["user_id"] for r in requests]
+        if len(set(users)) != len(users):
+            raise ValueError("score_many takes at most one request per user")
+        events, request_rows, history_len = [], [], []
+        for r in requests:
+            past = self.log.get(r["user_id"], [])
+            history = r.get("history")
+            if history is None:
+                history = past[0][3] if past else []
+            when = pd.Timestamp(r["time"])
+            # articles in this impression are being shown now (batch first-seen includes the current one)
+            self._seen(r["news_ids"], when)
+            events += past
+            request_rows.append(len(events))
+            history_len.append(len(history))
+            events.append((r.get("impression_id", -1), r["user_id"], when, history,
+                           " ".join(f"{n}-0" for n in r["news_ids"]), int(time_slot(pd.Series([when.hour]))[0])))
+        events = pd.DataFrame(events, columns=LOG_COLUMNS)
         events["time"] = events["time"].astype("datetime64[us]")
         rows = features_for(events, self.g, self.first_seen)
-        rows = rows[rows["row"] == len(events) - 1].reset_index(drop=True)
+        which = pd.Series(np.arange(len(requests)), index=request_rows)
+        rows = rows[rows["row"].isin(which.index)].reset_index(drop=True)
+        rows["request"] = which.reindex(rows["row"]).to_numpy()
         rows["news_id"] = self.g.news_ids[rows["news"].to_numpy()]
         rows["p_click_raw"] = self.click_model.predict_proba(rows[self.features])[:, 1]
         rows["p_click"] = apply_platt(rows["p_click_raw"].to_numpy(), self.platt)
-        X = rows.iloc[:1].assign(hour=when.hour, user_history_len=len(history))[RETURN_FEATURES]
-        rows["p_return"] = float(self.return_model.predict_proba(X)[0, 1])
+        # P(return) is per request: its features are the same on every candidate row
+        first = rows.drop_duplicates("request")
+        X = first.assign(hour=first["time"].dt.hour,
+                         user_history_len=np.asarray(history_len)[first["request"].to_numpy()])[RETURN_FEATURES]
+        p_return = pd.Series(self.return_model.predict_proba(X)[:, 1], index=first["request"].to_numpy())
+        rows["p_return"] = p_return.reindex(rows["request"]).to_numpy()
         return rows
+
+    def add_articles(self, news: pd.DataFrame, abstract_vec: np.ndarray, published: np.ndarray) -> None:
+        """Add new articles to the catalog (article state), after training.
+
+        `news` has news_id, title, abstract and subcategory (one of the training subcategories);
+        text vectors are projected with the training text transform, and articles have no
+        entity vectors. `published` (datetime64) is each article's first-seen time.
+        """
+        g = self.g
+        codes = pd.Index(g.subcat_names).get_indexer(news["subcategory"])
+        if (codes < 0).any():
+            raise ValueError("new articles must use training subcategories")
+        n_old, n_new = len(g.news_ids), len(news)
+        g.news_ids = np.concatenate([g.news_ids, news["news_id"].to_numpy()])
+        g.news_idx = {**g.news_idx, **dict(zip(news["news_id"], range(n_old, n_old + n_new)))}
+        g.subcat = np.concatenate([g.subcat, codes])
+        g.text_vec = np.vstack([g.text_vec, project_text(news, g.text_model)])
+        g.ent_vec = np.vstack([g.ent_vec, np.zeros((n_new, g.ent_vec.shape[1]), g.ent_vec.dtype)])
+        g.abstract_vec = np.vstack([g.abstract_vec, abstract_vec.astype(g.abstract_vec.dtype)])
+        g.H = sparse.csr_matrix((g.H.data, g.H.indices, g.H.indptr), shape=(g.H.shape[0], n_old + n_new))
+        self.first_seen = np.concatenate([self.first_seen, np.asarray(published, "datetime64[ns]")])
 
 
 def load_scorer(run_dir: Path, beh: pd.DataFrame, up_to: pd.Timestamp) -> LiveScorer:

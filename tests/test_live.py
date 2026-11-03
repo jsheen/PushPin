@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -39,3 +40,40 @@ def test_scoring_does_not_change_user_state(run_dir, train_config):
     again = scorer.score(user, "2019-11-14 09:00", news)
     assert first["p_click"].tolist() == again["p_click"].tolist()
     assert len(scorer.log[user]) == logged  # only observe() records events
+
+
+def _scorer(run_dir, train_config):
+    beh = load_behaviors(Path(train_config["data"]["dir"]) / train_config["data"]["behaviors"])
+    return load_scorer(run_dir, beh, beh["time"].max() + pd.Timedelta(seconds=1))
+
+
+def test_score_many_equals_scoring_each_request_alone(run_dir, train_config):
+    scorer = _scorer(run_dir, train_config)
+    users, news = list(scorer.log)[:4], list(scorer.g.news_ids[:5])
+    requests = [{"user_id": u, "time": "2019-11-15 09:00", "news_ids": news} for u in users]
+    together = scorer.score_many(requests)
+    for i, r in enumerate(requests):
+        alone = scorer.score(r["user_id"], r["time"], r["news_ids"])
+        mine = together[together["request"] == i]
+        assert mine["p_click"].tolist() == alone["p_click"].tolist()
+        assert mine["p_return"].tolist() == alone["p_return"].tolist()
+    with pytest.raises(ValueError):
+        scorer.score_many(requests[:1] * 2)
+
+
+def test_added_articles_can_be_scored(run_dir, train_config):
+    scorer = _scorer(run_dir, train_config)
+    g = scorer.g
+    new = pd.DataFrame({"news_id": ["NEW1", "NEW2"], "title": ["Football tonight", "Markets rally"],
+                        "abstract": ["A big game.", "Stocks rose."], "subcategory": g.subcat_names[:2]})
+    dim = g.text_vec.shape[1]
+    scorer.g.abstract_vec = np.zeros((len(g.news_ids), dim), np.float32)  # synthetic run has no vector DB
+    scorer.add_articles(new, np.zeros((2, dim), np.float32), np.array(["2019-11-15T08:00"] * 2, "datetime64[ns]"))
+    rows = scorer.score(next(iter(scorer.log)), "2019-11-15 09:00", ["NEW1", "NEW2"])
+    assert rows["news_id"].tolist() == ["NEW1", "NEW2"]
+    assert rows["p_click"].between(0, 1).all()
+    assert rows["sim_entity"].isna().all()  # new articles have no entity annotations
+    assert (rows["article_age_hours"] == 1.0).all()
+    with pytest.raises(ValueError):
+        scorer.add_articles(new.assign(subcategory="not-a-subcategory"), np.zeros((2, dim)),
+                            np.array(["2019-11-15T08:00"] * 2, "datetime64[ns]"))

@@ -63,11 +63,23 @@ FEATURES = [
 ]
 
 
-def text_vectors(news: pd.DataFrame, dim: int, seed: int) -> np.ndarray:
-    text = news["title"].fillna("") + " " + news["abstract"].fillna("")
-    tfidf = TfidfVectorizer(stop_words="english", min_df=2, max_features=50_000,
-                            sublinear_tf=True).fit_transform(text)
-    return normalize(TruncatedSVD(dim, random_state=seed).fit_transform(tfidf)).astype(np.float32)
+def _article_text(news: pd.DataFrame) -> pd.Series:
+    return news["title"].fillna("") + " " + news["abstract"].fillna("")
+
+
+def text_vectors(news: pd.DataFrame, dim: int, seed: int, return_model: bool = False):
+    """TF-IDF -> SVD vectors of title + abstract, fitted on `news`; with return_model, also the
+    fitted (tfidf, svd) pair, to project articles added later (project_text)."""
+    tfidf = TfidfVectorizer(stop_words="english", min_df=2, max_features=50_000, sublinear_tf=True)
+    svd = TruncatedSVD(dim, random_state=seed)
+    vec = normalize(svd.fit_transform(tfidf.fit_transform(_article_text(news)))).astype(np.float32)
+    return (vec, (tfidf, svd)) if return_model else vec
+
+
+def project_text(news: pd.DataFrame, model: tuple) -> np.ndarray:
+    """Text vectors for new articles in an already-fitted text space."""
+    tfidf, svd = model
+    return normalize(svd.transform(tfidf.transform(_article_text(news)))).astype(np.float32)
 
 
 def entity_vectors(news: pd.DataFrame, emb: dict[str, np.ndarray]) -> np.ndarray:
@@ -370,8 +382,10 @@ class Globals:
     news_ids: np.ndarray
     news_idx: dict[str, int]
     subcat: np.ndarray            # subcategory code per article
+    subcat_names: np.ndarray      # subcategory name per code
     n_sub: int
     text_vec: np.ndarray          # TF-IDF -> SVD, fitted on all articles
+    text_model: tuple             # the fitted (tfidf, svd), to project new articles
     ent_vec: np.ndarray
     abstract_vec: np.ndarray | None
     store: ArticleStore | None
@@ -398,7 +412,7 @@ def fit_globals(beh: pd.DataFrame, news: pd.DataFrame, entity_emb: dict[str, np.
     news_idx = dict(zip(news["news_id"], range(len(news))))
     subcat, subcat_names = news["subcategory"].factorize()
     n_sub = len(subcat_names)
-    text_vec = text_vectors(news, cfg["text_dim"], seed)
+    text_vec, text_model = text_vectors(news, cfg["text_dim"], seed, return_model=True)
     ent_vec = entity_vectors(news, entity_emb)
 
     H, user_idx = history_matrix(beh, news_idx)
@@ -417,7 +431,7 @@ def fit_globals(beh: pd.DataFrame, news: pd.DataFrame, entity_emb: dict[str, np.
 
     return Globals(
         fit_end=fit_end, cfg=cfg, news_ids=news["news_id"].to_numpy(), news_idx=news_idx,
-        subcat=subcat, n_sub=n_sub, text_vec=text_vec, ent_vec=ent_vec, abstract_vec=abstract_vec,
+        subcat=subcat, subcat_names=np.asarray(subcat_names), n_sub=n_sub, text_vec=text_vec, text_model=text_model, ent_vec=ent_vec, abstract_vec=abstract_vec,
         store=store, profiles=profiles,
         profile_lookup=profile_lookup(profiles[0]) if profiles is not None else None,
         H=H, user_idx=user_idx, profile_text=normalize(H @ text_vec), profile_ent=normalize(H @ ent_vec),
