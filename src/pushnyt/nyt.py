@@ -18,7 +18,7 @@ There are no labels, so this demonstrates the mechanics; it does not measure acc
 is applied to a different outlet and era, so P(click) is a ranking signal here, not a rate.
 
 Usage: pushnyt-nyt-sim outputs/ablation-with-llm [--users 1000] [--start 2024-12-02] [--days 7]
-Writes outputs/nyt-sim/: scores.parquet, pushes.parquet, summary.json.
+Writes outputs/nyt-sim/: scores.parquet, pushes.parquet, daily.csv, summary.json.
 """
 
 import argparse
@@ -164,6 +164,44 @@ def summarize(scores: pd.DataFrame, top: pd.DataFrame, nyt: pd.DataFrame, latenc
     }
 
 
+def daily_report(scores: pd.DataFrame, pushes: pd.DataFrame) -> pd.DataFrame:
+    """One row per simulated day: what was published, what was pushed, and to whom.
+
+    expected_clicks sums the predicted P(click) of sent pushes; the model is not calibrated on
+    NYT, so compare it across days rather than reading it as a click count.
+    """
+    day = lambda df: df["slot_time"].dt.normalize()
+    sent = pushes[pushes["sent"]]
+    by_sent = sent.groupby(day(sent))
+    published = scores.groupby(day(scores))["news_id"].nunique()
+    pushed = by_sent["news_id"].nunique()
+
+    def top(col):
+        def f(x):
+            counts = x.value_counts()
+            return counts.index[0], counts.iloc[0] / len(x)
+        return by_sent[col].agg(f)
+
+    top_section, top_title = top("section"), top("title")
+    out = pd.DataFrame({
+        "articles": published,
+        "decisions": pushes.groupby(day(pushes)).size(),
+        "sent": by_sent.size(),
+        "users_reached": by_sent["user_id"].nunique(),
+        "expected_clicks": by_sent["p_click"].sum(),
+        "mean_p_click_sent": by_sent["p_click"].mean(),
+        "mean_novelty_sent": by_sent["novelty"].mean(),
+        "share_of_articles_pushed": pushed / published,
+        "top_section": top_section.str[0],
+        "top_section_share": top_section.str[1],
+        "most_sent_title": top_title.str[0],
+        "most_sent_users": by_sent["title"].agg(lambda x: x.value_counts().iloc[0]),
+    }).fillna({"sent": 0, "users_reached": 0, "expected_clicks": 0, "share_of_articles_pushed": 0})
+    out["send_rate"] = out["sent"] / out["decisions"]
+    out.index = out.index.strftime("%Y-%m-%d")
+    return out.rename_axis("day").reset_index()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Push NYT articles to MIND users, scored live")
     parser.add_argument("run_dir", type=Path)
@@ -177,8 +215,11 @@ def main() -> None:
     args.out.mkdir(parents=True, exist_ok=True)
     scores.to_parquet(args.out / "scores.parquet", index=False)
     pushes.to_parquet(args.out / "pushes.parquet", index=False)
+    daily = daily_report(scores, pushes)
+    daily.to_csv(args.out / "daily.csv", index=False, float_format="%.4g")
     (args.out / "summary.json").write_text(json.dumps({"run": str(args.run_dir), **summary}, indent=2))
     print(json.dumps(summary, indent=2))
+    print(daily[["day", "articles", "sent", "users_reached", "expected_clicks", "top_section"]].to_string(index=False))
 
 
 if __name__ == "__main__":

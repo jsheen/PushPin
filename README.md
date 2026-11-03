@@ -410,7 +410,7 @@ Dockerfile.objective    # objective image (numpy, pandas, pyarrow, matplotlib)
 Dockerfile.api          # API image (core deps + the `api` extra: fastapi, uvicorn); `baked` target = production
 Dockerfile.api.dockerignore  # build-context rules for API builds (lets a run's serving files in)
 docker-compose.yml, docker-shell.sh
-docs/                   # images used by this README, live-scoring.md (plan for request-time scoring)
+docs/                   # images used by this README, live-scoring.md and production.md (design notes)
 data/                   # git-ignored; populated by sync-data.sh and pushnyt-embed
 outputs/                # git-ignored; one folder of artifacts per run
 ```
@@ -649,8 +649,15 @@ toward U.S. news (35% of sends vs 17% of articles published), which matches MIND
 news-heavy histories, and average 3.3 distinct sections per user over the week. The model is
 applied to another outlet and era, so its P(click) is a ranking signal here, not a click rate.
 Outputs go to `outputs/nyt-sim/`: `scores.parquet` (every user-article score),
-`pushes.parquet` (each slot's pick, with title, section and whether it was sent), and
-`summary.json`.
+`pushes.parquet` (each slot's pick, with title, section and whether it was sent),
+`daily.csv` (per day: articles published, pushes sent, readers reached, share of articles
+pushed to anyone, top section, most-sent story, mean predicted P(click) and novelty), and
+`summary.json`. In the simulated week, weekends had about half as many articles but as many
+sends, so the fixed send threshold effectively loosens when the pool shrinks.
+
+How this would run in production (scheduled push jobs, article ingestion, delivery, the
+feedback loop from real clicks, scheduled retraining, daily monitoring) is written up in
+[docs/production.md](docs/production.md).
 
 ### Monitoring
 

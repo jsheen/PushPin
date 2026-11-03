@@ -27,3 +27,18 @@ def test_slot_times_three_per_day():
     slots = slot_times(pd.Timestamp("2024-12-02"), 2)
     assert [t.hour for t in slots] == [8, 13, 19, 8, 13, 19]
     assert slots[-1].day == 3
+
+
+def test_daily_report_counts_per_day():
+    from pushnyt.nyt import daily_report
+    t1, t2 = pd.Timestamp("2024-12-02 08:00"), pd.Timestamp("2024-12-03 08:00")
+    scores = pd.DataFrame({"slot_time": [t1, t1, t1, t2, t2], "news_id": ["a", "b", "c", "d", "e"]})
+    pushes = pd.DataFrame({
+        "slot_time": [t1, t1, t1, t2], "user_id": ["u1", "u2", "u3", "u1"], "news_id": ["a", "a", "b", "d"],
+        "title": ["A", "A", "B", "D"], "section": ["U.S.", "U.S.", "World", "Arts"],
+        "p_click": [0.1, 0.2, 0.3, 0.4], "novelty": [1.0, 1.0, 0.5, 1.0], "sent": [True, True, False, False]})
+    d = daily_report(scores, pushes).set_index("day")
+    assert d.loc["2024-12-02", ["articles", "decisions", "sent", "users_reached"]].tolist() == [3, 3, 2, 2]
+    assert d.loc["2024-12-02", "most_sent_title"] == "A" and d.loc["2024-12-02", "most_sent_users"] == 2
+    assert abs(d.loc["2024-12-02", "share_of_articles_pushed"] - 1 / 3) < 1e-9
+    assert d.loc["2024-12-03", "sent"] == 0 and d.loc["2024-12-03", "send_rate"] == 0
