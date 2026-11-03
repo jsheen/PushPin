@@ -1,7 +1,8 @@
 import numpy as np
 import pandas as pd
 
-from pushnyt.nyt import map_subcategories, slot_times
+from pushnyt.nyt import map_subcategories
+from pushnyt.push_job import slot_times
 from pushnyt.vectordb import ExactStore
 
 
@@ -30,7 +31,7 @@ def test_slot_times_three_per_day():
 
 
 def test_daily_report_counts_per_day():
-    from pushnyt.nyt import daily_report
+    from pushnyt.push_job import daily_report
     t1, t2 = pd.Timestamp("2024-12-02 08:00"), pd.Timestamp("2024-12-03 08:00")
     scores = pd.DataFrame({"slot_time": [t1, t1, t1, t2, t2], "news_id": ["a", "b", "c", "d", "e"]})
     pushes = pd.DataFrame({

@@ -26,12 +26,12 @@ WORKDIR /app
 # Install dependencies first (cached layer), then the project itself
 COPY --chown=${USER}:${USER} pyproject.toml uv.lock* README.md ./
 RUN --mount=type=cache,target=/home/${USER}/.cache/uv,uid=${UID} \
-    uv sync --no-install-project --extra train --extra dev
+    uv sync --no-install-project --extra train --extra api --extra dev
 
 COPY --chown=${USER}:${USER} src ./src
 COPY --chown=${USER}:${USER} configs ./configs
 RUN --mount=type=cache,target=/home/${USER}/.cache/uv,uid=${UID} \
-    uv sync --extra train --extra dev
+    uv sync --extra train --extra api --extra dev
 
 ENTRYPOINT ["/bin/bash", "-c"]
 CMD ["pushnyt-train --config configs/train.yml"]

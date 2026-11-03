@@ -46,6 +46,8 @@ pushnyt-profile = "pushnyt.profile:main"
 pushnyt-compare = "pushnyt.compare:main"
 pushnyt-live-parity = "pushnyt.live:main"
 pushnyt-nyt-sim = "pushnyt.nyt:main"
+pushnyt-scorer = "pushnyt.scorer_api:main"
+pushnyt-push-job = "pushnyt.push_job:main"
 
 [build-system]
 requires = ["hatchling"]

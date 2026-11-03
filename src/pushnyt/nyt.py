@@ -17,14 +17,15 @@ The model was trained on MIND (Microsoft News, Nov 2019). Here it scores NYT art
 There are no labels, so this demonstrates the mechanics; it does not measure accuracy. The model
 is applied to a different outlet and era, so P(click) is a ranking signal here, not a rate.
 
+`LocalScorer` is the scoring side: it holds the model and user state. The push job itself
+(slots, objective, send policy, reports) is in push_job.py. `pushnyt-nyt-sim` runs both in one
+process; `pushnyt-scorer` serves LocalScorer over HTTP for the networked version.
+
 Usage: pushnyt-nyt-sim outputs/ablation-with-llm [--users 1000] [--start 2024-12-02] [--days 7]
 Writes outputs/nyt-sim/: scores.parquet, pushes.parquet, daily.csv, summary.json.
 """
 
 import argparse
-import ast
-import json
-import time
 from pathlib import Path
 
 import numpy as np
@@ -34,28 +35,10 @@ from sklearn.preprocessing import normalize
 
 from pushnyt.data import load_behaviors
 from pushnyt.live import load_scorer
-from pushnyt.objective import push_scores, send_decisions
+from pushnyt.push_job import SCORE_COLUMNS, run_week, write_outputs
 from pushnyt.vectordb import ExactStore
 
-SLOT_HOURS = (8, 13, 19)  # morning, afternoon, evening push times (New York time)
 MIN_SUBCAT_ARTICLES = 20  # map only to MIND subcategories with enough articles for a stable centroid
-
-
-def load_nyt(path: Path, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
-    """NYT articles published in [start, end), New York time, oldest first."""
-    df = pd.read_csv(path, usecols=["_id", "headline", "abstract", "pub_date", "document_type",
-                                    "section_name", "subsection_name", "web_url"])
-    df["published"] = (pd.to_datetime(df["pub_date"], utc=True).dt.tz_convert("America/New_York")
-                       .dt.tz_localize(None))
-    df = df[(df["document_type"] == "article") & (df["published"] >= start) & (df["published"] < end)]
-    df = df[df["abstract"].fillna("").str.strip() != ""]
-    title = df["headline"].map(lambda h: ast.literal_eval(h).get("main", "") if isinstance(h, str) else "")
-    return pd.DataFrame({
-        "news_id": "NYT-" + df["_id"].str.rsplit("/", n=1).str[-1],
-        "title": title.to_numpy(), "abstract": df["abstract"].str.strip().to_numpy(),
-        "section": df["section_name"].fillna("").to_numpy(), "subsection": df["subsection_name"].fillna("").to_numpy(),
-        "url": df["web_url"].to_numpy(), "published": df["published"].to_numpy(),
-    }).sort_values("published", kind="stable").reset_index(drop=True)
 
 
 def embed(texts: list[str], config: dict) -> np.ndarray:
@@ -79,131 +62,68 @@ def map_subcategories(vec: np.ndarray, mind_vec: np.ndarray, mind_subcat: np.nda
     return names[keep[best]], sims[np.arange(len(vec)), best]
 
 
-def slot_times(start: pd.Timestamp, days: int) -> list[pd.Timestamp]:
-    return [start + pd.Timedelta(days=d, hours=h) for d in range(days) for h in SLOT_HOURS]
+class LocalScorer:
+    """The scorer interface (see push_job.py) backed by an in-process LiveScorer.
 
-
-def simulate(run_dir: Path, n_users: int, start: pd.Timestamp, days: int, seed: int) -> dict:
-    config = yaml.safe_load((run_dir / "config.yml").read_text())
-    data_dir = Path(config["data"]["dir"])
-    objective = yaml.safe_load(Path("configs/objective.yml").read_text())
-    beh = load_behaviors(data_dir / config["data"]["behaviors"])
-    log_end = beh["time"].max()
-    print("building user state from the whole MIND log")
-    scorer = load_scorer(run_dir, beh, log_end + pd.Timedelta(seconds=1))
-    g = scorer.g
-
-    # the week's NYT articles, plus the hours before the first slot (the first slot's candidates)
-    slots = slot_times(start, days)
-    nyt = load_nyt(data_dir / "nyt-recent.csv", slots[0] - pd.Timedelta(hours=13), slots[-1])
-    print(f"{len(nyt):,} NYT articles from {nyt['published'].min()} to {nyt['published'].max()}")
-    shift = (log_end.normalize() + pd.Timedelta(days=1)) - start  # NYT time -> just after the MIND log
-    vec = embed(nyt["abstract"].tolist(), config)
-    n_mind = len(g.news_ids)
-    nyt["subcategory"], nyt["subcat_sim"] = map_subcategories(vec, g.abstract_vec[:n_mind], g.subcat[:n_mind],
-                                                              g.subcat_names)
-    scorer.add_articles(nyt, vec, (nyt["published"] + shift).to_numpy())
-    g.store = ExactStore(g.news_ids, g.abstract_vec)  # MIND + NYT, searchable up to "now"
-
-    test_users = beh.loc[beh["time"] >= pd.Timestamp(config["split"]["train_end"]), "user_id"].drop_duplicates()
-    users = test_users.sample(min(n_users, len(test_users)), random_state=seed).tolist()
-    print(f"simulating {len(users):,} users x {len(slots)} slots")
-
-    scores, latency = [], []
-    previous = slots[0] - pd.Timedelta(hours=13)
-    for s, t in enumerate(slots):
-        cand = nyt[(nyt["published"] > previous) & (nyt["published"] <= t)]
-        previous = t
-        if cand.empty:
-            continue
-        g.store.size = n_mind + int((nyt["published"] <= t).sum())  # articles published so far
-        for i in range(0, len(users), 250):
-            batch = users[i:i + 250]
-            requests = [{"user_id": u, "time": t + shift, "news_ids": cand["news_id"].tolist(),
-                         "impression_id": s * 1_000_000 + i + j} for j, u in enumerate(batch)]
-            begin = time.perf_counter()
-            rows = scorer.score_many(requests)
-            latency.append((time.perf_counter() - begin) / len(batch))
-            scores.append(rows.assign(slot_time=t)[
-                ["impression_id", "user_id", "slot_time", "news_id", "p_click", "p_click_raw", "novelty",
-                 "p_return", "llm_sim_click", "llm_sim_skip", "emb_sim_max", "subcat_affinity",
-                 "article_age_hours"]])
-        print(f"  {t:%a %b %d %H:%M}  {len(cand):3d} candidates")
-
-    scores = pd.concat(scores, ignore_index=True)
-    scores["push_score"] = push_scores(scores, scores["p_click"].to_numpy(), objective["friction"])
-    top = scores.loc[scores.groupby("impression_id")["push_score"].idxmax()].merge(
-        nyt[["news_id", "title", "section", "subsection", "subcategory", "published", "url"]], on="news_id")
-    top["time"] = top["slot_time"]  # send policy caps pushes per user per calendar day
-    send = objective["send"]
-    top["sent"] = send_decisions(top, send["threshold"], send["risk_penalty"], send["daily_cap"])
-    return scores, top.drop(columns="time"), summarize(scores, top, nyt, latency, objective)
-
-
-def summarize(scores: pd.DataFrame, top: pd.DataFrame, nyt: pd.DataFrame, latency: list[float],
-              objective: dict) -> dict:
-    sent = top[top["sent"]]
-    by_imp = scores.groupby("impression_id")
-    return {
-        "users": int(scores["user_id"].nunique()), "slots": int(scores["slot_time"].nunique()),
-        "nyt_articles": len(nyt), "user_article_scores": len(scores), "decisions": len(top),
-        "pushes_sent": len(sent), "send_rate": float(top["sent"].mean()),
-        "pushes_per_user_per_day": float(len(sent) / scores["user_id"].nunique()
-                                         / top["slot_time"].dt.normalize().nunique()),
-        "friction": objective["friction"],
-        "latency_ms_per_request": 1000 * float(np.mean(latency)),
-        # proxy checks, since there are no clicks: is the pick closer to the user than the average candidate?
-        "pick_vs_average_candidate": {
-            col: {"pick": float(top[col].mean()), "average": float(by_imp[col].mean().mean())}
-            for col in ("p_click", "llm_sim_click", "llm_sim_skip", "emb_sim_max", "novelty")},
-        "distinct_sections_pushed_per_user": float(sent.groupby("user_id")["section"].nunique().mean()),
-        "section_share_sent": sent["section"].value_counts(normalize=True).head(10).round(3).to_dict(),
-        "section_share_published": nyt["section"].value_counts(normalize=True).head(10).round(3).to_dict(),
-        "subcategory_mapping_similarity": {"median": float(nyt["subcat_sim"].median()),
-                                           "p10": float(nyt["subcat_sim"].quantile(0.1))},
-    }
-
-
-def daily_report(scores: pd.DataFrame, pushes: pd.DataFrame) -> pd.DataFrame:
-    """One row per simulated day: what was published, what was pushed, and to whom.
-
-    expected_clicks sums the predicted P(click) of sent pushes; the model is not calibrated on
-    NYT, so compare it across days rather than reading it as a click count.
+    User state is the whole MIND log of the run's data; new articles join the catalog through
+    add_articles; the retrieval index only searches articles published by each request's time.
     """
-    day = lambda df: df["slot_time"].dt.normalize()
-    sent = pushes[pushes["sent"]]
-    by_sent = sent.groupby(day(sent))
-    published = scores.groupby(day(scores))["news_id"].nunique()
-    pushed = by_sent["news_id"].nunique()
 
-    def top(col):
-        def f(x):
-            counts = x.value_counts()
-            return counts.index[0], counts.iloc[0] / len(x)
-        return by_sent[col].agg(f)
+    def __init__(self, run_dir: Path, embedder=embed):
+        self.config = yaml.safe_load((run_dir / "config.yml").read_text())
+        data_dir = Path(self.config["data"]["dir"])
+        beh = load_behaviors(data_dir / self.config["data"]["behaviors"])
+        self.log_end = beh["time"].max()
+        print("building user state from the whole MIND log")
+        self.live = load_scorer(run_dir, beh, self.log_end + pd.Timedelta(seconds=1))
+        self.n_mind = len(self.live.g.news_ids)
+        test_start = pd.Timestamp(self.config["split"]["train_end"])
+        self.test_users = beh.loc[beh["time"] >= test_start, "user_id"].drop_duplicates()
+        self.embedder = embedder
+        self.live.g.store = ExactStore(self.live.g.news_ids, self.live.g.abstract_vec)
+        del beh
+        release_memory()  # hand the build's temporaries back before the embedder loads torch
 
-    top_section, top_title = top("section"), top("title")
-    out = pd.DataFrame({
-        "articles": published,
-        "decisions": pushes.groupby(day(pushes)).size(),
-        "sent": by_sent.size(),
-        "users_reached": by_sent["user_id"].nunique(),
-        "expected_clicks": by_sent["p_click"].sum(),
-        "mean_p_click_sent": by_sent["p_click"].mean(),
-        "mean_novelty_sent": by_sent["novelty"].mean(),
-        "share_of_articles_pushed": pushed / published,
-        "top_section": top_section.str[0],
-        "top_section_share": top_section.str[1],
-        "most_sent_title": top_title.str[0],
-        "most_sent_users": by_sent["title"].agg(lambda x: x.value_counts().iloc[0]),
-    }).fillna({"sent": 0, "users_reached": 0, "expected_clicks": 0, "share_of_articles_pushed": 0})
-    out["send_rate"] = out["sent"] / out["decisions"]
-    out.index = out.index.strftime("%Y-%m-%d")
-    return out.rename_axis("day").reset_index()
+
+def release_memory() -> None:
+    """Collect garbage and, on Linux (glibc), return freed heap pages to the OS. Without the
+    trim, a container keeps its peak RSS from startup even after the temporaries are gone."""
+    import ctypes
+    import gc
+
+    gc.collect()
+    try:
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except (OSError, AttributeError):
+        pass  # not glibc (e.g. macOS)
+
+    def info(self) -> dict:
+        return {"log_end": self.log_end.isoformat(), "articles": len(self.live.g.news_ids),
+                "users": len(self.live.log)}
+
+    def users(self, n: int, seed: int) -> list[str]:
+        return self.test_users.sample(min(n, len(self.test_users)), random_state=seed).tolist()
+
+    def add_articles(self, articles: pd.DataFrame) -> pd.DataFrame:
+        """Embed and map new articles (news_id, title, abstract, published; oldest first) and
+        add them to the catalog. Returns news_id, subcategory, subcat_sim."""
+        g = self.live.g
+        vec = self.embedder(articles["abstract"].tolist(), self.config)
+        subcat, sim = map_subcategories(vec, g.abstract_vec[:self.n_mind], g.subcat[:self.n_mind], g.subcat_names)
+        published = pd.to_datetime(articles["published"]).to_numpy()
+        self.live.add_articles(articles.assign(subcategory=subcat), vec, published)
+        g.store = ExactStore(g.news_ids, g.abstract_vec)
+        return pd.DataFrame({"news_id": articles["news_id"].to_numpy(), "subcategory": subcat, "subcat_sim": sim})
+
+    def score(self, requests: list[dict]) -> pd.DataFrame:
+        """Score a batch of requests; the retrieval index sees only articles published by then."""
+        latest = np.datetime64(max(pd.Timestamp(r["time"]) for r in requests).to_datetime64(), "ns")
+        self.live.g.store.size = self.n_mind + int((self.live.first_seen[self.n_mind:] <= latest).sum())
+        return self.live.score_many(requests)[SCORE_COLUMNS]
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Push NYT articles to MIND users, scored live")
+    parser = argparse.ArgumentParser(description="Push NYT articles to MIND users, scored live (one process)")
     parser.add_argument("run_dir", type=Path)
     parser.add_argument("--users", type=int, default=1000)
     parser.add_argument("--start", default="2024-12-02", help="first day (NYT time); dense weeks: Dec 2022-May 2023, Dec 2023, Dec 2024")
@@ -211,15 +131,12 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--out", type=Path, default=Path("outputs/nyt-sim"))
     args = parser.parse_args()
-    scores, pushes, summary = simulate(args.run_dir, args.users, pd.Timestamp(args.start), args.days, args.seed)
-    args.out.mkdir(parents=True, exist_ok=True)
-    scores.to_parquet(args.out / "scores.parquet", index=False)
-    pushes.to_parquet(args.out / "pushes.parquet", index=False)
-    daily = daily_report(scores, pushes)
-    daily.to_csv(args.out / "daily.csv", index=False, float_format="%.4g")
-    (args.out / "summary.json").write_text(json.dumps({"run": str(args.run_dir), **summary}, indent=2))
-    print(json.dumps(summary, indent=2))
-    print(daily[["day", "articles", "sent", "users_reached", "expected_clicks", "top_section"]].to_string(index=False))
+    scorer = LocalScorer(args.run_dir)
+    objective = yaml.safe_load(Path("configs/objective.yml").read_text())
+    data_dir = Path(scorer.config["data"]["dir"])
+    scores, pushes, summary = run_week(scorer, data_dir / "nyt-recent.csv", args.users, pd.Timestamp(args.start),
+                                       args.days, args.seed, objective)
+    write_outputs(args.out, scores, pushes, {"run": str(args.run_dir), **summary})
 
 
 if __name__ == "__main__":

@@ -17,7 +17,11 @@ def load_behaviors(path) -> pd.DataFrame:
     cols = ["impression_id", "user_id", "time", "history", "impressions"]
     df = pd.read_csv(path, sep="\t", header=None, names=cols)
     df["time"] = pd.to_datetime(df["time"], format="%m/%d/%Y %I:%M:%S %p")
-    df["history"] = df["history"].fillna("").str.split()
+    # A user's history string repeats on every impression (157k rows, 49k distinct); split each
+    # distinct string once and share the list, which saves ~0.5 GB of Python strings. Treat as read-only.
+    hist = df["history"].fillna("")
+    split = {h: h.split() for h in hist.unique()}
+    df["history"] = hist.map(split)
     df["slot"] = time_slot(df["time"].dt.hour)
     return df.sort_values("time", kind="stable").reset_index(drop=True)
 
