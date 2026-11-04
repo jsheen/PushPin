@@ -249,3 +249,111 @@ def plot_fatigue(table: pd.DataFrame, path: Path, n_users: int, min_impressions:
     fig.subplots_adjust(left=0.08, right=0.98, top=0.84, bottom=0.17, wspace=0.1)
     fig.savefig(path, dpi=200, facecolor=SURFACE)
     plt.close(fig)
+
+
+def _clean(ax) -> None:
+    ax.set_facecolor(SURFACE)
+    ax.set_axisbelow(True)
+    ax.tick_params(axis="both", length=0, colors=TEXT_MUTED)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+
+def _panel_title(ax, title: str, subtitle: str) -> None:
+    ax.set_title(title, loc="left", color=TEXT, fontsize=11, fontweight="bold", pad=22)
+    ax.text(0, 1.03, subtitle, transform=ax.transAxes, color=TEXT_MUTED, fontsize=8.5)
+
+
+def plot_reach(pushes: pd.DataFrame, daily: pd.DataFrame, published_share: dict, n_users: int,
+               n_articles: int, path: Path) -> None:
+    """Who and what the simulated pushes reach: section mix vs. what was published, daily reach,
+    concentration of pushes on a few articles, and section diversity per user."""
+    sent = pushes[pushes["sent"]]
+    fig, axes = plt.subplots(2, 2, figsize=(12, 9.4), facecolor=SURFACE)
+    (a_sec, a_day), (a_conc, a_div) = axes
+    for ax in axes.flat:
+        _clean(ax)
+
+    # 1. section mix: share of pushes sent vs. share of articles published
+    sent_share = sent["section"].value_counts(normalize=True)
+    pub = pd.Series(published_share, dtype=float)
+    top = (sent_share.add(pub, fill_value=0)).sort_values(ascending=False).index[:10]
+    rows = pd.DataFrame({"sent": sent_share.reindex(top).fillna(0), "pub": pub.reindex(top).fillna(0)})
+    rows = rows.sort_values("sent")
+    y, h = np.arange(len(rows)), 0.38
+    a_sec.barh(y + h / 2, rows["sent"], height=h, color=MODEL, label="Share of pushes sent")
+    a_sec.barh(y - h / 2, rows["pub"], height=h, color=GRID, label="Share of articles published")
+    for i, (s, p) in enumerate(zip(rows["sent"], rows["pub"])):
+        a_sec.text(s + 0.004, i + h / 2, f"{s:.0%}", va="center", color=TEXT, fontsize=8)
+        a_sec.text(p + 0.004, i - h / 2, f"{p:.0%}", va="center", color=TEXT_MUTED, fontsize=8)
+    a_sec.set_yticks(y, rows.index, color=TEXT, fontsize=9)
+    a_sec.xaxis.set_major_formatter(lambda v, _: f"{v:.0%}")
+    a_sec.set_xlim(0, rows.to_numpy().max() * 1.18)
+    a_sec.grid(axis="x", color=GRID, linewidth=0.8)
+    a_sec.legend(loc="lower right", frameon=False, labelcolor=TEXT, fontsize=8.5)
+    _panel_title(a_sec, "Section mix: pushed vs. published", "Top 10 sections; bars past grey = over-pushed")
+
+    # 2. daily reach: users who got at least one push
+    days = pd.to_datetime(daily["day"])
+    reach = daily["users_reached"] / n_users
+    x = np.arange(len(daily))
+    a_day.bar(x, reach, width=0.6, color=MODEL)
+    for i, r in enumerate(reach):
+        a_day.text(i, r + 0.01, f"{r:.0%}", ha="center", color=TEXT, fontsize=8.5)
+    a_day.set_xticks(x, [d.strftime("%a\n%b %d") for d in days], color=TEXT, fontsize=8.5)
+    a_day.yaxis.set_major_formatter(lambda v, _: f"{v:.0%}")
+    a_day.set_ylim(0, min(1.0, reach.max() * 1.2) if reach.max() > 0 else 1.0)
+    a_day.grid(axis="y", color=GRID, linewidth=0.8)
+    a_day.set_ylabel(f"Users reached (of {n_users:,})", color=TEXT_MUTED)
+    _panel_title(a_day, "Daily reach", "Share of simulated users sent at least one push that day")
+
+    # 3. concentration: cumulative share of pushes vs. share of published articles, most-pushed first
+    per_article = np.sort(sent["news_id"].value_counts().to_numpy())[::-1]
+    counts = np.concatenate([per_article, np.zeros(max(n_articles - len(per_article), 0))])
+    xs = np.arange(len(counts) + 1) / len(counts)
+    ys = np.concatenate([[0], np.cumsum(counts) / counts.sum()])
+    a_conc.plot([0, 1], [0, 1], color=TEXT_MUTED, lw=1, ls=(0, (4, 3)))
+    a_conc.text(0.62, 0.53, "every article\npushed equally", color=TEXT_MUTED, fontsize=8.5, ha="left", va="top")
+    a_conc.plot(xs, ys, color=MODEL, lw=2)
+    k = max(1, round(0.1 * len(counts)))
+    a_conc.plot([xs[k]], [ys[k]], "o", ms=8, color=MODEL, mec=SURFACE, mew=2)
+    a_conc.annotate(f"top 10% of articles\n= {ys[k]:.0%} of pushes", (xs[k], ys[k]), xytext=(12, -2),
+                    textcoords="offset points", ha="left", va="top", color=TEXT, fontsize=9, fontweight="bold")
+    never = 1 - len(per_article) / len(counts)
+    a_conc.plot([1 - never], [1], "o", ms=8, color=MODEL, mec=SURFACE, mew=2)
+    a_conc.annotate(f"{never:.0%} of articles\nnever pushed", (1 - never, 1), xytext=(8, -8),
+                    textcoords="offset points", ha="left", va="top", color=TEXT_MUTED, fontsize=8.5)
+    a_conc.set_xlim(0, 1)
+    a_conc.set_ylim(0, 1.02)
+    a_conc.xaxis.set_major_formatter(lambda v, _: f"{v:.0%}")
+    a_conc.yaxis.set_major_formatter(lambda v, _: f"{v:.0%}")
+    a_conc.grid(color=GRID, linewidth=0.8)
+    a_conc.set_xlabel(f"Published articles, most-pushed first ({n_articles:,})", color=TEXT_MUTED)
+    a_conc.set_ylabel("Cumulative share of pushes sent", color=TEXT_MUTED)
+    _panel_title(a_conc, "Concentration", "How much of the push volume a few stories take")
+
+    # 4. diversity: distinct sections each user was pushed over the run
+    per_user = sent.groupby("user_id")["section"].nunique()
+    none = n_users - len(per_user)
+    dist = per_user.value_counts().sort_index()
+    dist = pd.concat([pd.Series({0: none}), dist])
+    a_div.bar(dist.index, dist.to_numpy() / n_users, width=0.65, color=[GRID] + [MODEL] * (len(dist) - 1))
+    for v, n in dist.items():
+        share = n / n_users
+        a_div.text(v, share + 0.006, f"{share:.0%}" if share >= 0.01 else "<1%", ha="center", color=TEXT, fontsize=8.5)
+    a_div.set_xticks(dist.index, [str(v) for v in dist.index], color=TEXT, fontsize=9)
+    a_div.yaxis.set_major_formatter(lambda v, _: f"{v:.0%}")
+    a_div.grid(axis="y", color=GRID, linewidth=0.8)
+    a_div.set_xlabel("Distinct sections pushed to the user (grey = no pushes)", color=TEXT_MUTED)
+    a_div.set_ylabel("Share of users", color=TEXT_MUTED)
+    _panel_title(a_div, "Diversity per user",
+                 f"Mean {per_user.mean():.1f} sections among users pushed at least once")
+
+    start, end = pd.to_datetime(daily["day"]).min(), pd.to_datetime(daily["day"]).max()
+    fig.suptitle("NYT simulation: who and what the pushes reach", x=0.06, ha="left",
+                 color=TEXT, fontsize=14, fontweight="bold", y=0.985)
+    fig.text(0.06, 0.945, f"{n_users:,} MIND users, {n_articles:,} NYT articles, {start:%b %d} – {end:%b %d %Y}; "
+             f"{len(sent):,} pushes sent. Simulated decisions, no real clicks.", color=TEXT_MUTED, fontsize=9)
+    fig.subplots_adjust(left=0.13, right=0.98, top=0.86, bottom=0.08, hspace=0.42, wspace=0.3)
+    fig.savefig(path, dpi=200, facecolor=SURFACE)
+    plt.close(fig)

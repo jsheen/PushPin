@@ -30,6 +30,7 @@ import pandas as pd
 import yaml
 
 from pushnyt.objective import push_scores, send_decisions
+from pushnyt.plots import plot_reach
 
 SLOT_HOURS = (8, 13, 19)  # morning, afternoon, evening push times (New York time)
 LOOKBACK_HOURS = 13       # the first slot's candidates: articles since the previous evening
@@ -116,8 +117,8 @@ def summarize(scores: pd.DataFrame, top: pd.DataFrame, nyt: pd.DataFrame, latenc
             col: {"pick": float(top[col].mean()), "average": float(by_imp[col].mean().mean())}
             for col in ("p_click", "llm_sim_click", "llm_sim_skip", "emb_sim_max", "novelty")},
         "distinct_sections_pushed_per_user": float(sent.groupby("user_id")["section"].nunique().mean()),
-        "section_share_sent": sent["section"].value_counts(normalize=True).head(10).round(3).to_dict(),
-        "section_share_published": nyt["section"].value_counts(normalize=True).head(10).round(3).to_dict(),
+        "section_share_sent": sent["section"].value_counts(normalize=True).round(4).to_dict(),
+        "section_share_published": nyt["section"].value_counts(normalize=True).round(4).to_dict(),
         "subcategory_mapping_similarity": {"median": float(nyt["subcat_sim"].median()),
                                            "p10": float(nyt["subcat_sim"].quantile(0.1))},
     }
@@ -168,6 +169,8 @@ def write_outputs(out: Path, scores: pd.DataFrame, pushes: pd.DataFrame, summary
     daily = daily_report(scores, pushes)
     daily.to_csv(out / "daily.csv", index=False, float_format="%.4g")
     (out / "summary.json").write_text(json.dumps(summary, indent=2))
+    plot_reach(pushes, daily, summary["section_share_published"], summary["users"], summary["nyt_articles"],
+               out / "reach.png")
     print(json.dumps(summary, indent=2))
     print(daily[["day", "articles", "sent", "users_reached", "expected_clicks", "top_section"]].to_string(index=False))
 
