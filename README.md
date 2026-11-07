@@ -103,6 +103,14 @@ Whole impressions are resampled, since the candidates shown together are correla
 replicate reweights the rows by how often its impression was drawn. The number of replicates and
 the interval level are set under `evaluation` in `configs/train.yml` (`bootstrap_samples: 0` skips this).
 
+The bootstrap runs only here, on the test-day predictions; it measures uncertainty and never
+changes the model. Training and Platt calibration both treat each candidate row as an independent
+example. The impression structure is kept only as columns (`impression_id`, `user_id`) on the rows,
+and only evaluation uses it. Resampling impressions keeps candidates from the same list together,
+but a user's impressions are also correlated with each other, and so are the rows for one article
+across many lists (an article that is popular on the test day lifts all of them). So the intervals
+are probably still somewhat narrow. Resampling users would be the next step.
+
 **Quality gate.** If test AUC falls below `evaluation.min_auc` (0.644, the lower bound of the
 baseline's 95% CI), `pushnyt-train` exits with an error after saving its artifacts, so a regression
 can't pass silently but the failed run can still be inspected. Remove the setting to disable it.
@@ -249,6 +257,27 @@ cannot see impression size, and real pushes have no guaranteed click. So the sen
 evaluated on impressions with 50+ candidates, where the artifact is weakest; within those, the
 model's top picks still click at a higher rate as its prediction rises (3.6% → 8.5% across
 quintiles), though it over-predicts their level.
+
+**Candidates compete within an impression.** Splitting impressions into candidate rows hides two
+problems that the 50+ filter only partly fixes:
+
+- *The label is "picked from this list", not "wants this article".* Nearly every logged impression
+  has about one click, so the candidates shown together compete for it, and their labels are
+  negatively dependent. The model learns P(this candidate is the one clicked, among the others
+  shown with it), and since it cannot see list size, that probability is averaged over MIND's mix
+  of list sizes. The same user and article would earn roughly 1/size of a click in a list of any
+  size. So the send threshold (0.07) is in feed units, a top pick out of a list of about 37, not
+  the chance of opening a lone notification. Rankings within a list are unaffected, but absolute
+  probabilities don't carry over to push.
+- *Training and calibration still include the inflated small impressions.* The 50+ filter applies
+  only to the send-policy evaluation. The model is trained, and Platt is fit, on every impression,
+  including small ones whose click rate the click-only logging inflates. A large share of what the
+  calibrator fits is therefore the logging artifact.
+
+A possible fix is to add impression size as a feature during training and fix it at a reference
+value when scoring for push, or to weight rows so each impression counts once. Either way, the
+push-unit probability can only be estimated properly from real push logs (see
+[Production](#production-plugging-in-real-opt-out-data)).
 
 ### Return model (churn proxy)
 
