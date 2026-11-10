@@ -109,3 +109,11 @@ def test_build_features_with_vectors(mind_dir, train_config):
     # every user has fit-period impressions with a click and a skip, so both sides are known
     assert rows[["emb_sim_clicked_max", "emb_sim_skipped_max"]].notna().all().all()
     assert np.allclose(rows["emb_contrast"], rows["emb_sim_clicked_max"] - rows["emb_sim_skipped_max"])
+
+
+def test_every_feature_has_a_plot_group():
+    from pushnyt.features import FEATURES
+    from pushnyt.plots import GROUPS
+    grouped = [f for _, feats in GROUPS.values() for f in feats]
+    assert len(grouped) == len(set(grouped)), "a feature is in two plot groups"
+    assert set(FEATURES) <= set(grouped), f"no plot group (drawn grey): {set(FEATURES) - set(grouped)}"

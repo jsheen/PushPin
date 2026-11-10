@@ -11,7 +11,9 @@ import pandas as pd
 from matplotlib.patches import Patch
 from matplotlib.ticker import MultipleLocator
 
-# Feature groups from features.py, colored in fixed order
+# Feature groups from features.py, colored in fixed categorical order. The palette has eight
+# slots, so embedding retrieval shares one with click/skip contrast (both compare the candidate's
+# embedding with the user's history) and article recency shares one with user depth.
 GROUPS = {
     "Similarity": ("#2a78d6", {"sim_text", "sim_entity", "subcat_affinity"}),
     "Slot engagement": ("#eb6834", {"slot", "slot_prior_impr", "slot_prior_clicks",
@@ -19,10 +21,12 @@ GROUPS = {
     "Complementarity": ("#1baf7a", {"complement_score"}),
     "Push fatigue": ("#eda100", {"slot_skipped_72h", "slot_skip_rate_72h", "impr_last_24h",
                                  "hours_since_last_impr", "hours_since_last_slot_impr"}),
-    "Embedding retrieval": ("#e87ba4", {"emb_sim_mean", "emb_sim_max", "emb_sim_top5", "emb_n_close",
-                                        "emb_retrieval_rank"}),
-    "Article recency": ("#008300", {"article_age_hours"}),
-    "User depth": ("#6250d6", {"user_history_len", "user_prior_impr"}),
+    "Embedding similarity": ("#e87ba4", {"emb_sim_mean", "emb_sim_max", "emb_sim_top5", "emb_n_close",
+                                         "emb_retrieval_rank", "emb_sim_clicked_max",
+                                         "emb_sim_skipped_max", "emb_contrast"}),
+    "Recency & depth": ("#008300", {"article_age_hours", "user_history_len", "user_prior_impr"}),
+    "Subcategory engagement": ("#6250d6", {"subcat_engaged_rate", "subcat_prior_skips"}),
+    "LLM reader profile": ("#e34948", {"llm_sim_click", "llm_sim_skip", "llm_contrast"}),
 }
 SURFACE, TEXT, TEXT_MUTED, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e4e3df"
 MODEL = "#2a78d6"  # categorical slot 1
@@ -52,9 +56,10 @@ def plot_importance(importance: pd.Series, path: Path) -> None:
 
     ax.set_title("pushNYT XGBoost click model: feature importance", loc="left",
                  color=TEXT, fontsize=13, fontweight="bold", pad=28)
-    ax.text(0, 1.035, "Gain = average loss reduction each time the feature is used in a split",
-            transform=ax.transAxes, color=TEXT_MUTED, fontsize=9)
-    ax.legend(handles=[Patch(color=c, label=g) for g, (c, _) in GROUPS.items()],
+    ax.annotate("Gain = average loss reduction each time the feature is used in a split",
+                xy=(0, 1), xycoords="axes fraction", xytext=(0, 8), textcoords="offset points",
+                color=TEXT_MUTED, fontsize=9)
+    ax.legend(handles=[Patch(color=c, label=g) for g, (c, feats) in GROUPS.items() if feats & set(imp.index)],
               loc="lower right", frameon=False, labelcolor=TEXT)
 
     fig.tight_layout()
