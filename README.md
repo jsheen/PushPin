@@ -774,4 +774,4 @@ outputs/
 
 These programs are a work in progress, as we work to improve usability, error-catching, and speed of analysis. If you find errors, please contact Justin Sheen at justinksheen (at) gmail (dot) com
 
-Last Update: October 30, 2026
+Last Update: November 10, 2026
