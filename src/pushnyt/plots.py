@@ -16,7 +16,7 @@ from matplotlib.ticker import MultipleLocator
 # embedding with the user's history) and article recency shares one with user depth.
 GROUPS = {
     "Similarity": ("#2a78d6", {"sim_text", "sim_entity", "subcat_affinity"}),
-    "Slot engagement": ("#eb6834", {"slot", "slot_prior_impr", "slot_prior_clicks",
+    "Slot engagement": ("#eb6834", {"slot", "hour", "slot_prior_impr", "slot_prior_clicks",
                                     "slot_engaged_rate", "slot_click_share"}),
     "Complementarity": ("#1baf7a", {"complement_score"}),
     "Push fatigue": ("#eda100", {"slot_skipped_72h", "slot_skip_rate_72h", "impr_last_24h",
@@ -33,7 +33,8 @@ MODEL = "#2a78d6"  # categorical slot 1
 SECOND = "#eb6834"  # categorical slot 2
 
 
-def plot_importance(importance: pd.Series, path: Path) -> None:
+def plot_importance(importance: pd.Series, path: Path,
+                    title: str = "pushNYT XGBoost click model: feature importance") -> None:
     """Horizontal bar chart of XGBoost gain per feature, colored by feature group."""
     color = {f: c for c, feats in GROUPS.values() for f in feats}
     imp = importance.sort_values()
@@ -54,7 +55,7 @@ def plot_importance(importance: pd.Series, path: Path) -> None:
     for spine in ax.spines.values():
         spine.set_visible(False)
 
-    ax.set_title("pushNYT XGBoost click model: feature importance", loc="left",
+    ax.set_title(title, loc="left",
                  color=TEXT, fontsize=13, fontweight="bold", pad=28)
     ax.annotate("Gain = average loss reduction each time the feature is used in a split",
                 xy=(0, 1), xycoords="axes fraction", xytext=(0, 8), textcoords="offset points",

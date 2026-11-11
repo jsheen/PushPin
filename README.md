@@ -290,6 +290,11 @@ model on user depth and fatigue features (`src/pushnyt/risk.py`). Risk = 1 − P
 - It is a **user-level** signal: it mostly measures how active someone is, not what a push did to
   them. Subtracting it from the per-article score would barely change which article wins (it is
   nearly constant within an impression), so it sets **how much** to send each user, not **what**.
+- The feature importances confirm it: `user_history_len` (pre-log click count) carries about two
+  thirds of the gain, and recent activity (`impr_last_24h`, `user_prior_impr`,
+  `hours_since_last_impr`) most of the rest. The engagement and skip-rate features add little.
+
+![Return model feature importance](docs/return_importance.png)
 
 ### Send policy
 
@@ -762,6 +767,8 @@ outputs/
 | `calibration.png` | Reliability diagram, raw vs. calibrated |
 | `feature_importance.csv` | Gain per feature |
 | `feature_importance.png` | Feature-importance chart, colored by feature group |
+| `xgb_return.json` | Trained return model (P(return within 24 hours)), used to score live |
+| `return_feature_importance.csv`, `.png` | Gain per feature for the return model, and its chart |
 | `config.yml` | Config used for the run |
 | `predictions.parquet` | Test-set candidates: impression, user, slot, article, label, `p_click` (calibrated), `p_click_raw`, `novelty`, `p_return` |
 | `objective/tradeoff.csv` | Top-pick CTR and novelty at each friction, for the model and the random-ranking baseline |

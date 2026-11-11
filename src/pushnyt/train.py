@@ -22,7 +22,7 @@ from pushnyt.features import (
 )
 from pushnyt.plots import plot_calibration, plot_importance
 from pushnyt.profile import load_profiles
-from pushnyt.risk import fit_return_model
+from pushnyt.risk import RETURN_FEATURES, fit_return_model
 from pushnyt.vectordb import ArticleStore
 
 
@@ -152,11 +152,14 @@ def train(config: dict) -> None:
     importance = pd.Series(model.get_booster().get_score(importance_type="gain"))
     importance = importance.reindex(features).fillna(0).sort_values(ascending=False)
     print(importance.round(1).to_string())
+    return_importance = pd.Series(return_model.get_booster().get_score(importance_type="gain"))
+    return_importance = return_importance.reindex(RETURN_FEATURES).fillna(0).sort_values(ascending=False)
 
     model.save_model(output_dir / "xgb_click.json")
     return_model.save_model(output_dir / "xgb_return.json")  # needed to score P(return) live
     (output_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))
     importance.rename("gain").to_csv(output_dir / "feature_importance.csv")
+    return_importance.rename("gain").to_csv(output_dir / "return_feature_importance.csv")
     # handoff to the push objective (pushnyt-objective), which runs in its own container
     test_df.assign(news_id=news["news_id"].to_numpy()[test_df["news"]], p_click=scores, p_click_raw=raw,
                    p_return=p_return.reindex(test_df["impression_id"]).to_numpy())[
@@ -165,6 +168,8 @@ def train(config: dict) -> None:
     ].to_parquet(output_dir / "predictions.parquet", index=False)
     check_quality(metrics, config.get("evaluation", {}))  # after saving, so a failed run can be inspected
     plot_importance(importance, output_dir / "feature_importance.png")
+    plot_importance(return_importance, output_dir / "return_feature_importance.png",
+                    title="pushNYT XGBoost return model: feature importance")
     plot_calibration(y, raw, scores, output_dir / "calibration.png")
 
 
