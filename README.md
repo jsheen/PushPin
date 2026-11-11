@@ -159,6 +159,12 @@ features rank 23rd, 24th and 27th of 30 by gain (about 2% each), well behind
 Both runs are one training seed each, so the CI covers test-set sampling but not run-to-run
 model variance.
 
+Feature importance for the full model (`ablation-with-llm`), colored by feature group. The user's
+own subcategory click rate (`subcat_engaged_rate`), embedding similarity to their clicked articles
+and their subcategory share lead; the LLM features sit near the bottom:
+
+![Click model feature importance](docs/feature_importance.png)
+
 ### Push objective
 
 The click model answers "will they click?"; the push objective decides what to actually send.
