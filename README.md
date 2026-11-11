@@ -290,9 +290,10 @@ model on user depth and fatigue features (`src/pushnyt/risk.py`). Risk = 1 − P
 - It is a **user-level** signal: it mostly measures how active someone is, not what a push did to
   them. Subtracting it from the per-article score would barely change which article wins (it is
   nearly constant within an impression), so it sets **how much** to send each user, not **what**.
-- The feature importances confirm it: `user_history_len` (pre-log click count) carries about two
-  thirds of the gain, and recent activity (`impr_last_24h`, `user_prior_impr`,
-  `hours_since_last_impr`) most of the rest. The engagement and skip-rate features add little.
+- The feature importances confirm it: a split on `user_history_len` (pre-log click count) reduces
+  the loss about 7× as much as a split on any other feature, followed by recent activity
+  (`impr_last_24h`, `user_prior_impr`, `hours_since_last_impr`). The engagement and skip-rate
+  features add little.
 
 ![Return model feature importance](docs/return_importance.png)
 
