@@ -116,11 +116,14 @@ class LocalScorer:
         g.store = ExactStore(g.news_ids, g.abstract_vec)
         return pd.DataFrame({"news_id": articles["news_id"].to_numpy(), "subcategory": subcat, "subcat_sim": sim})
 
-    def score(self, requests: list[dict]) -> pd.DataFrame:
-        """Score a batch of requests; the retrieval index sees only articles published by then."""
+    def score(self, requests: list[dict], features: bool = False) -> pd.DataFrame:
+        """Score a batch of requests; the retrieval index sees only articles published by then.
+
+        features=True also returns every model input (the notifier logs them as covariates)."""
         latest = np.datetime64(max(pd.Timestamp(r["time"]) for r in requests).to_datetime64(), "ns")
         self.live.g.store.size = self.n_mind + int((self.live.first_seen[self.n_mind:] <= latest).sum())
-        return self.live.score_many(requests)[SCORE_COLUMNS]
+        cols = SCORE_COLUMNS + ([f for f in self.live.features if f not in SCORE_COLUMNS] if features else [])
+        return self.live.score_many(requests)[cols]
 
 
 def main() -> None:

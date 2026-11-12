@@ -102,6 +102,36 @@ services:
         condition: service_healthy
     command: ["pushnyt-push-job --scorer http://scorer:8000 --out outputs/nyt-sim-http"]
 
+  # Real pushes to your phone (ntfy), with a click tracker on http://localhost:8090. Needs the scorer.
+  # Set NTFY_TOPIC (and optionally CLICK_BASE_URL) in .env, subscribe to the topic in the ntfy app.
+  #   docker compose up -d scorer notifier
+  #   docker compose run --rm notifier "python -m pushnyt.notifier --test"            # delivery check
+  #   docker compose run --rm notifier "python -m pushnyt.notifier --once --dry-run"  # one slot, no send
+  # Every candidate, its covariates and clicks go to outputs/notifier/pushes.db (SQLite).
+  notifier:
+    build:
+      context: .
+      dockerfile: Dockerfile.objective
+    image: pushnyt-objective:latest
+    container_name: pushnyt-notifier
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - PUSHNYT_SCORER_URL=http://scorer:8000
+    volumes:
+      - ./src:/app/src
+      - ./configs:/app/configs:ro
+      - ./outputs:/app/outputs
+    ports:
+      - "8090:8090"   # click tracker; your phone reaches it via CLICK_BASE_URL
+    depends_on:
+      scorer:
+        condition: service_healthy
+    mem_limit: 400m
+    restart: unless-stopped
+    command: ["python -m pushnyt.notifier"]
+
   # Interactive dev shell: `docker compose run --rm shell`
   shell:
     extends: train

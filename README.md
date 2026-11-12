@@ -437,6 +437,7 @@ src/pushnyt/
   compare.py            # pushnyt-compare: paired bootstrap of two runs (ablations)
   live.py               # request-time scoring from per-user state; pushnyt-live-parity replay
   nyt.py                # pushnyt-nyt-sim: push a week of NYT articles to MIND users, scored live
+  notifier.py           # real pushes to a phone (ntfy) from live NYT RSS, click tracker, SQLite log
   calibration.py        # Platt scaling, reliability bins, ECE
   risk.py               # return model (churn proxy)
   exploration.py        # pushnyt-exploration: do clicks on unfamiliar subcategories stick?
@@ -699,6 +700,48 @@ sends, so the fixed send threshold effectively loosens when the pool shrinks.
 How this would run in production (scheduled push jobs, article ingestion, delivery, the
 feedback loop from real clicks, scheduled retraining, daily monitoring) is written up in
 [docs/production.md](docs/production.md).
+
+#### Real pushes to your phone
+
+The `notifier` service runs the same pipeline on today's news for one reader and sends the
+pushes to a real phone. It runs in its own container next to `scorer`. At each slot hour in
+`configs/notifier.yml` it does four things:
+
+- reads the NYT RSS feeds
+- scores the last 12 hours of unpushed articles for a MIND persona, standing in for you
+- applies the push objective and send policy
+- delivers the top pick through [ntfy](https://ntfy.sh)
+
+Every candidate is logged to `outputs/notifier/pushes.db` (SQLite) with all its model
+covariates. Tapping a notification goes through a click tracker on port 8090 first, which records
+the click and then redirects to the article.
+
+1. Install the ntfy app on your phone and subscribe to a hard-to-guess topic name.
+2. Put `NTFY_TOPIC=<that name>` in `.env`. Add `CLICK_BASE_URL=http://<your Mac's LAN IP>:8090`
+   to record taps while the phone is on the same Wi-Fi (or use a tunnel such as Tailscale).
+3. Start it:
+
+```bash
+docker compose up -d scorer notifier
+docker compose run --rm notifier "python -m pushnyt.notifier --test"            # delivery check
+docker compose run --rm notifier "python -m pushnyt.notifier --once --dry-run"  # one slot, no send
+```
+
+To see the pushes on the Mac, open ntfy's web app or use iPhone Mirroring.
+
+The tables in `pushes.db`:
+
+- `scores`: one row per slot × candidate, with features, `p_click`, `push_score`, `is_top`,
+  `sent`, `push_id`, `sent_at` and `clicked_at`
+- `labeled`: the sent pushes with `label` (1 = tapped, 0 = not tapped within 24 hours,
+  NULL = pending)
+- `articles` and `meta`
+
+Example query:
+
+```bash
+sqlite3 outputs/notifier/pushes.db "SELECT slot_time, title, p_click, label FROM labeled"
+```
 
 ### Monitoring
 

@@ -1,0 +1,23 @@
+# Notifier: real pushes to your phone through ntfy (see src/pushnyt/notifier.py).
+# Secrets live in .env, not here: NTFY_TOPIC (your private topic name) and optionally
+# CLICK_BASE_URL (where your phone can reach this container's click tracker).
+timezone: America/New_York
+slot_hours: [8, 12, 17, 21]     # local push times
+lookback_hours: 12              # candidates: unpushed articles published in this window
+daily_cap: 3                    # overrides objective.yml's send.daily_cap (2) for you
+user_id: null                   # MIND persona whose history stands in for yours; null = sample one (seed)
+seed: 42
+objective: configs/objective.yml  # friction, threshold, risk_penalty
+ntfy_server: https://ntfy.sh
+click_port: 8090
+click_window_hours: 24          # a push not tapped within this long counts as label 0
+db: outputs/notifier/pushes.db
+feeds:
+  - https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml
+  - https://rss.nytimes.com/services/xml/rss/nyt/World.xml
+  - https://rss.nytimes.com/services/xml/rss/nyt/US.xml
+  - https://rss.nytimes.com/services/xml/rss/nyt/Business.xml
+  - https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml
+  - https://rss.nytimes.com/services/xml/rss/nyt/Science.xml
+  - https://rss.nytimes.com/services/xml/rss/nyt/Sports.xml
+  - https://rss.nytimes.com/services/xml/rss/nyt/Arts.xml

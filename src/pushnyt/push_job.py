@@ -197,8 +197,9 @@ class HttpScorer:
         payload = articles.assign(published=articles["published"].map(pd.Timestamp.isoformat))
         return pd.DataFrame(self._call("/articles", {"articles": payload.to_dict("records")}))
 
-    def score(self, requests: list[dict]) -> pd.DataFrame:
-        return pd.DataFrame(self._call("/score", {"requests": requests}))
+    def score(self, requests: list[dict], features: bool = False) -> pd.DataFrame:
+        payload = {"requests": requests, **({"features": True} if features else {})}
+        return pd.DataFrame(self._call("/score", payload))
 
 
 def main() -> None:

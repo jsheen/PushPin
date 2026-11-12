@@ -7,7 +7,7 @@ reaches it by service name at http://scorer:8000; no host port needs publishing.
   GET  /health             liveness, end of the user-state log, catalog size
   GET  /users?n=&seed=     a sample of users to push to
   POST /articles           {"articles": [{news_id, title, abstract, published}, ...]}
-  POST /score              {"requests": [{user_id, time, news_ids, impression_id}, ...]}
+  POST /score              {"requests": [{user_id, time, news_ids, impression_id}, ...], "features": false}
 
 Responses are JSON with NaN allowed (features can be missing), which Python's json reads back
 exactly. Startup loads the MIND state and takes a minute or two; /health answers once it's ready.
@@ -33,6 +33,7 @@ class Articles(BaseModel):
 
 class Requests(BaseModel):
     requests: list[dict]  # user_id, time (ISO), news_ids, impression_id
+    features: bool = False  # also return every model input, not just the scores
 
 
 def _json(payload) -> Response:
@@ -61,7 +62,7 @@ def create_app(scorer) -> FastAPI:
 
     @app.post("/score")
     def score(body: Requests) -> Response:
-        rows = scorer.score(body.requests)
+        rows = scorer.score(body.requests, features=True) if body.features else scorer.score(body.requests)
         return _json(rows.to_dict("list"))
 
     return app
