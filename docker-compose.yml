@@ -106,7 +106,7 @@ services:
   #   notifier  the schedule: sleeps until each slot, scores, pushes   (cloud: Cloud Run job + Scheduler)
   #   cards     what a tapped push opens: Read / ♥ / Save, per reader   (cloud: Cloud Run service)
   #   tunnel    a public https address for the cards                    (cloud: Cloud Run's own URL)
-  # Set NTFY_TOPIC in .env and subscribe to it in the ntfy app (friends can subscribe too).
+  # Set NTFY_TOPIC in .env and subscribe to it in the ntfy app.
   # Both write to outputs/notifier/pushes.db, or to DATABASE_URL if set (e.g. the `db` service).
   #   docker compose up -d scorer notifier cards tunnel
   #   docker compose run --rm notifier "python -m pushnyt.notifier --test"            # delivery check

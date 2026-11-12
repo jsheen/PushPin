@@ -672,9 +672,8 @@ features (history, recent skips, exposure) computed online from a feature store.
 ## Real pushes to your phone
 
 The `notifier` service runs the model on today's NYT news and sends real push notifications to
-everyone subscribed to your ntfy topic: you, and any friends you share the topic with. Every
-candidate it scores is logged with all its covariates, and so is what each reader did with the
-push. That gives you labeled push data, which MIND can't provide.
+your phone through your ntfy topic. Every candidate it scores is logged with all its covariates,
+and so is what you did with the push. That gives you labeled push data, which MIND can't provide.
 
 ```
 NYT RSS feeds ──▶ notifier ──HTTP──▶ scorer  (model + MIND user state, from the NYT sim)
@@ -716,20 +715,18 @@ Tapping a notification opens that push's **card**, a small page served by the `c
 - **Read on NYT** is a plain nytimes.com link, so iOS opens the NYT app if it's installed and
   Safari otherwise. Reading needs the reader's own NYT login there, as usual.
 - **♡ Love** marks the article as a favorite. Tap again to undo.
-- **🔖 Save** adds it to the reader's reading list at `/saved`. Tap again to unsave.
+- **🔖 Save** adds it to your reading list at `/saved`. Tap again to unsave.
 
-ntfy can't tell subscribers apart, so the card does. The first card a phone opens sets a cookie
-with a random reader ID and offers an optional first-name box. From then on, each open, read,
-♥ and save is stored for that reader, and each reader has their own reading list. ntfy's own
-notification buttons aren't used. They do work in the background on iOS, but a button's request
-can't say which subscriber tapped it, so it couldn't tell your ♥ from a friend's.
+The first card a phone opens sets a cookie with a random reader ID, and offers an optional
+first-name box. From then on, each open, read, ♥ and save is stored under that reader. ntfy's
+own notification buttons aren't used: their requests carry no reader identity, and the card
+keeps the buttons, the reading list and the tracking in one place.
 
 ### Setup (once)
 
 1. **Topic.** Install **ntfy** from the App Store and allow notifications. Tap **+** and
    subscribe to a topic on `ntfy.sh`. Anyone who knows the topic name can read it, so make it
-   hard to guess (e.g. `pushnyt-` plus the output of `openssl rand -hex 6`), and only share it
-   with friends you're happy to push to.
+   hard to guess (e.g. `pushnyt-` plus the output of `openssl rand -hex 6`).
 2. **`.env`.** Add `NTFY_TOPIC=<your topic>`. Leave `CLICK_BASE_URL` unset to use the tunnel.
    Only set it if you host the cards somewhere else, e.g. a fixed domain.
 3. **Images.** The scorer runs in the training image, which needs the `api` extra (FastAPI).
@@ -758,9 +755,6 @@ docker compose logs -f notifier cards        # one JSON line per slot, and per o
 The first run picks the MIND persona and fixes the time shift, and both are stored in the
 database. To see the pushes on your Mac, open ntfy's web app (ntfy.sh/app, subscribe to the same
 topic) or use iPhone Mirroring.
-
-**Friends:** have them install ntfy and subscribe to the same topic. Tell them their taps, ♥ and
-saves are recorded for a class project.
 
 Stop it with `docker compose stop notifier cards tunnel scorer`.
 
@@ -832,10 +826,10 @@ off-policy data later. In pandas: `pd.read_sql("SELECT * FROM labeled", sqlite3.
 feeds, ntfy server and click window. The threshold, risk penalty and friction come from
 `configs/objective.yml`.
 
-- **Everyone gets the same push, picked for a stand-in.** The scorer only knows MIND users, so
-  one MIND reader (sampled, or set with `user_id`) stands in for all subscribers. Per-reader
-  pushes would need a topic per reader and a profile built from each reader's own opens, reads,
-  ♥ and saves. The reader IDs are already in place for that.
+- **Pushes are picked for a stand-in, not you.** The scorer only knows MIND users, so one MIND
+  reader (sampled, or set with `user_id`) stands in for you. Scoring you directly would mean
+  adding your own user state, e.g. built from a seed list of articles you've read, then updated
+  from your opens, reads, ♥ and saves.
 - **Interactions aren't fed back yet.** They're stored, but they don't update any profile in the
   scorer. They're signals of different strength: an open means "curious", a read means "read
   it", ♥ means "more like this", and a save means "interested, not now".

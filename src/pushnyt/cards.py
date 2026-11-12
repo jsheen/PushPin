@@ -9,7 +9,7 @@ including to zero) while each slot is a Cloud Run job. Both share the database i
 
 Each card shows the headline and abstract, Read on NYT (a plain nytimes.com link, so iOS opens the
 NYT app if it's installed), ♥ and 🔖 Save. The first card a phone opens sets a cookie with a random
-reader id, so friends sharing one ntfy topic are told apart.
+reader id, and everything the reader does is stored under it.
 """
 
 import argparse
