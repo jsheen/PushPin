@@ -104,41 +104,50 @@ def test_next_slot(setup):
     assert n.next_slot(pd.Timestamp("2026-11-12 21:00")) == pd.Timestamp("2026-11-13 08:00")
 
 
-def test_push_has_comment_button(setup):
+def test_push_has_heart_save_and_list_buttons(setup):
     n, store, sent, db = setup
     n.run_slot(pd.Timestamp("2026-11-12 12:00"))
     push_id = sent[0][4].rsplit("/", 1)[1]
-    assert sent[0][5]["actions"][0]["url"] == f"http://mac:8090/comment/{push_id}"
+    heart, save, rlist = sent[0][5]["actions"]
+    assert heart == {"action": "http", "label": "♥", "url": f"http://mac:8090/heart/{push_id}",
+                     "method": "POST", "clear": False}
+    assert save["url"] == f"http://mac:8090/save/{push_id}" and save["clear"]
+    assert rlist == {"action": "view", "label": "📚 Reading list", "url": "http://mac:8090/saved"}
+
+    n.cfg["button_action"] = "view"  # clients without background http actions
+    assert n.actions("x")[0] == {"action": "view", "label": "♥", "url": "http://mac:8090/heart/x"}
 
 
-def test_comment_form_and_storage(setup):
-    import urllib.parse
-
+def test_heart_save_and_reading_list(setup):
     n, store, sent, db = setup
     n.run_slot(pd.Timestamp("2026-11-12 12:00"))
-    push_id = sent[0][4].rsplit("/", 1)[1]
+    n.run_slot(pd.Timestamp("2026-11-12 17:00"))
+    first, second = (a[4].rsplit("/", 1)[1] for a in sent)
     server = nt.serve_clicks(store, 0)
     base = f"http://127.0.0.1:{server.server_address[1]}"
+    post = lambda path: urllib.request.urlopen(urllib.request.Request(base + path, data=b"", method="POST"))
     try:
-        page = urllib.request.urlopen(f"{base}/comment/{push_id}").read().decode()
-        assert "<textarea" in page and "Story" in page
-        text = "Interesting <b>take</b> & more"
-        data = urllib.parse.urlencode({"text": text}).encode()
-        done = urllib.request.urlopen(f"{base}/comment/{push_id}", data=data).read().decode()
-        assert "comment saved" in done
-        for bad, code in ((f"{base}/comment/nope", 404), (f"{base}/comment/{push_id}", 400)):
-            with pytest.raises(urllib.error.HTTPError) as e:
-                urllib.request.urlopen(bad, data=urllib.parse.urlencode({"text": "  "}).encode())
-            assert e.value.code == code
+        assert urllib.request.urlopen(f"{base}/saved").read().decode().count("Nothing saved") == 1
+        assert post(f"/heart/{first}").status == 200
+        post(f"/heart/{first}")  # double tap: still one heart
+        post(f"/save/{first}")
+        assert "Saved" in urllib.request.urlopen(f"{base}/save/{second}").read().decode()  # view-action path
+        with pytest.raises(urllib.error.HTTPError) as e:
+            post("/heart/nope")
+        assert e.value.code == 404
+        page = urllib.request.urlopen(f"{base}/saved").read().decode()
+        assert page.count("<li") == 2 and f'href="/c/{first}"' in page
     finally:
         server.shutdown()
     con = sqlite3.connect(db)
-    comments = pd.read_sql("SELECT * FROM comments", con)
-    assert comments["text"].tolist() == [text] and comments["user_id"].iloc[0] == n.user_id
-    assert 0 <= comments["minutes_after_push"].iloc[0] < 1
-    labeled = pd.read_sql("SELECT push_id, n_comments, label FROM labeled", con).set_index("push_id")
-    assert labeled.at[push_id, "n_comments"] == 1
-    assert pd.isna(labeled.at[push_id, "label"])  # not tapped, still inside the 24h window
+    reactions = pd.read_sql("SELECT push_id, kind, user_id, minutes_after_push FROM reactions", con)
+    assert sorted(zip(reactions["push_id"], reactions["kind"])) == sorted(
+        [(first, "heart"), (first, "save"), (second, "save")])
+    assert (reactions["user_id"] == n.user_id).all() and (reactions["minutes_after_push"] < 1).all()
+    labeled = pd.read_sql("SELECT push_id, hearted, saved, label FROM labeled", con).set_index("push_id")
+    assert labeled.loc[first, ["hearted", "saved"]].tolist() == [1, 1]
+    assert labeled.loc[second, ["hearted", "saved"]].tolist() == [0, 1]
+    assert labeled["label"].isna().all()  # not tapped, still inside the 24h window
 
 
 def test_unclicked_push_labeled_zero_after_window(setup):

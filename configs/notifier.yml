@@ -11,6 +11,7 @@ objective: configs/objective.yml  # friction, threshold, risk_penalty
 ntfy_server: https://ntfy.sh
 click_port: 8090
 click_window_hours: 24          # a push not tapped within this long counts as label 0
+button_action: http             # ♥ / Save buttons: http = background request; view = opens a confirmation page
 db: outputs/notifier/pushes.db
 feeds:
   - https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml
