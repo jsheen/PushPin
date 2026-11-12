@@ -88,8 +88,9 @@ def send_ntfy(server: str, topic: str, title: str, message: str, click: str, tag
               actions: list[dict] | None = None) -> None:
     """Publish through ntfy's JSON API (body JSON, so non-ASCII titles are fine).
 
-    `actions` are ntfy action buttons. The iOS app doesn't run `http` actions in the background,
-    so the notifier puts its buttons on the card page instead."""
+    `actions` are ntfy action buttons. The notifier doesn't use them: an `http` action does run in
+    the background (tested on iOS), but its request can't say which subscriber tapped it, so ♥ and
+    Save live on the card, where the reader cookie identifies them."""
     body = {"topic": topic, "title": title, "message": message, "click": click, "tags": tags or [],
             **({"actions": actions} if actions else {})}
     req = urllib.request.Request(server.rstrip("/"), data=json.dumps(body).encode(),

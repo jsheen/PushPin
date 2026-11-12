@@ -721,7 +721,8 @@ Tapping a notification opens that push's **card**, a small page served by the `c
 ntfy can't tell subscribers apart, so the card does. The first card a phone opens sets a cookie
 with a random reader ID and offers an optional first-name box. From then on, each open, read,
 ♥ and save is stored for that reader, and each reader has their own reading list. ntfy's own
-action buttons aren't used, because its iOS app doesn't run them in the background.
+notification buttons aren't used. They do work in the background on iOS, but a button's request
+can't say which subscriber tapped it, so it couldn't tell your ♥ from a friend's.
 
 ### Setup (once)
 
