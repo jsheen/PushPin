@@ -102,9 +102,9 @@ services:
         condition: service_healthy
     command: ["pushnyt-push-job --scorer http://scorer:8000 --out outputs/nyt-sim-http"]
 
-  # Real pushes to your phone (ntfy), with a click tracker on http://localhost:8090. Needs the scorer.
-  # Set NTFY_TOPIC (and optionally CLICK_BASE_URL) in .env, subscribe to the topic in the ntfy app.
-  #   docker compose up -d scorer notifier
+  # Real pushes to phones (ntfy), with each push's card on :8090, public through the `tunnel` service.
+  # Set NTFY_TOPIC in .env and subscribe to it in the ntfy app (friends can subscribe too).
+  #   docker compose up -d scorer notifier tunnel
   #   docker compose run --rm notifier "python -m pushnyt.notifier --test"            # delivery check
   #   docker compose run --rm notifier "python -m pushnyt.notifier --once --dry-run"  # one slot, no send
   # Every candidate, its covariates and clicks go to outputs/notifier/pushes.db (SQLite).
@@ -119,18 +119,29 @@ services:
         required: false
     environment:
       - PUSHNYT_SCORER_URL=http://scorer:8000
+      - TUNNEL_METRICS_URL=http://tunnel:2000   # card links use the tunnel's address unless CLICK_BASE_URL is set
     volumes:
       - ./src:/app/src
       - ./configs:/app/configs:ro
       - ./outputs:/app/outputs
     ports:
-      - "8090:8090"   # click tracker; your phone reaches it via CLICK_BASE_URL
+      - "127.0.0.1:8090:8090"   # the cards, for checking locally; phones go through the tunnel
     depends_on:
       scorer:
         condition: service_healthy
     mem_limit: 400m
     restart: unless-stopped
     command: ["python -m pushnyt.notifier"]
+
+  # Public https address for the cards: a Cloudflare quick tunnel (free, no account). Its address
+  # (https://<random>.trycloudflare.com) changes whenever it restarts, which breaks the card links of
+  # pushes sent before; the notifier looks it up from the metrics endpoint at each send.
+  tunnel:
+    image: cloudflare/cloudflared:2025.11.1
+    container_name: pushnyt-tunnel
+    command: ["tunnel", "--no-autoupdate", "--metrics", "0.0.0.0:2000", "--url", "http://notifier:8090"]
+    mem_limit: 128m
+    restart: unless-stopped
 
   # Interactive dev shell: `docker compose run --rm shell`
   shell:

@@ -447,7 +447,7 @@ docker compose run --rm train     # build + run training with configs/train.yml
 docker compose run --rm objective # build + run the push objective with configs/objective.yml
 docker compose up -d api          # build + start the serving API on http://localhost:8000
 docker compose run --rm shell     # interactive shell via compose (training image)
-docker compose up -d scorer notifier  # real pushes to your phone (see that section)
+docker compose up -d scorer notifier tunnel  # real pushes to phones (see that section)
 ```
 
 There are three images. `pushnyt-train` holds the heavy training stack (`pip install .[train]`);
@@ -667,20 +667,34 @@ features (history, recent skips, exposure) computed online from a feature store.
 
 ## Real pushes to your phone
 
-The `notifier` service runs the model on today's NYT news for one reader and sends real push
-notifications to your phone. Every candidate it scores is logged with all its covariates, and so
-is whether you tapped the push. That gives you labeled push data, which MIND can't provide.
+The `notifier` service runs the model on today's NYT news and sends real push notifications to
+everyone subscribed to your ntfy topic: you, and any friends you share the topic with. Every
+candidate it scores is logged with all its covariates, and so is what each reader did with the
+push. That gives you labeled push data, which MIND can't provide.
 
 ```
 NYT RSS feeds ──▶ notifier ──HTTP──▶ scorer  (model + MIND user state, from the NYT sim)
                    │    ▲
-   ntfy.sh ◀───────┘    └── push card :8090 ◀── you tap the notification: Read / ♥ / Save
-   (push to phone)  │
+   ntfy.sh ◀───────┘    └── push card :8090 ◀── tunnel (https://….trycloudflare.com) ◀── a reader taps
+   (push to phones) │                                                                  Read / ♥ / Save
                     ▼
-        outputs/notifier/pushes.db  (SQLite: candidates, covariates, sends, taps, reads, ♥, saves)
+        outputs/notifier/pushes.db  (SQLite: candidates, covariates, sends, and per reader: opens, reads, ♥, saves)
 ```
 
-At each slot hour (8, 12, 17, 21 New York time by default), the notifier does five things:
+### The schedule
+
+The notifier schedules itself; nothing external triggers it. Its main loop:
+
+1. Works out the next slot from `slot_hours` in `configs/notifier.yml` (8, 12, 17, 21 by default)
+   and the current time in `timezone` (New York).
+2. Sleeps until that slot, waking at least every 5 minutes to recheck the clock. That way a
+   Mac that was asleep notices it's past due as soon as it wakes.
+3. Runs the slot, then goes back to step 1.
+
+ntfy has no part in the timing; it only forwards what the notifier sends. Docker just keeps the
+process alive (`restart: unless-stopped`).
+
+Each slot:
 
 1. Reads the NYT RSS feeds and adds new articles to the scorer, which embeds them and maps them
    to MIND subcategories as in the simulation.
@@ -689,31 +703,29 @@ At each slot hour (8, 12, 17, 21 New York time by default), the notifier does fi
 4. Sends it through [ntfy](https://ntfy.sh) if it passes the send policy, up to 3 a day.
 5. Writes every candidate to the database.
 
-Tapping the notification opens the push's **card**, a small page served from your Mac with the
-headline, the abstract and three buttons:
+### The card
+
+Tapping a notification opens that push's **card**, a small page served by the notifier and made
+public by the `tunnel` service. It shows the headline, the abstract and three buttons:
 
 - **Read on NYT** is a plain nytimes.com link, so iOS opens the NYT app if it's installed and
-  Safari otherwise. Reading needs your NYT login there, as usual.
+  Safari otherwise. Reading needs the reader's own NYT login there, as usual.
 - **♡ Love** marks the article as a favorite. Tap again to undo.
-- **🔖 Save** adds it to your reading list at `CLICK_BASE_URL/saved`. Tap again to unsave.
+- **🔖 Save** adds it to the reader's reading list at `/saved`. Tap again to unsave.
 
-The card records the tap (`clicked_at`), whether you went on to read (`read_at`), and each ♥ and
-save. ntfy's own action buttons are not used, because the iOS app doesn't run them in the
-background.
+ntfy can't tell subscribers apart, so the card does. The first card a phone opens sets a cookie
+with a random reader ID and offers an optional first-name box. From then on, each open, read,
+♥ and save is stored for that reader, and each reader has their own reading list. ntfy's own
+action buttons aren't used, because its iOS app doesn't run them in the background.
 
 ### Setup (once)
 
-1. **Phone.** Install **ntfy** from the App Store and allow notifications. Tap **+** and subscribe
-   to a topic on `ntfy.sh`. Anyone who knows the topic name can read it, so make it hard to guess
-   (e.g. `pushnyt-` plus the output of `openssl rand -hex 6`).
-2. **`.env`.** Add the topic. To record taps, also add your Mac's LAN address, which
-   `ipconfig getifaddr en0` prints:
-   ```
-   NTFY_TOPIC=pushnyt-3f9a1c2b7d4e
-   CLICK_BASE_URL=http://192.168.1.23:8090
-   ```
-   Without `CLICK_BASE_URL`, taps open the article directly, there's no card, and nothing is
-   recorded.
+1. **Topic.** Install **ntfy** from the App Store and allow notifications. Tap **+** and
+   subscribe to a topic on `ntfy.sh`. Anyone who knows the topic name can read it, so make it
+   hard to guess (e.g. `pushnyt-` plus the output of `openssl rand -hex 6`), and only share it
+   with friends you're happy to push to.
+2. **`.env`.** Add `NTFY_TOPIC=<your topic>`. Leave `CLICK_BASE_URL` unset to use the tunnel.
+   Only set it if you host the cards somewhere else, e.g. a fixed domain.
 3. **Images.** The scorer runs in the training image, which needs the `api` extra (FastAPI).
    Images built before that was added won't start the scorer, so rebuild, then remove the old
    image:
@@ -733,31 +745,36 @@ docker compose ps                  # wait until scorer shows (healthy)
 docker compose run --rm notifier "python -m pushnyt.notifier --test"            # a test push should reach your phone
 docker compose run --rm notifier "python -m pushnyt.notifier --once --dry-run"  # score one slot now, log it, send nothing
 
-docker compose up -d notifier      # start the schedule
-docker compose logs -f notifier    # one JSON line per slot: candidates, pick, p_click, sent
+docker compose up -d notifier tunnel   # start the schedule and the public card address
+docker compose logs -f notifier        # one JSON line per slot, and per open / read / ♥ / save
 ```
 
 The first run picks the MIND persona and fixes the time shift, and both are stored in the
 database. To see the pushes on your Mac, open ntfy's web app (ntfy.sh/app, subscribe to the same
 topic) or use iPhone Mirroring.
 
-Stop it with `docker compose stop notifier scorer`.
+**Friends:** have them install ntfy and subscribe to the same topic. Tell them their taps, ♥ and
+saves are recorded for a class project.
+
+Stop it with `docker compose stop notifier tunnel scorer`.
 
 ### Keeping it running
 
-The containers run inside Docker Desktop on your Mac, so pushes only go out while the Mac is
-awake and Docker is running:
+The containers run inside Docker Desktop on your Mac, so pushes go out and cards load only while
+the Mac is awake and Docker is running:
 
 - **Sleep.** Containers pause while the Mac sleeps. On wake, the notifier sends the slot it
   was waiting for, late, and skips any others it missed.
 - **Reboot or Docker restart.** Turn on Docker Desktop → Settings → General → *Start Docker
-  Desktop when you sign in*. The notifier has `restart: unless-stopped` and comes back by
-  itself. The scorer doesn't, so it doesn't hold 2.5 GB all the time; start it again with
-  `docker compose up -d scorer`. Until you do, slots fail and are logged, without stopping the
-  notifier.
-- **Always on.** Pushing with the laptop closed means running the same two services on a small
-  cloud VM with about 4 GB of RAM. That would also make the click tracker reachable away from
-  home Wi-Fi.
+  Desktop when you sign in*. The notifier and tunnel have `restart: unless-stopped` and come
+  back by themselves. The scorer doesn't, so it doesn't hold 2.5 GB all the time; start it again
+  with `docker compose up -d scorer`. Until you do, slots fail and are logged, without stopping
+  the notifier.
+- **Tunnel address.** A quick tunnel gets a new `trycloudflare.com` address whenever it
+  restarts. New pushes use the new address, but cards of older pushes stop loading. A
+  Cloudflare named tunnel with your own domain keeps one address.
+- **Always on.** Pushing with the laptop closed means running these services on a cloud VM
+  with about 4 GB of RAM.
 
 ### The data
 
@@ -765,25 +782,30 @@ awake and Docker is running:
 
 | Table | One row per | Columns |
 |-------|-------------|---------|
-| `scores` | slot × candidate article | `slot_time`, article (`title`, `section`, `subcategory`, `url`, `published`), every model feature, `p_click`, `p_return`, `novelty`, `push_score`, `is_top`, `passes_policy`, `sent`, `push_id`, `sent_at`, `sent_ts` (Unix seconds), `clicked_at` (card opened), `read_at` (Read on NYT tapped) |
-| `labeled` (view) | sent push | everything in `scores`, plus `label` (1 = tapped, 0 = not tapped within 24 h, NULL = pending), and `read`, `hearted`, `saved` (0/1) |
-| `reactions` | push × kind (`heart` or `save`) | `push_id`, `kind`, `news_id`, `user_id`, `created_at`, `minutes_after_push` |
+| `scores` | slot × candidate article | `slot_time`, article (`title`, `section`, `subcategory`, `url`, `published`), every model feature, `p_click`, `p_return`, `novelty`, `push_score`, `is_top`, `passes_policy`, `sent`, `push_id`, `sent_at`, `sent_ts` (Unix seconds) |
+| `readers` | phone that opened a card | `reader_id` (the cookie), `name` (optional), `created_at`, `first_push_ts` |
+| `interactions` | push × reader × kind | `kind` (`open`, `read`, `heart`, `save`), `created_at`, `minutes_after_push`; unloving or unsaving deletes the row |
+| `labeled` (view) | sent push × reader | the push's `scores` row plus `reader_id`, `reader_name`, `label` (1 = opened, 0 = not opened within 24 h, NULL = pending), `read`, `hearted`, `saved` |
 | `articles` | article read from the feeds | text, URL, publish time, mapped MIND subcategory |
 | `meta` | setting | persona `user_id`, time anchor |
+
+A reader is first seen when they open a card. So `labeled` pairs each reader only with pushes
+sent from their first opened push onward; before that, there's no way to know whether they were
+subscribed. Subscribers who never open a card don't appear at all.
 
 Example queries:
 
 ```bash
 sqlite3 -header -column outputs/notifier/pushes.db \
-  "SELECT slot_time, section, round(p_click, 3) AS p_click, label, title FROM labeled ORDER BY slot_time DESC LIMIT 20"
+  "SELECT slot_time, reader_name, round(p_click, 3) AS p_click, label, read, hearted, saved, title FROM labeled ORDER BY slot_time DESC LIMIT 20"
 
-# what you hearted or saved, by section
+# per reader: pushes, opens, reads, hearts, saves
 sqlite3 -header -column outputs/notifier/pushes.db \
-  "SELECT section, count(*) AS sent, sum(label = 1) AS taps, sum(read) AS reads, sum(hearted) AS hearts, sum(saved) AS saves FROM labeled GROUP BY section"
+  "SELECT coalesce(reader_name, reader_id) AS reader, count(*) AS pushes, sum(label = 1) AS opens, sum(read) AS reads, sum(hearted) AS hearts, sum(saved) AS saves FROM labeled GROUP BY reader_id"
 
-# tap rate by predicted P(click) bucket
+# open rate by predicted P(click) bucket
 sqlite3 outputs/notifier/pushes.db \
-  "SELECT round(p_click, 2) AS bucket, count(*) AS n, avg(label) AS tap_rate FROM labeled WHERE label IS NOT NULL GROUP BY bucket"
+  "SELECT round(p_click, 2) AS bucket, count(*) AS n, avg(label) AS open_rate FROM labeled WHERE label IS NOT NULL GROUP BY bucket"
 ```
 
 The non-pushed candidates are kept too (`is_top = 0`), so the table can also serve as training or
@@ -795,23 +817,20 @@ off-policy data later. In pandas: `pd.read_sql("SELECT * FROM labeled", sqlite3.
 feeds, ntfy server and click window. The threshold, risk penalty and friction come from
 `configs/objective.yml`.
 
-- **It scores for a stand-in, not you.** The scorer only knows MIND users, so a MIND reader
-  (sampled, or set with `user_id`) stands in for you. Scoring you directly would mean adding a
-  new user's state, e.g. built from a seed list of articles you've read.
-- **Your taps, reads, ♥ and saves aren't fed back yet.** They're stored in the database, but
-  they don't update the persona's state in the scorer. They're signals of different strength:
-  a tap means "curious", a read means "read it", ♥ means "more like this", and a save means
-  "interested, not now".
-- **The card only works on the same Wi-Fi as the Mac.** The phone has to reach
-  `CLICK_BASE_URL`; elsewhere, tapping a push fails to load.
-- **One reader per topic.** Everyone subscribed to the topic gets the same push and the same
-  card, so their taps would mix together. Separate readers would each need their own topic and
-  their own push IDs. ♥ and saves live in this database, not in the reader's NYT account; NYT
+- **Everyone gets the same push, picked for a stand-in.** The scorer only knows MIND users, so
+  one MIND reader (sampled, or set with `user_id`) stands in for all subscribers. Per-reader
+  pushes would need a topic per reader and a profile built from each reader's own opens, reads,
+  ♥ and saves. The reader IDs are already in place for that.
+- **Interactions aren't fed back yet.** They're stored, but they don't update any profile in the
+  scorer. They're signals of different strength: an open means "curious", a read means "read
+  it", ♥ means "more like this", and a save means "interested, not now".
+- **Cookies are per browser.** A reader who clears cookies, or opens a card in another browser,
+  becomes a new reader. ♥ and saves live in this database, not in the reader's NYT account; NYT
   has no public API for writing to its saved list.
 - **The feeds are RSS.** RSS needs no API key, but it only lists what editors put in each
   section's feed. The NYT Times Wire API would cover every article in one call.
 - **P(click) is a ranking signal here, not a rate.** The model was trained on another outlet
-  and era, so the 0.07 send threshold is in MIND feed units. Your logged taps are what would
+  and era, so the 0.07 send threshold is in MIND feed units. Logged opens are what would
   recalibrate it.
 
 ## Development
@@ -860,7 +879,7 @@ outputs/
   full/                   # default: every feature group
   analysis/               # pushnyt-exploration and pushnyt-fatigue: exploration.*, fatigue.*
   nyt-sim/                # pushnyt-nyt-sim: scores, pushes, daily.csv, summary.json
-  notifier/pushes.db      # notifier: every candidate, covariates, sends, taps, reads, ♥, saves (SQLite)
+  notifier/pushes.db      # notifier: every candidate, covariates, sends, per-reader opens / reads / ♥ / saves (SQLite)
 ```
 
 | File | Contents |

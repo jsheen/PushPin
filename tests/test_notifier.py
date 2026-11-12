@@ -81,57 +81,124 @@ def test_next_slot(setup):
     assert n.next_slot(pd.Timestamp("2026-11-12 21:00")) == pd.Timestamp("2026-11-13 08:00")
 
 
-def test_card_read_heart_save_and_reading_list(setup):
+def phone(base):
+    """A client with its own cookie jar, like one subscriber's phone."""
+    import http.cookiejar
+
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+    get = lambda path: opener.open(base + path).read().decode()
+    post = lambda path, body=b"on": opener.open(urllib.request.Request(base + path, data=body, method="POST"))
+    return get, post
+
+
+def test_readers_tracked_separately(setup):
     n, store, sent, db = setup
     n.run_slot(pd.Timestamp("2026-11-12 12:00"))
     n.run_slot(pd.Timestamp("2026-11-12 17:00"))
     first, second = (a[4].rsplit("/", 1)[1] for a in sent)
-    assert all("actions" not in a[5] or not a[5]["actions"] for a in sent)
     server = nt.serve_clicks(store, 0)
     base = f"http://127.0.0.1:{server.server_address[1]}"
-    get = lambda path: urllib.request.urlopen(base + path).read().decode()
-    post = lambda path, body=b"on": urllib.request.urlopen(urllib.request.Request(base + path, data=body, method="POST"))
+    me_get, me_post = phone(base)
+    friend_get, friend_post = phone(base)
     try:
-        assert "Nothing saved" in get("/saved")
-        card = get(f"/p/{first}")  # the tap
-        assert "Read on NYT" in card and 'href="https://www.nytimes.com/' in card and "About Story" in card
-        assert 'aria-pressed="false">♡ Love' in card
-        post(f"/read/{first}")
-        post(f"/heart/{first}"), post(f"/heart/{first}")  # double tap: still one
-        post(f"/save/{first}"), post(f"/save/{second}")
-        post(f"/save/{second}", b"off")  # unsave
-        assert 'aria-pressed="true">♥ Loved' in get(f"/p/{first}")
-        for bad in ("/heart/nope", "/read/nope", "/bogus/" + first):
-            with pytest.raises(urllib.error.HTTPError) as e:
-                post(bad)
-            assert e.value.code == 404
         with pytest.raises(urllib.error.HTTPError) as e:
-            get("/p/nope")
-        assert e.value.code == 404
-        listing = get("/saved")
-        assert listing.count("<li") == 1 and f'href="/p/{first}"' in listing and "· read" in listing
+            me_post(f"/heart/{first}")  # no reader cookie until a card is opened
+        assert e.value.code == 403
+
+        card = me_get(f"/p/{first}")  # my first tap creates my reader id
+        assert "Read on NYT" in card and 'href="https://www.nytimes.com/' in card and "About Story" in card
+        assert 'aria-pressed="false">♡ Love' in card and "Your first name" in card
+        me_post("/name", "Justin".encode())
+        me_post(f"/read/{first}")
+        me_post(f"/heart/{first}"), me_post(f"/heart/{first}")  # double tap: still one
+        me_post(f"/save/{first}")
+        assert 'aria-pressed="true">♥ Loved' in me_get(f"/p/{first}") and "Reading as Justin" in me_get(f"/p/{first}")
+
+        friend_get(f"/p/{second}")  # the friend only opens the second push
+        assert 'aria-pressed="false">♡ Love' in friend_get(f"/p/{first}")  # my ♥ isn't theirs
+        friend_post(f"/save/{second}"), friend_post(f"/save/{second}", b"off")  # save, then unsave
+
+        for bad in ("/heart/nope", "/bogus/" + first):
+            with pytest.raises(urllib.error.HTTPError) as e:
+                me_post(bad)
+            assert e.value.code == 404
+        mine = me_get("/saved")
+        assert mine.count("<li") == 1 and f'href="/p/{first}"' in mine and "· read" in mine
+        assert "Nothing saved" in friend_get("/saved")
     finally:
         server.shutdown()
+
     con = sqlite3.connect(db)
-    reactions = pd.read_sql("SELECT push_id, kind, user_id, minutes_after_push FROM reactions", con)
-    assert sorted(zip(reactions["push_id"], reactions["kind"])) == [(first, "heart"), (first, "save")]
-    assert (reactions["user_id"] == n.user_id).all() and (reactions["minutes_after_push"] < 1).all()
-    labeled = pd.read_sql("SELECT push_id, label, read, hearted, saved FROM labeled", con).set_index("push_id")
-    assert labeled.loc[first].tolist() == [1, 1, 1, 1]  # tapped, read, loved, saved
-    assert labeled.loc[second, ["read", "hearted", "saved"]].tolist() == [0, 0, 0]
-    assert pd.isna(labeled.at[second, "label"])  # not tapped, still inside the 24h window
+    readers = pd.read_sql("SELECT * FROM readers", con)
+    assert len(readers) == 2 and sorted(readers["name"].fillna("")) == ["", "Justin"]
+    me = readers.loc[readers["name"] == "Justin", "reader_id"].item()
+    friend = readers.loc[readers["name"].isna(), "reader_id"].item()
+    labeled = pd.read_sql("SELECT push_id, reader_id, label, read, hearted, saved FROM labeled", con)
+    rows = {(r.push_id, r.reader_id): (r.label, r.read, r.hearted, r.saved) for r in labeled.itertuples()}
+    assert rows[(first, me)] == (1, 1, 1, 1)
+    assert rows[(first, friend)] == (1, 0, 0, 0)  # the friend's check of the first card opened it
+    assert rows[(second, friend)][1:] == (0, 0, 0) and rows[(second, friend)][0] == 1
+    assert pd.isna(rows[(second, me)][0])  # I haven't opened it, still inside the 24h window
+
+
+def test_reader_not_labeled_for_pushes_before_they_joined(setup):
+    n, store, sent, db = setup
+    n.run_slot(pd.Timestamp("2026-11-12 12:00"))
+    n.run_slot(pd.Timestamp("2026-11-12 17:00"))
+    first, second = (a[4].rsplit("/", 1)[1] for a in sent)
+    con = sqlite3.connect(db)
+    con.execute("UPDATE scores SET sent_ts = sent_ts - 3600 WHERE push_id = ?", (first,))  # the earlier push
+    con.commit()
+    reader = store.new_reader(store.push(second)["sent_ts"])  # first seen on the later push
+    store.interact(second, reader, "open")
+    assert pd.read_sql("SELECT push_id FROM labeled", con)["push_id"].tolist() == [second]
+
+
+def test_base_url_prefers_env_then_tunnel(setup, monkeypatch):
+    n = setup[0]
+    assert n.base_url() == "http://mac:8090"
+    n.click_base, n.tunnel_metrics = "", "http://tunnel:2000"
+    monkeypatch.setattr(nt, "tunnel_url", lambda m: "https://abc.trycloudflare.com")
+    assert n.base_url() == "https://abc.trycloudflare.com"
+    n.tunnel_metrics = None
+    assert n.base_url() is None
+
+
+def test_tunnel_url_reads_quicktunnel_endpoint():
+    import json as _json
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    import threading
+
+    class H(BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = _json.dumps({"hostname": "abc.trycloudflare.com"} if self.path == "/quicktunnel" else {}).encode()
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):
+            pass
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        assert nt.tunnel_url(f"http://127.0.0.1:{srv.server_address[1]}") == "https://abc.trycloudflare.com"
+        assert nt.tunnel_url("http://127.0.0.1:1") is None  # unreachable: no card link, not a crash
+    finally:
+        srv.shutdown()
 
 
 def test_card_escapes_html(setup):
     page = nt.card_page({"push_id": 'x"</script>', "title": "<b>T</b>", "section": "us", "url": "https://www.nytimes.com/a",
-                         "abstract": "a & b", "hearted": 0, "saved": 0})
-    assert "<b>T</b>" not in page and "a &amp; b" in page
+                         "abstract": "a & b", "hearted": 0, "saved": 0}, {"reader_id": "r", "name": "<i>x</i>"})
+    assert "<b>T</b>" not in page and "a &amp; b" in page and "<i>x</i>" not in page
     assert page.split("<script>")[1].count("</script>") == 1  # the id can't close the script early
 
 
 def test_unclicked_push_labeled_zero_after_window(setup):
     n, store, sent, db = setup
     n.run_slot(pd.Timestamp("2026-11-12 12:00"))
+    store.new_reader(0)  # a subscriber who never opens it
     con = sqlite3.connect(db)
     con.execute("UPDATE scores SET sent_ts = sent_ts - 25 * 3600 WHERE sent = 1")
     con.commit()
