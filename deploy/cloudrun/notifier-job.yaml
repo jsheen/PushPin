@@ -1,0 +1,42 @@
+# One notifier slot as a Cloud Run job: read the feeds, score, push, log, exit.
+# Cloud Scheduler starts it at each slot hour (see scripts/deploy-gcp.sh), replacing the local
+# container's sleep loop. It reaches the scorer on GKE through the VPC (Direct VPC egress to the
+# scorer's internal load balancer) and the database through the Cloud SQL socket.
+# ${...} placeholders are filled in by scripts/deploy-gcp.sh; deploy with
+#   gcloud run jobs replace <filled-in file> --region ${REGION}
+apiVersion: run.googleapis.com/v1
+kind: Job
+metadata:
+  name: pushnyt-notifier
+  labels:
+    app: pushnyt
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/cloudsql-instances: ${SQL_INSTANCE}
+        run.googleapis.com/network-interfaces: '[{"network":"default","subnetwork":"default"}]'
+        run.googleapis.com/vpc-access-egress: private-ranges-only   # only scorer traffic goes through the VPC
+    spec:
+      taskCount: 1
+      template:
+        spec:
+          serviceAccountName: pushnyt-run@${PROJECT}.iam.gserviceaccount.com
+          maxRetries: 1
+          timeoutSeconds: 900
+          containers:
+            - image: ${REGION}-docker.pkg.dev/${PROJECT}/pushnyt/objective:${TAG}
+              args: ["python -m pushnyt.notifier --once"]
+              env:
+                - name: PUSHNYT_SCORER_URL
+                  value: ${SCORER_URL}     # the scorer's internal load balancer on GKE
+                - name: CLICK_BASE_URL
+                  value: ${CARDS_URL}      # the card service's https address
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef: {name: pushnyt-database-url, key: latest}
+                - name: NTFY_TOPIC
+                  valueFrom:
+                    secretKeyRef: {name: pushnyt-ntfy-topic, key: latest}
+              resources:
+                limits: {cpu: "1", memory: 512Mi}

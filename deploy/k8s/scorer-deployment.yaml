@@ -1,0 +1,61 @@
+# The scorer: model + MIND user state, answering the notifier's /articles and /score calls.
+# Big (~3 GB in memory) and slow to start (minutes to load), which is why it lives on GKE rather than
+# Cloud Run. An init container copies the data and the training run from the bucket to the pod's
+# disk first (Chroma's SQLite files don't like network filesystems).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scorer
+  namespace: pushnyt
+  labels: {app: scorer}
+spec:
+  replicas: 1   # KEDA (scorer-scaledobject.yaml) takes over: one replica per 10 readers
+  selector:
+    matchLabels: {app: scorer}
+  template:
+    metadata:
+      labels: {app: scorer}
+    spec:
+      serviceAccountName: scorer
+      initContainers:
+        - name: fetch-data
+          image: google/cloud-sdk:520.0.0-slim
+          command: ["bash", "-c"]
+          args:
+            - >-
+              gcloud storage cp -r gs://${BUCKET}/data/* /app/data/ &&
+              mkdir -p /app/outputs/${RUN} &&
+              gcloud storage cp -r gs://${BUCKET}/outputs/${RUN}/* /app/outputs/${RUN}/
+          volumeMounts:
+            - {name: data, mountPath: /app/data}
+            - {name: outputs, mountPath: /app/outputs}
+          resources:
+            requests: {cpu: 500m, memory: 512Mi, ephemeral-storage: 4Gi}
+      containers:
+        - name: scorer
+          image: ${REGION}-docker.pkg.dev/${PROJECT}/pushnyt/train:${TAG}
+          args: ["pushnyt-scorer"]   # the image's entrypoint is bash -c
+          env:
+            - {name: PUSHNYT_RUN_DIR, value: outputs/${RUN}}
+            - {name: DATA_DIR, value: /app/data}
+            - {name: MALLOC_ARENA_MAX, value: "2"}
+            - {name: OMP_NUM_THREADS, value: "2"}
+            - {name: TOKENIZERS_PARALLELISM, value: "false"}
+          ports:
+            - containerPort: 8000
+          volumeMounts:
+            - {name: data, mountPath: /app/data}
+            - {name: outputs, mountPath: /app/outputs}
+          resources:   # Autopilot bills for requests; limits = requests
+            requests: {cpu: "1", memory: 3Gi, ephemeral-storage: 4Gi}
+            limits: {cpu: "1", memory: 3Gi, ephemeral-storage: 4Gi}
+          startupProbe:   # loading the MIND state takes a few minutes: allow up to 15
+            httpGet: {path: /health, port: 8000}
+            periodSeconds: 15
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: {path: /health, port: 8000}
+            periodSeconds: 15
+      volumes:
+        - {name: data, emptyDir: {}}
+        - {name: outputs, emptyDir: {}}

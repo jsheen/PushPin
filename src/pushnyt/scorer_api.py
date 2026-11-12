@@ -7,7 +7,8 @@ reaches it by service name at http://scorer:8000; no host port needs publishing.
   GET  /health             liveness, end of the user-state log, catalog size
   GET  /users?n=&seed=     a sample of users to push to
   POST /articles           {"articles": [{news_id, title, abstract, published}, ...]}
-  POST /score              {"requests": [{user_id, time, news_ids, impression_id}, ...], "features": false}
+  POST /score              {"requests": [{user_id, time, news_ids, impression_id}, ...], "features": false,
+                            "articles": [...]}   (optional: candidates to add first if missing)
 
 Responses are JSON with NaN allowed (features can be missing), which Python's json reads back
 exactly. Startup loads the MIND state and takes a minute or two; /health answers once it's ready.
@@ -34,6 +35,7 @@ class Articles(BaseModel):
 class Requests(BaseModel):
     requests: list[dict]  # user_id, time (ISO), news_ids, impression_id
     features: bool = False  # also return every model input, not just the scores
+    articles: list[dict] | None = None  # add these first if missing (so any replica can score)
 
 
 def _json(payload) -> Response:
@@ -62,6 +64,13 @@ def create_app(scorer) -> FastAPI:
 
     @app.post("/score")
     def score(body: Requests) -> Response:
+        if body.articles:
+            df = pd.DataFrame(body.articles)
+            missing = scorer.missing_articles(df["news_id"].tolist())
+            if missing:
+                df = df[df["news_id"].isin(missing)]
+                scorer.add_articles(df.assign(published=pd.to_datetime(df["published"])))
+                log.info(json.dumps({"event": "articles", "added": len(df), "inline": True}))
         rows = scorer.score(body.requests, features=True) if body.features else scorer.score(body.requests)
         return _json(rows.to_dict("list"))
 

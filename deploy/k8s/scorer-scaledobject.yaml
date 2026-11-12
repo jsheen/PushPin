@@ -1,0 +1,40 @@
+# KEDA: one scorer replica per 10 readers (replicas = ceil(readers / 10)), between 1 and 3.
+# The reader count comes from the card service's /stats endpoint on Cloud Run, which needs the
+# X-Api-Key header (the pushnyt-stats-token secret). KEDA is installed by scripts/deploy-gcp.sh.
+#
+# Load doesn't need this at pushNYT's size (scoring is ~4 ms per reader per slot, so one replica
+# handles thousands); it shows the mechanism. Each replica costs ~3 GB of memory, hence max 3.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: scorer
+  namespace: pushnyt
+spec:
+  scaleTargetRef:
+    name: scorer
+  minReplicaCount: 1
+  maxReplicaCount: 3
+  pollingInterval: 300   # readers change slowly; check every 5 minutes
+  cooldownPeriod: 3600
+  triggers:
+    - type: metrics-api
+      metadata:
+        url: ${CARDS_URL}/stats
+        valueLocation: readers
+        targetValue: "10"
+        authMode: apiKey
+        method: header
+        keyParamName: X-Api-Key
+      authenticationRef:
+        name: cards-stats
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: cards-stats
+  namespace: pushnyt
+spec:
+  secretTargetRef:
+    - parameter: apiKey
+      name: cards-stats   # created by scripts/deploy-gcp.sh from Secret Manager
+      key: token

@@ -1,0 +1,15 @@
+# The scorer's address. An internal load balancer: reachable from inside the VPC (the Cloud Run
+# notifier job, through Direct VPC egress), not from the internet. It spreads requests across
+# replicas; the notifier sends candidate articles with each /score call, so any replica can answer.
+apiVersion: v1
+kind: Service
+metadata:
+  name: scorer
+  namespace: pushnyt
+  annotations:
+    networking.gke.io/load-balancer-type: "Internal"
+spec:
+  type: LoadBalancer
+  selector: {app: scorer}
+  ports:
+    - {port: 8000, targetPort: 8000}

@@ -107,14 +107,28 @@ class LocalScorer:
 
     def add_articles(self, articles: pd.DataFrame) -> pd.DataFrame:
         """Embed and map new articles (news_id, title, abstract, published; oldest first) and
-        add them to the catalog. Returns news_id, subcategory, subcat_sim."""
+        add them to the catalog. Returns news_id, subcategory, subcat_sim.
+
+        Idempotent: articles already in the catalog aren't added again; they come back with their
+        subcategory and a missing subcat_sim."""
         g = self.live.g
+        known = articles["news_id"].isin(g.news_idx).to_numpy()
+        if known.any():
+            idx = [g.news_idx[n] for n in articles.loc[known, "news_id"]]
+            old = pd.DataFrame({"news_id": articles.loc[known, "news_id"].to_numpy(),
+                                "subcategory": g.subcat_names[g.subcat[idx]], "subcat_sim": np.nan})
+            new = self.add_articles(articles[~known]) if (~known).any() else old.iloc[:0]
+            return (pd.concat([old, new]).set_index("news_id").loc[articles["news_id"]].reset_index())
         vec = self.embedder(articles["abstract"].tolist(), self.config)
         subcat, sim = map_subcategories(vec, g.abstract_vec[:self.n_mind], g.subcat[:self.n_mind], g.subcat_names)
         published = pd.to_datetime(articles["published"]).to_numpy()
         self.live.add_articles(articles.assign(subcategory=subcat), vec, published)
         g.store = ExactStore(g.news_ids, g.abstract_vec)
         return pd.DataFrame({"news_id": articles["news_id"].to_numpy(), "subcategory": subcat, "subcat_sim": sim})
+
+    def missing_articles(self, news_ids: list[str]) -> list[str]:
+        """The ids not yet in the catalog."""
+        return [n for n in news_ids if n not in self.live.g.news_idx]
 
     def score(self, requests: list[dict], features: bool = False) -> pd.DataFrame:
         """Score a batch of requests; the retrieval index sees only articles published by then.

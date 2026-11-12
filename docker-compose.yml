@@ -102,9 +102,13 @@ services:
         condition: service_healthy
     command: ["pushnyt-push-job --scorer http://scorer:8000 --out outputs/nyt-sim-http"]
 
-  # Real pushes to phones (ntfy), with each push's card on :8090, public through the `tunnel` service.
+  # Real pushes to phones (ntfy). Three services, matching the cloud layout (deploy/):
+  #   notifier  the schedule: sleeps until each slot, scores, pushes   (cloud: Cloud Run job + Scheduler)
+  #   cards     what a tapped push opens: Read / ♥ / Save, per reader   (cloud: Cloud Run service)
+  #   tunnel    a public https address for the cards                    (cloud: Cloud Run's own URL)
   # Set NTFY_TOPIC in .env and subscribe to it in the ntfy app (friends can subscribe too).
-  #   docker compose up -d scorer notifier tunnel
+  # Both write to outputs/notifier/pushes.db, or to DATABASE_URL if set (e.g. the `db` service).
+  #   docker compose up -d scorer notifier cards tunnel
   #   docker compose run --rm notifier "python -m pushnyt.notifier --test"            # delivery check
   #   docker compose run --rm notifier "python -m pushnyt.notifier --once --dry-run"  # one slot, no send
   # Every candidate, its covariates and clicks go to outputs/notifier/pushes.db (SQLite).
@@ -124,8 +128,6 @@ services:
       - ./src:/app/src
       - ./configs:/app/configs:ro
       - ./outputs:/app/outputs
-    ports:
-      - "127.0.0.1:8090:8090"   # the cards, for checking locally; phones go through the tunnel
     depends_on:
       scorer:
         condition: service_healthy
@@ -133,15 +135,53 @@ services:
     restart: unless-stopped
     command: ["python -m pushnyt.notifier"]
 
+  cards:
+    image: pushnyt-objective:latest
+    container_name: pushnyt-cards
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./src:/app/src
+      - ./configs:/app/configs:ro
+      - ./outputs:/app/outputs
+    ports:
+      - "127.0.0.1:8090:8090"   # for checking locally; phones go through the tunnel
+    mem_limit: 256m
+    restart: unless-stopped
+    command: ["python -m pushnyt.cards"]
+
   # Public https address for the cards: a Cloudflare quick tunnel (free, no account). Its address
   # (https://<random>.trycloudflare.com) changes whenever it restarts, which breaks the card links of
   # pushes sent before; the notifier looks it up from the metrics endpoint at each send.
   tunnel:
     image: cloudflare/cloudflared:2025.11.1
     container_name: pushnyt-tunnel
-    command: ["tunnel", "--no-autoupdate", "--metrics", "0.0.0.0:2000", "--url", "http://notifier:8090"]
+    command: ["tunnel", "--no-autoupdate", "--metrics", "0.0.0.0:2000", "--url", "http://cards:8090"]
     mem_limit: 128m
     restart: unless-stopped
+
+  # Local Postgres, the same database engine as Cloud SQL, for trying the cloud setup on the Mac:
+  #   docker compose --profile postgres up -d db
+  #   DATABASE_URL=postgresql+psycopg://pushnyt:pushnyt@db:5432/pushnyt  (from containers)
+  #   PUSHNYT_TEST_DATABASE_URL=postgresql+psycopg://pushnyt:pushnyt@localhost:5433/pushnyt uv run pytest tests/test_notifier.py
+  db:
+    image: postgres:16.6-alpine
+    container_name: pushnyt-db
+    profiles: ["postgres"]
+    environment:
+      - POSTGRES_USER=pushnyt
+      - POSTGRES_PASSWORD=pushnyt   # local only; Cloud SQL's password lives in Secret Manager
+      - POSTGRES_DB=pushnyt
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - pushnyt-db:/var/lib/postgresql/data
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "pushnyt"]
+      interval: 5s
+      retries: 10
 
   # Interactive dev shell: `docker compose run --rm shell`
   shell:
@@ -150,3 +190,6 @@ services:
     stdin_open: true
     tty: true
     command: ["bash"]
+
+volumes:
+  pushnyt-db:

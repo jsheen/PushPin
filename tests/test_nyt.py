@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 from pushnyt.nyt import map_subcategories
 from pushnyt.push_job import slot_times
@@ -43,3 +44,17 @@ def test_daily_report_counts_per_day():
     assert d.loc["2024-12-02", "most_sent_title"] == "A" and d.loc["2024-12-02", "most_sent_users"] == 2
     assert abs(d.loc["2024-12-02", "share_of_articles_pushed"] - 1 / 3) < 1e-9
     assert d.loc["2024-12-03", "sent"] == 0 and d.loc["2024-12-03", "send_rate"] == 0
+
+
+def test_local_scorer_add_articles_skips_known():
+    from types import SimpleNamespace
+
+    from pushnyt.nyt import LocalScorer
+
+    scorer = LocalScorer.__new__(LocalScorer)  # no MIND load: only the catalog lookup is exercised
+    scorer.live = SimpleNamespace(g=SimpleNamespace(news_idx={"A": 0, "B": 1}, subcat=np.array([1, 0]),
+                                                    subcat_names=np.array(["sports", "news"])))
+    scorer.embedder = lambda *a: pytest.fail("known articles must not be embedded again")
+    out = scorer.add_articles(pd.DataFrame({"news_id": ["B", "A"], "title": "", "abstract": "", "published": pd.NaT}))
+    assert out["news_id"].tolist() == ["B", "A"] and out["subcategory"].tolist() == ["sports", "news"]
+    assert out["subcat_sim"].isna().all()

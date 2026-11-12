@@ -1,12 +1,15 @@
-import sqlite3
+import os
 import urllib.error
 import urllib.request
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 import pytest
+from sqlalchemy import text
 
+from pushnyt import cards
 from pushnyt import notifier as nt
+from pushnyt.store import Store
 from tests.test_push_job import FakeScorer
 
 TZ = ZoneInfo("America/New_York")
@@ -26,21 +29,55 @@ ITEMS = [(f"Story {i}", sec, f"Thu, 12 Nov 2026 {9 + i:02d}:00:00 +0000") for i,
 
 
 class FeatureScorer(FakeScorer):
-    def score(self, requests, features=False):
+    def score(self, requests, features=False, articles=None):
+        if articles is not None:  # inline candidates must cover every requested article
+            assert set(articles["news_id"]) >= {n for r in requests for n in r["news_ids"]}
         rows = super().score(requests)
         return rows.assign(sim_text=0.5, user_history_len=7) if features else rows
 
 
-@pytest.fixture
-def setup(tmp_path, monkeypatch):
+PG_URL = os.environ.get("PUSHNYT_TEST_DATABASE_URL")  # e.g. postgresql+psycopg://pushnyt:pushnyt@localhost:5433/pushnyt
+
+
+class DB:
+    """Run SQL against the store's database, whichever backend it is."""
+
+    def __init__(self, store):
+        self.engine = store.engine
+
+    def __call__(self, sql, **params):
+        with self.engine.connect() as con:
+            return pd.read_sql(text(sql), con, params=params)
+
+    def run(self, sql, **params):
+        with self.engine.begin() as con:
+            con.execute(text(sql), params)
+
+
+def make_store(location):
+    if str(location).startswith("postgresql"):  # start from empty tables
+        from sqlalchemy import create_engine
+        engine = create_engine(location)
+        with engine.begin() as con:
+            con.execute(text("DROP VIEW IF EXISTS labeled"))
+            con.execute(text("DROP TABLE IF EXISTS scores, readers, interactions, articles, meta"))
+        engine.dispose()
+    return Store(location, click_window_hours=24, tz=TZ)
+
+
+@pytest.fixture(params=["sqlite", "postgres"])
+def setup(request, tmp_path, monkeypatch):
+    if request.param == "postgres" and not PG_URL:
+        pytest.skip("set PUSHNYT_TEST_DATABASE_URL to test against Postgres")
     sent = []
     monkeypatch.setattr(nt, "fetch_feeds", lambda urls, tz: nt.parse_rss(rss(ITEMS), tz))
     monkeypatch.setattr(nt, "send_ntfy", lambda *a, **k: sent.append((*a, k)))
     config = {"timezone": "America/New_York", "slot_hours": [8, 12, 17, 21], "lookback_hours": 24,
               "daily_cap": 2, "user_id": None, "seed": 42, "ntfy_server": "https://ntfy.sh", "feeds": []}
-    store = nt.Store(tmp_path / "pushes.db", click_window_hours=24, tz=TZ)
+    store = make_store(tmp_path / "pushes.db" if request.param == "sqlite" else PG_URL)
     n = nt.Notifier(FeatureScorer(), store, config, OBJECTIVE, "topic", "http://mac:8090")
-    return n, store, sent, tmp_path / "pushes.db"
+    yield n, store, sent, DB(store)
+    store.engine.dispose()
 
 
 def test_parse_rss():
@@ -51,14 +88,14 @@ def test_parse_rss():
 
 
 def test_slot_logs_covariates_and_respects_cap(setup):
-    n, store, sent, db = setup
+    n, _store, sent, db = setup
     assert n.shift == pd.Timestamp("2019-11-15") - n.now().normalize()  # day after the MIND log
     noon = pd.Timestamp("2026-11-12 12:00")
     r = n.run_slot(noon)
     assert r["sent"] and r["candidates"] == 4 and len(sent) == 1
     assert sent[0][4].startswith("http://mac:8090/p/")  # tap opens the push's card
 
-    scores = pd.read_sql("SELECT * FROM scores", sqlite3.connect(db))
+    scores = db("SELECT * FROM scores")
     assert len(scores) == 4 and scores["is_top"].sum() == 1 and scores["sent"].sum() == 1
     assert {"sim_text", "user_history_len", "p_click", "push_score", "subcategory", "url"} <= set(scores.columns)
 
@@ -69,7 +106,7 @@ def test_slot_logs_covariates_and_respects_cap(setup):
 
 
 def test_dry_run_sends_nothing(setup):
-    n, store, sent, db = setup
+    n, _store, sent, _db = setup
     n.dry_run = True
     r = n.run_slot(pd.Timestamp("2026-11-12 12:00"))
     assert r["passes_policy"] and not r["sent"] and sent == []
@@ -96,7 +133,7 @@ def test_readers_tracked_separately(setup):
     n.run_slot(pd.Timestamp("2026-11-12 12:00"))
     n.run_slot(pd.Timestamp("2026-11-12 17:00"))
     first, second = (a[4].rsplit("/", 1)[1] for a in sent)
-    server = nt.serve_clicks(store, 0)
+    server = cards.serve_cards(store, 0)
     base = f"http://127.0.0.1:{server.server_address[1]}"
     me_get, me_post = phone(base)
     friend_get, friend_post = phone(base)
@@ -108,7 +145,7 @@ def test_readers_tracked_separately(setup):
         card = me_get(f"/p/{first}")  # my first tap creates my reader id
         assert "Read on NYT" in card and 'href="https://www.nytimes.com/' in card and "About Story" in card
         assert 'aria-pressed="false">♡ Love' in card and "Your first name" in card
-        me_post("/name", "Justin".encode())
+        me_post("/name", b"Justin")
         me_post(f"/read/{first}")
         me_post(f"/heart/{first}"), me_post(f"/heart/{first}")  # double tap: still one
         me_post(f"/save/{first}")
@@ -128,12 +165,11 @@ def test_readers_tracked_separately(setup):
     finally:
         server.shutdown()
 
-    con = sqlite3.connect(db)
-    readers = pd.read_sql("SELECT * FROM readers", con)
+    readers = db("SELECT * FROM readers")
     assert len(readers) == 2 and sorted(readers["name"].fillna("")) == ["", "Justin"]
     me = readers.loc[readers["name"] == "Justin", "reader_id"].item()
     friend = readers.loc[readers["name"].isna(), "reader_id"].item()
-    labeled = pd.read_sql("SELECT push_id, reader_id, label, read, hearted, saved FROM labeled", con)
+    labeled = db("SELECT push_id, reader_id, label, read, hearted, saved FROM labeled")
     rows = {(r.push_id, r.reader_id): (r.label, r.read, r.hearted, r.saved) for r in labeled.itertuples()}
     assert rows[(first, me)] == (1, 1, 1, 1)
     assert rows[(first, friend)] == (1, 0, 0, 0)  # the friend's check of the first card opened it
@@ -146,12 +182,10 @@ def test_reader_not_labeled_for_pushes_before_they_joined(setup):
     n.run_slot(pd.Timestamp("2026-11-12 12:00"))
     n.run_slot(pd.Timestamp("2026-11-12 17:00"))
     first, second = (a[4].rsplit("/", 1)[1] for a in sent)
-    con = sqlite3.connect(db)
-    con.execute("UPDATE scores SET sent_ts = sent_ts - 3600 WHERE push_id = ?", (first,))  # the earlier push
-    con.commit()
+    db.run("UPDATE scores SET sent_ts = sent_ts - 3600 WHERE push_id = :p", p=first)  # the earlier push
     reader = store.new_reader(store.push(second)["sent_ts"])  # first seen on the later push
     store.interact(second, reader, "open")
-    assert pd.read_sql("SELECT push_id FROM labeled", con)["push_id"].tolist() == [second]
+    assert db("SELECT push_id FROM labeled")["push_id"].tolist() == [second]
 
 
 def test_base_url_prefers_env_then_tunnel(setup, monkeypatch):
@@ -166,8 +200,8 @@ def test_base_url_prefers_env_then_tunnel(setup, monkeypatch):
 
 def test_tunnel_url_reads_quicktunnel_endpoint():
     import json as _json
-    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
     class H(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -189,17 +223,36 @@ def test_tunnel_url_reads_quicktunnel_endpoint():
 
 
 def test_card_escapes_html(setup):
-    page = nt.card_page({"push_id": 'x"</script>', "title": "<b>T</b>", "section": "us", "url": "https://www.nytimes.com/a",
+    page = cards.card_page({"push_id": 'x"</script>', "title": "<b>T</b>", "section": "us", "url": "https://www.nytimes.com/a",
                          "abstract": "a & b", "hearted": 0, "saved": 0}, {"reader_id": "r", "name": "<i>x</i>"})
     assert "<b>T</b>" not in page and "a &amp; b" in page and "<i>x</i>" not in page
     assert page.split("<script>")[1].count("</script>") == 1  # the id can't close the script early
 
 
 def test_unclicked_push_labeled_zero_after_window(setup):
-    n, store, sent, db = setup
+    n, store, _sent, db = setup
     n.run_slot(pd.Timestamp("2026-11-12 12:00"))
     store.new_reader(0)  # a subscriber who never opens it
-    con = sqlite3.connect(db)
-    con.execute("UPDATE scores SET sent_ts = sent_ts - 25 * 3600 WHERE sent = 1")
-    con.commit()
-    assert pd.read_sql("SELECT label FROM labeled", con)["label"].tolist() == [0]
+    db.run("UPDATE scores SET sent_ts = sent_ts - 25 * 3600 WHERE sent")
+    assert db("SELECT label FROM labeled")["label"].tolist() == [0]
+
+
+def test_stats_needs_token(setup, monkeypatch):
+    n, store, sent, _db = setup
+    n.run_slot(pd.Timestamp("2026-11-12 12:00"))
+    store.interact(sent[0][4].rsplit("/", 1)[1], store.new_reader(0), "open")
+    for token, header, code in ((None, "x", 404), ("s3cret", "wrong", 404), ("s3cret", "s3cret", 200)):
+        if token:
+            monkeypatch.setenv("CARDS_STATS_TOKEN", token)
+        server = cards.serve_cards(store, 0)
+        url = f"http://127.0.0.1:{server.server_address[1]}/stats"
+        try:
+            req = urllib.request.Request(url, headers={"x-api-key": header})
+            if code == 200:
+                assert urllib.request.urlopen(req).read() == b'{"readers": 1}'
+            else:
+                with pytest.raises(urllib.error.HTTPError) as e:
+                    urllib.request.urlopen(req)
+                assert e.value.code == 404
+        finally:
+            server.shutdown()

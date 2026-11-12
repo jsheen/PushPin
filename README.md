@@ -400,6 +400,8 @@ configs/notifier.yml    # real pushes: slot hours, feeds, persona, ntfy, click w
 scripts/sync-data.sh    # pull gs://pushnyt-data into ./data
 scripts/smoke-api.sh    # start the API image on a fixture run and check it responds (used by CI)
 scripts/build-api-image.sh  # build + smoke-test a production API image with one run baked in
+scripts/deploy-gcp.sh   # deploy the push pipeline to GCP (GKE + Cloud Run); dry run unless --apply
+deploy/                 # cloudbuild.yaml, cloudrun/ (cards service, notifier job), k8s/ (scorer, KEDA)
 src/pushnyt/
   data.py               # MIND loaders, time-slot bucketing
   embed.py              # pushnyt-embed: abstract embeddings -> Chroma
@@ -410,7 +412,9 @@ src/pushnyt/
   compare.py            # pushnyt-compare: paired bootstrap of two runs (ablations)
   live.py               # request-time scoring from per-user state; pushnyt-live-parity replay
   nyt.py                # pushnyt-nyt-sim: push a week of NYT articles to MIND users, scored live
-  notifier.py           # real pushes to a phone (ntfy) from live NYT RSS, click tracker, SQLite log
+  notifier.py           # real pushes to phones (ntfy) from live NYT RSS: the slot loop / one-slot job
+  cards.py              # the push card server: Read on NYT, ♥, Save, reading list, per-reader cookie
+  store.py              # the notifier's database (SQLite locally, Postgres in the cloud)
   calibration.py        # Platt scaling, reliability bins, ECE
   risk.py               # return model (churn proxy)
   exploration.py        # pushnyt-exploration: do clicks on unfamiliar subcategories stick?
@@ -674,11 +678,12 @@ push. That gives you labeled push data, which MIND can't provide.
 
 ```
 NYT RSS feeds ──▶ notifier ──HTTP──▶ scorer  (model + MIND user state, from the NYT sim)
-                   │    ▲
-   ntfy.sh ◀───────┘    └── push card :8090 ◀── tunnel (https://….trycloudflare.com) ◀── a reader taps
-   (push to phones) │                                                                  Read / ♥ / Save
-                    ▼
-        outputs/notifier/pushes.db  (SQLite: candidates, covariates, sends, and per reader: opens, reads, ♥, saves)
+                   │
+   ntfy.sh ◀───────┤          cards :8090 ◀── tunnel (https://….trycloudflare.com) ◀── a reader taps
+   (push to phones)│            │                                                    Read / ♥ / Save
+                   ▼            ▼
+        outputs/notifier/pushes.db, or Postgres via DATABASE_URL
+        (candidates, covariates, sends, and per reader: opens, reads, ♥, saves)
 ```
 
 ### The schedule
@@ -705,8 +710,8 @@ Each slot:
 
 ### The card
 
-Tapping a notification opens that push's **card**, a small page served by the notifier and made
-public by the `tunnel` service. It shows the headline, the abstract and three buttons:
+Tapping a notification opens that push's **card**, a small page served by the `cards` service
+(`src/pushnyt/cards.py`) and made public by the `tunnel` service. It shows the headline, the abstract and three buttons:
 
 - **Read on NYT** is a plain nytimes.com link, so iOS opens the NYT app if it's installed and
   Safari otherwise. Reading needs the reader's own NYT login there, as usual.
@@ -745,8 +750,8 @@ docker compose ps                  # wait until scorer shows (healthy)
 docker compose run --rm notifier "python -m pushnyt.notifier --test"            # a test push should reach your phone
 docker compose run --rm notifier "python -m pushnyt.notifier --once --dry-run"  # score one slot now, log it, send nothing
 
-docker compose up -d notifier tunnel   # start the schedule and the public card address
-docker compose logs -f notifier        # one JSON line per slot, and per open / read / ♥ / save
+docker compose up -d notifier cards tunnel   # the schedule, the card server, its public address
+docker compose logs -f notifier cards        # one JSON line per slot, and per open / read / ♥ / save
 ```
 
 The first run picks the MIND persona and fixes the time shift, and both are stored in the
@@ -756,7 +761,16 @@ topic) or use iPhone Mirroring.
 **Friends:** have them install ntfy and subscribe to the same topic. Tell them their taps, ♥ and
 saves are recorded for a class project.
 
-Stop it with `docker compose stop notifier tunnel scorer`.
+Stop it with `docker compose stop notifier cards tunnel scorer`.
+
+**Postgres locally.** The database is SQLite by default. Set `DATABASE_URL` to use Postgres, the
+same engine as Cloud SQL. The `db` service runs one on your Mac:
+
+```bash
+docker compose --profile postgres up -d db
+echo 'DATABASE_URL=postgresql+psycopg://pushnyt:pushnyt@db:5432/pushnyt' >> .env   # then restart notifier and cards
+PUSHNYT_TEST_DATABASE_URL=postgresql+psycopg://pushnyt:pushnyt@localhost:5433/pushnyt uv run pytest tests/test_notifier.py
+```
 
 ### Keeping it running
 
@@ -766,15 +780,15 @@ the Mac is awake and Docker is running:
 - **Sleep.** Containers pause while the Mac sleeps. On wake, the notifier sends the slot it
   was waiting for, late, and skips any others it missed.
 - **Reboot or Docker restart.** Turn on Docker Desktop → Settings → General → *Start Docker
-  Desktop when you sign in*. The notifier and tunnel have `restart: unless-stopped` and come
-  back by themselves. The scorer doesn't, so it doesn't hold 2.5 GB all the time; start it again
+  Desktop when you sign in*. The notifier, cards and tunnel have `restart: unless-stopped` and
+  come back by themselves. The scorer doesn't, so it doesn't hold 2.5 GB all the time; start it again
   with `docker compose up -d scorer`. Until you do, slots fail and are logged, without stopping
   the notifier.
 - **Tunnel address.** A quick tunnel gets a new `trycloudflare.com` address whenever it
   restarts. New pushes use the new address, but cards of older pushes stop loading. A
   Cloudflare named tunnel with your own domain keeps one address.
-- **Always on.** Pushing with the laptop closed means running these services on a cloud VM
-  with about 4 GB of RAM.
+- **Always on.** Pushing with the laptop closed means running these services in the cloud;
+  see [Deploying to Google Cloud](#deploying-to-google-cloud).
 
 ### The data
 
@@ -832,6 +846,75 @@ feeds, ntfy server and click window. The threshold, risk penalty and friction co
 - **P(click) is a ranking signal here, not a rate.** The model was trained on another outlet
   and era, so the 0.07 send threshold is in MIND feed units. Logged opens are what would
   recalibrate it.
+
+## Deploying to Google Cloud
+
+The same pipeline, deployed in a mixed setup. Each piece goes where it fits:
+
+| Piece | Runs on | Why there |
+|-------|---------|-----------|
+| Scorer | **GKE** Autopilot (`deploy/k8s/`) | Big (~3 GB) and slow to start, so it stays up. It sits behind an internal load balancer, and **KEDA** scales it to one replica per 10 readers. |
+| Card server | **Cloud Run** service (`deploy/cloudrun/cards.yaml`) | Bursty: scales with taps, down to zero. Its HTTPS address replaces the tunnel. |
+| Notifier slot | **Cloud Run job** (`deploy/cloudrun/notifier-job.yaml`) + **Cloud Scheduler** | Runs four times a day and exits. Scheduler replaces the local sleep loop. |
+| Database | **Cloud SQL** Postgres | Shared by the card server and the job; replicas can't share a SQLite file. |
+| Images | **Artifact Registry**, built by **Cloud Build** (`deploy/cloudbuild.yaml`) | x86 images from the ARM Mac, without building locally. |
+
+```
+Cloud Scheduler ─(8, 12, 17, 21)─▶ notifier job (Cloud Run) ──VPC──▶ scorer (GKE, internal LB) ◀── KEDA
+                                        │          │                                               │
+                                     ntfy.sh    Cloud SQL ◀── cards (Cloud Run, public HTTPS) ──/stats┘
+                                        ▼                         ▲
+                                      phones ────── tap ──────────┘
+```
+
+**How the code supports it:**
+- **Stateless slots.** Each slot can be a fresh process. The scorer ignores articles it already
+  has, and the notifier sends each slot's candidates with its `/score` request. So any scorer
+  replica can answer, including one that just started.
+- **Two separate entry points.** The card server (`python -m pushnyt.cards`) and a single slot
+  (`python -m pushnyt.notifier --once`) run on their own.
+- **One database layer for both backends.** `src/pushnyt/store.py` uses SQL that works on both
+  SQLite and Postgres, and the tests run on both.
+- **A reader count for the autoscaler.** The card server's `/stats` endpoint returns the number
+  of readers, protected by a token, for KEDA to read.
+
+`scripts/deploy-gcp.sh` does the deployment. **It's a dry run by default:** it prints every
+command and runs nothing until you add `--apply`.
+
+```bash
+scripts/deploy-gcp.sh setup     # once: APIs, registry, service account, Cloud SQL, secrets, GKE cluster, KEDA, data to the bucket
+scripts/deploy-gcp.sh images    # build both images on Cloud Build
+scripts/deploy-gcp.sh deploy    # cards → scorer → notifier job → schedule
+scripts/deploy-gcp.sh status    # what's running (read-only)
+scripts/deploy-gcp.sh pause     # stop what bills hourly: scorer to 0 replicas, schedule paused, Cloud SQL off
+scripts/deploy-gcp.sh resume
+scripts/deploy-gcp.sh down      # delete everything it created (keeps the bucket)
+```
+
+It uses gcloud's current project (`PROJECT`), `us-east1` (`REGION`), the `pushnyt-data` bucket
+(`BUCKET`), the `ablation-with-llm` run (`RUN`), and the current commit as the image tag (`TAG`).
+`NTFY_TOPIC` comes from `.env`. The ntfy topic, the database URL and the `/stats` token go into
+Secret Manager and are masked in the printed commands.
+
+**Cost while running** (rough estimates; check the GCP pricing calculator):
+
+| | Monthly |
+|---|---|
+| Card server, notifier job, Scheduler (3 jobs free), Cloud Build (2,500 min free) | ~$0 at this traffic |
+| Scorer on GKE Autopilot, 1 replica (1 vCPU, 3 GiB); the free tier covers one cluster's management fee | ~$40–50 |
+| Cloud SQL `db-f1-micro` | ~$10 |
+| Artifact Registry (~5 GB of images) and the bucket (~2 GB) | ~$1 |
+
+So about $50–60/month while it's running. `pause` drops it to roughly storage only, and `down`
+removes it. New GCP accounts get $300 in credits; set a budget alert in Billing either way.
+
+**Not yet run against a real project.** The code paths are tested locally, including Postgres.
+The manifests parse, and the script's dry runs print the expected commands. The first real
+`--apply` is where cloud-side surprises would show up:
+- **Organization policies.** If the project sits under an organization that blocks public
+  (`allUsers`) access, the card service can't be made public.
+- **Permissions and quotas** for Cloud SQL and GKE.
+- **Scorer startup time** with the data copied from the bucket.
 
 ## Development
 

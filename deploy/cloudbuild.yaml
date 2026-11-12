@@ -1,0 +1,23 @@
+# Builds both images on Google Cloud Build (x86, which Cloud Run and GKE run; the Mac is ARM) and
+# pushes them to Artifact Registry. Cloud Build's free tier is 2,500 build-minutes a month.
+#   gcloud builds submit --config deploy/cloudbuild.yaml --substitutions=_REGION=us-east1,_TAG=<tag> .
+steps:
+  - id: objective   # notifier + card server (core deps only)
+    name: gcr.io/cloud-builders/docker
+    env: ["DOCKER_BUILDKIT=1"]
+    args: ["build", "-f", "Dockerfile.objective",
+           "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/pushnyt/objective:${_TAG}", "."]
+    waitFor: ["-"]
+  - id: train       # scorer (torch, xgboost, chroma, fastapi)
+    name: gcr.io/cloud-builders/docker
+    env: ["DOCKER_BUILDKIT=1"]
+    args: ["build", "-f", "Dockerfile",
+           "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/pushnyt/train:${_TAG}", "."]
+    waitFor: ["-"]
+images:
+  - "${_REGION}-docker.pkg.dev/$PROJECT_ID/pushnyt/objective:${_TAG}"
+  - "${_REGION}-docker.pkg.dev/$PROJECT_ID/pushnyt/train:${_TAG}"
+substitutions:
+  _REGION: us-east1
+  _TAG: latest
+timeout: 3600s

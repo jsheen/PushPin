@@ -1,0 +1,11 @@
+# What `gcloud builds submit` leaves out of the upload (data and runs go to the bucket instead)
+.git
+.venv
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+data/
+outputs/
+.env
+.DS_Store

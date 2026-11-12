@@ -197,8 +197,12 @@ class HttpScorer:
         payload = articles.assign(published=articles["published"].map(pd.Timestamp.isoformat))
         return pd.DataFrame(self._call("/articles", {"articles": payload.to_dict("records")}))
 
-    def score(self, requests: list[dict], features: bool = False) -> pd.DataFrame:
+    def score(self, requests: list[dict], features: bool = False, articles: pd.DataFrame | None = None) -> pd.DataFrame:
+        """`articles` (news_id, title, abstract, published) are added first if the scorer lacks them."""
         payload = {"requests": requests, **({"features": True} if features else {})}
+        if articles is not None:
+            payload["articles"] = articles.assign(published=articles["published"].map(pd.Timestamp.isoformat)
+                                                  ).to_dict("records")
         return pd.DataFrame(self._call("/score", payload))
 
 
