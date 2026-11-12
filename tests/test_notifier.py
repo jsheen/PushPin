@@ -56,7 +56,7 @@ def test_slot_logs_covariates_and_respects_cap(setup):
     noon = pd.Timestamp("2026-11-12 12:00")
     r = n.run_slot(noon)
     assert r["sent"] and r["candidates"] == 4 and len(sent) == 1
-    assert sent[0][4].startswith("http://mac:8090/c/")  # tap goes through the click tracker
+    assert sent[0][4].startswith("http://mac:8090/p/")  # tap opens the push's card
 
     scores = pd.read_sql("SELECT * FROM scores", sqlite3.connect(db))
     assert len(scores) == 4 and scores["is_top"].sum() == 1 and scores["sent"].sum() == 1
@@ -66,29 +66,6 @@ def test_slot_logs_covariates_and_respects_cap(setup):
     assert n.run_slot(noon + pd.Timedelta(hours=5))["sent"]
     third = n.run_slot(noon + pd.Timedelta(hours=9))
     assert not third["sent"] and not third["under_cap"] and len(sent) == 2
-
-
-def test_click_tracker_records_and_redirects(setup):
-    n, store, sent, db = setup
-    n.run_slot(pd.Timestamp("2026-11-12 12:00"))
-    push_id = sent[0][4].rsplit("/", 1)[1]
-    server = nt.serve_clicks(store, 0)
-    port = server.server_address[1]
-    try:
-        class NoRedirect(urllib.request.HTTPRedirectHandler):
-            def redirect_request(self, *a, **k):
-                return None
-        opener = urllib.request.build_opener(NoRedirect)
-        with pytest.raises(urllib.error.HTTPError) as e:
-            opener.open(f"http://127.0.0.1:{port}/c/{push_id}")
-        assert e.value.code == 302 and e.value.headers["location"].startswith("https://www.nytimes.com/")
-        with pytest.raises(urllib.error.HTTPError) as e:
-            opener.open(f"http://127.0.0.1:{port}/c/nope")
-        assert e.value.code == 404
-    finally:
-        server.shutdown()
-    labeled = pd.read_sql("SELECT push_id, label FROM labeled", sqlite3.connect(db))
-    assert labeled.set_index("push_id").at[push_id, "label"] == 1
 
 
 def test_dry_run_sends_nothing(setup):
@@ -104,50 +81,52 @@ def test_next_slot(setup):
     assert n.next_slot(pd.Timestamp("2026-11-12 21:00")) == pd.Timestamp("2026-11-13 08:00")
 
 
-def test_push_has_heart_save_and_list_buttons(setup):
-    n, store, sent, db = setup
-    n.run_slot(pd.Timestamp("2026-11-12 12:00"))
-    push_id = sent[0][4].rsplit("/", 1)[1]
-    heart, save, rlist = sent[0][5]["actions"]
-    assert heart == {"action": "http", "label": "♥", "url": f"http://mac:8090/heart/{push_id}",
-                     "method": "POST", "clear": False}
-    assert save["url"] == f"http://mac:8090/save/{push_id}" and save["clear"]
-    assert rlist == {"action": "view", "label": "📚 Reading list", "url": "http://mac:8090/saved"}
-
-    n.cfg["button_action"] = "view"  # clients without background http actions
-    assert n.actions("x")[0] == {"action": "view", "label": "♥", "url": "http://mac:8090/heart/x"}
-
-
-def test_heart_save_and_reading_list(setup):
+def test_card_read_heart_save_and_reading_list(setup):
     n, store, sent, db = setup
     n.run_slot(pd.Timestamp("2026-11-12 12:00"))
     n.run_slot(pd.Timestamp("2026-11-12 17:00"))
     first, second = (a[4].rsplit("/", 1)[1] for a in sent)
+    assert all("actions" not in a[5] or not a[5]["actions"] for a in sent)
     server = nt.serve_clicks(store, 0)
     base = f"http://127.0.0.1:{server.server_address[1]}"
-    post = lambda path: urllib.request.urlopen(urllib.request.Request(base + path, data=b"", method="POST"))
+    get = lambda path: urllib.request.urlopen(base + path).read().decode()
+    post = lambda path, body=b"on": urllib.request.urlopen(urllib.request.Request(base + path, data=body, method="POST"))
     try:
-        assert urllib.request.urlopen(f"{base}/saved").read().decode().count("Nothing saved") == 1
-        assert post(f"/heart/{first}").status == 200
-        post(f"/heart/{first}")  # double tap: still one heart
-        post(f"/save/{first}")
-        assert "Saved" in urllib.request.urlopen(f"{base}/save/{second}").read().decode()  # view-action path
+        assert "Nothing saved" in get("/saved")
+        card = get(f"/p/{first}")  # the tap
+        assert "Read on NYT" in card and 'href="https://www.nytimes.com/' in card and "About Story" in card
+        assert 'aria-pressed="false">♡ Love' in card
+        post(f"/read/{first}")
+        post(f"/heart/{first}"), post(f"/heart/{first}")  # double tap: still one
+        post(f"/save/{first}"), post(f"/save/{second}")
+        post(f"/save/{second}", b"off")  # unsave
+        assert 'aria-pressed="true">♥ Loved' in get(f"/p/{first}")
+        for bad in ("/heart/nope", "/read/nope", "/bogus/" + first):
+            with pytest.raises(urllib.error.HTTPError) as e:
+                post(bad)
+            assert e.value.code == 404
         with pytest.raises(urllib.error.HTTPError) as e:
-            post("/heart/nope")
+            get("/p/nope")
         assert e.value.code == 404
-        page = urllib.request.urlopen(f"{base}/saved").read().decode()
-        assert page.count("<li") == 2 and f'href="/c/{first}"' in page
+        listing = get("/saved")
+        assert listing.count("<li") == 1 and f'href="/p/{first}"' in listing and "· read" in listing
     finally:
         server.shutdown()
     con = sqlite3.connect(db)
     reactions = pd.read_sql("SELECT push_id, kind, user_id, minutes_after_push FROM reactions", con)
-    assert sorted(zip(reactions["push_id"], reactions["kind"])) == sorted(
-        [(first, "heart"), (first, "save"), (second, "save")])
+    assert sorted(zip(reactions["push_id"], reactions["kind"])) == [(first, "heart"), (first, "save")]
     assert (reactions["user_id"] == n.user_id).all() and (reactions["minutes_after_push"] < 1).all()
-    labeled = pd.read_sql("SELECT push_id, hearted, saved, label FROM labeled", con).set_index("push_id")
-    assert labeled.loc[first, ["hearted", "saved"]].tolist() == [1, 1]
-    assert labeled.loc[second, ["hearted", "saved"]].tolist() == [0, 1]
-    assert labeled["label"].isna().all()  # not tapped, still inside the 24h window
+    labeled = pd.read_sql("SELECT push_id, label, read, hearted, saved FROM labeled", con).set_index("push_id")
+    assert labeled.loc[first].tolist() == [1, 1, 1, 1]  # tapped, read, loved, saved
+    assert labeled.loc[second, ["read", "hearted", "saved"]].tolist() == [0, 0, 0]
+    assert pd.isna(labeled.at[second, "label"])  # not tapped, still inside the 24h window
+
+
+def test_card_escapes_html(setup):
+    page = nt.card_page({"push_id": 'x"</script>', "title": "<b>T</b>", "section": "us", "url": "https://www.nytimes.com/a",
+                         "abstract": "a & b", "hearted": 0, "saved": 0})
+    assert "<b>T</b>" not in page and "a &amp; b" in page
+    assert page.split("<script>")[1].count("</script>") == 1  # the id can't close the script early
 
 
 def test_unclicked_push_labeled_zero_after_window(setup):

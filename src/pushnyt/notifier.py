@@ -9,17 +9,19 @@ A long-running service, separate from the push job. At each slot hour (configs/n
      phone subscribed to NTFY_TOPIC
   4. writes every candidate and its covariates to a SQLite database
 
-It also serves a click tracker. The notification's tap action opens CLICK_BASE_URL/c/<push_id>,
-which records the click and redirects to the article. The notification also has three buttons:
-♥ (a favorite), 🔖 Save (for later) and 📚 Reading list (CLICK_BASE_URL/saved). Without
-CLICK_BASE_URL, taps open the article directly, there are no buttons, and nothing is recorded.
+It also serves the push's card. Tapping the notification opens CLICK_BASE_URL/p/<push_id>, a small
+page with the headline and abstract and three buttons: Read on NYT (a plain nytimes.com link, so
+iOS opens the NYT app if it's installed), ♥ and 🔖 Save. The reading list is at
+CLICK_BASE_URL/saved. The card records the tap, the read and the reactions. Without
+CLICK_BASE_URL, taps open the article directly and nothing is recorded.
 
 Database (outputs/notifier/pushes.db):
   scores    one row per (slot, candidate article): article fields, every model feature,
-            p_click / p_return / push_score, is_top, sent, push_id, sent_at, clicked_at
-            (local times in the configured time zone) and sent_ts (Unix seconds)
+            p_click / p_return / push_score, is_top, sent, push_id, sent_at, clicked_at (card
+            opened), read_at (Read on NYT tapped); local times in the configured time zone, and
+            sent_ts (Unix seconds)
   labeled   view over the sent pushes: label = 1 if clicked, 0 if not clicked within
-            `click_window_hours`, NULL while still pending; hearted, saved (0/1)
+            `click_window_hours`, NULL while still pending; read, hearted, saved (0/1)
   reactions one row per (push, kind), kind = heart or save: news_id, user_id, created_at,
             minutes_after_push
   articles  every article read from the feeds, with its mapped MIND subcategory
@@ -101,7 +103,8 @@ def send_ntfy(server: str, topic: str, title: str, message: str, click: str, tag
               actions: list[dict] | None = None) -> None:
     """Publish through ntfy's JSON API (body JSON, so non-ASCII titles are fine).
 
-    `actions` are ntfy action buttons, e.g. {"action": "view", "label": "Comment", "url": ...}."""
+    `actions` are ntfy action buttons. The iOS app doesn't run `http` actions in the background,
+    so the notifier puts its buttons on the card page instead."""
     body = {"topic": topic, "title": title, "message": message, "click": click, "tags": tags or [],
             **({"actions": actions} if actions else {})}
     req = urllib.request.Request(server.rstrip("/"), data=json.dumps(body).encode(),
@@ -138,6 +141,7 @@ class Store:
             CASE WHEN clicked_at IS NOT NULL THEN 1
                  WHEN sent_ts <= CAST(strftime('%s', 'now') AS INTEGER) - {window} THEN 0
             END AS label,
+            read_at IS NOT NULL AS read,
             EXISTS (SELECT 1 FROM reactions r WHERE r.push_id = scores.push_id AND r.kind = 'heart') AS hearted,
             EXISTS (SELECT 1 FROM reactions r WHERE r.push_id = scores.push_id AND r.kind = 'save') AS saved
             FROM scores WHERE sent = 1""")
@@ -200,79 +204,138 @@ class Store:
             if new:
                 self._labeled_view()
 
-    def click(self, push_id: str) -> str | None:
-        """Record the first click on a push; returns the article URL (None if unknown)."""
+    def _stamp(self, push_id: str, column: str) -> bool:
+        """Set a *_at column on a sent push the first time; False if the push is unknown."""
         if not self._has_table("scores"):
-            return None
+            return False
         with self.lock, self.db:
-            row = self.db.execute("SELECT url FROM scores WHERE push_id = ?", (push_id,)).fetchone()
-            if row:
-                self.db.execute("UPDATE scores SET clicked_at = ? WHERE push_id = ? AND clicked_at IS NULL",
-                                (self.now(), push_id))
-        return row[0] if row else None
+            cur = self.db.execute(f"UPDATE scores SET {column} = coalesce({column}, ?) WHERE push_id = ?",
+                                  (self.now(), push_id))
+        return cur.rowcount > 0
+
+    def opened(self, push_id: str) -> bool:
+        """The push was tapped (its card was opened)."""
+        return self._stamp(push_id, "clicked_at")
+
+    def read(self, push_id: str) -> bool:
+        """'Read on NYT' was tapped on the card."""
+        return self._stamp(push_id, "read_at")
 
     def push(self, push_id: str) -> dict | None:
-        """The sent push with this id: news_id, user_id, title, url, sent_ts (None if unknown)."""
+        """A sent push with its article and reactions (None if unknown)."""
         if not self._has_table("scores"):
             return None
         with self.lock:
-            row = self.db.execute("SELECT news_id, user_id, title, url, sent_ts FROM scores WHERE push_id = ?",
-                                  (push_id,)).fetchone()
-        return dict(zip(["news_id", "user_id", "title", "url", "sent_ts"], row)) if row else None
+            cur = self.db.execute("""SELECT s.push_id, s.news_id, s.user_id, s.title, s.section, s.url, s.sent_ts,
+                    a.abstract,
+                    EXISTS (SELECT 1 FROM reactions r WHERE r.push_id = s.push_id AND r.kind = 'heart') AS hearted,
+                    EXISTS (SELECT 1 FROM reactions r WHERE r.push_id = s.push_id AND r.kind = 'save') AS saved
+                FROM scores s LEFT JOIN articles a USING (news_id) WHERE s.push_id = ?""", (push_id,))
+            row = cur.fetchone()
+            return dict(zip([d[0] for d in cur.description], row)) if row else None
 
-    def react(self, push_id: str, kind: str) -> bool:
-        """Record a ♥ or a save on a sent push (once per kind); False if the push is unknown."""
+    def react(self, push_id: str, kind: str, on: bool = True) -> bool:
+        """Set or clear a ♥ or a save on a sent push; False if the push or kind is unknown."""
         push = self.push(push_id)
         if push is None or kind not in REACTIONS:
             return False
         minutes = (time.time() - push["sent_ts"]) / 60 if push["sent_ts"] is not None else None
         with self.lock, self.db:
-            self.db.execute("INSERT OR IGNORE INTO reactions VALUES (?, ?, ?, ?, ?, ?)",
-                            (push_id, kind, push["news_id"], push["user_id"], self.now(), minutes))
+            if on:
+                self.db.execute("INSERT OR IGNORE INTO reactions VALUES (?, ?, ?, ?, ?, ?)",
+                                (push_id, kind, push["news_id"], push["user_id"], self.now(), minutes))
+            else:
+                self.db.execute("DELETE FROM reactions WHERE push_id = ? AND kind = ?", (push_id, kind))
         return True
 
     def reading_list(self) -> list[dict]:
-        """Saved pushes, newest first, with whether each has been opened since."""
+        """Saved pushes, newest first, with whether each has been read on NYT since."""
         if not self._has_table("scores"):
             return []
         with self.lock:
-            rows = self.db.execute("""SELECT r.push_id, s.title, s.section, r.created_at, s.clicked_at IS NOT NULL
+            rows = self.db.execute("""SELECT r.push_id, s.title, s.section, r.created_at, s.read_at IS NOT NULL
                 FROM reactions r JOIN scores s USING (push_id) WHERE r.kind = 'save'
                 ORDER BY r.created_at DESC""").fetchall()
-        return [dict(zip(["push_id", "title", "section", "saved_at", "opened"], r)) for r in rows]
+        return [dict(zip(["push_id", "title", "section", "saved_at", "read"], r)) for r in rows]
 
 
 PAGE = """<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>pushNYT</title>
-<style>body{{font:17px -apple-system,system-ui,sans-serif;margin:0;padding:20px;max-width:640px;
-background:#fff;color:#111}}h1{{font:600 22px Georgia,serif;margin:0 0 16px}}
-a{{color:#111;text-decoration:none}}li{{list-style:none;padding:12px 0;border-bottom:1px solid #ddd}}
-ul{{padding:0;margin:0}}.meta{{font-size:13px;color:#666;margin-top:4px}}.opened a{{color:#888}}
-@media (prefers-color-scheme:dark){{body{{background:#121212;color:#eee}}a{{color:#eee}}
-li{{border-color:#333}}.meta{{color:#999}}.opened a{{color:#777}}}}
-</style></head><body>{body}</body></html>"""
+<style>
+:root{--bg:#fff;--fg:#121212;--muted:#666;--line:#e2e2e2;--btn:#f1f1f1;--on:#d0021b;--link:#326891}
+@media (prefers-color-scheme:dark){:root{--bg:#121212;--fg:#eee;--muted:#999;--line:#333;--btn:#262626;
+--on:#ff5a6e;--link:#8ab4f8}}
+body{font:17px/1.45 -apple-system,system-ui,sans-serif;margin:0;padding:24px 16px;background:var(--bg);color:var(--fg)}
+main{max-width:600px;margin:0 auto}
+.kicker{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+h1{font:700 26px/1.2 Georgia,"Times New Roman",serif;margin:6px 0 12px}
+.abstract{color:var(--muted);margin:0 0 24px}
+.read{display:block;text-align:center;background:var(--fg);color:var(--bg);text-decoration:none;
+font-weight:600;padding:14px;border-radius:10px}
+.row{display:flex;gap:10px;margin-top:10px}
+.row button{flex:1;font:inherit;font-weight:600;padding:12px;border:0;border-radius:10px;
+background:var(--btn);color:var(--fg)}
+.row button[aria-pressed=true]{color:var(--on)}
+.foot{margin-top:28px;font-size:15px}.foot a,.list a{color:var(--link);text-decoration:none}
+.list{padding:0;margin:0}.list li{list-style:none;padding:12px 0;border-bottom:1px solid var(--line)}
+.list .meta{font-size:13px;color:var(--muted);margin-top:2px}.list .done a{color:var(--muted)}
+</style></head><body><main>%BODY%</main></body></html>"""
+
+CARD_SCRIPT = """<script>
+const id = %ID%;
+document.querySelectorAll("button[data-kind]").forEach(b => b.addEventListener("click", async () => {
+  const on = b.getAttribute("aria-pressed") !== "true";
+  b.setAttribute("aria-pressed", on);
+  b.textContent = b.dataset[on ? "on" : "off"];
+  const r = await fetch(`/${b.dataset.kind}/${id}`, {method: "POST", body: on ? "on" : "off"}).catch(() => null);
+  if (!r || !r.ok) { b.setAttribute("aria-pressed", !on); b.textContent = b.dataset[on ? "off" : "on"]; }
+}));
+document.querySelector(".read").addEventListener("click", () => navigator.sendBeacon(`/read/${id}`));
+</script>"""
+
+
+def page(body: str) -> str:
+    return PAGE.replace("%BODY%", body)
+
+
+def card_page(push: dict) -> str:
+    """The landing card a notification tap opens: Read on NYT, ♥, Save."""
+    e = html.escape
+
+    def toggle(kind, on, off, pressed):
+        return (f'<button data-kind="{kind}" data-on="{e(on)}" data-off="{e(off)}" '
+                f'aria-pressed="{"true" if pressed else "false"}">{e(on if pressed else off)}</button>')
+
+    # a plain link to nytimes.com (not a redirect) lets iOS open it in the NYT app when installed
+    return page(f"""<div class="kicker">{e(push["section"] or "")}</div>
+<h1>{e(push["title"])}</h1>
+<p class="abstract">{e(push["abstract"] or "")}</p>
+<a class="read" href="{e(push["url"])}">Read on NYT</a>
+<div class="row">{toggle("heart", "♥ Loved", "♡ Love", push["hearted"])}{toggle("save", "🔖 Saved", "🔖 Save", push["saved"])}</div>
+<p class="foot"><a href="/saved">Reading list →</a></p>
+{CARD_SCRIPT.replace("%ID%", json.dumps(push["push_id"]).replace("<", "\\u003c"))}""")
 
 
 def reading_list_page(items: list[dict]) -> str:
     if not items:
-        return PAGE.format(body="<h1>Reading list</h1><p>Nothing saved yet. Tap 🔖 Save on a push.</p>")
+        return page("<h1>Reading list</h1><p>Nothing saved yet. Tap 🔖 Save on a push.</p>")
+    e = html.escape
     rows = "".join(
-        f'<li class="{"opened" if it["opened"] else ""}"><a href="/c/{html.escape(it["push_id"])}">'
-        f'{html.escape(it["title"])}</a><div class="meta">{html.escape(it["section"] or "")} · saved '
-        f'{html.escape(it["saved_at"][:16].replace("T", " "))}{" · read" if it["opened"] else ""}</div></li>'
-        for it in items)
-    return PAGE.format(body=f"<h1>Reading list</h1><ul>{rows}</ul>")
+        f'<li class="{"done" if it["read"] else ""}"><a href="/p/{e(it["push_id"])}">{e(it["title"])}</a>'
+        f'<div class="meta">{e(it["section"] or "")} · saved {e(it["saved_at"][:16].replace("T", " "))}'
+        f'{" · read" if it["read"] else ""}</div></li>' for it in items)
+    return page(f'<h1>Reading list</h1><ul class="list">{rows}</ul>')
 
 
 def serve_clicks(store: Store, port: int) -> ThreadingHTTPServer:
     """The phone-facing endpoints.
 
-      GET  /c/<push_id>             record the click, redirect to the article
-      POST /heart/<push_id>         record a ♥ (ntfy http action, runs in the background)
-      POST /save/<push_id>          save for later
-      GET  /heart|save/<push_id>    the same, for `view` actions: records it and shows a confirmation
-      GET  /saved                   reading list; its links go through /c/ so opening counts as a click
-      GET  /health                  liveness
+      GET  /p/<push_id>        the push's card (records the tap): Read on NYT, ♥, Save
+      POST /read/<push_id>     'Read on NYT' was tapped (sent by the card as a beacon)
+      POST /heart/<push_id>    body "on" or "off": set or clear the ♥
+      POST /save/<push_id>     body "on" or "off": save for later, or unsave
+      GET  /saved              reading list; its links open the cards
+      GET  /health             liveness
     """
 
     class Handler(BaseHTTPRequestHandler):
@@ -281,44 +344,40 @@ def serve_clicks(store: Store, port: int) -> ThreadingHTTPServer:
             self.send_response(status)
             self.send_header("content-type", content_type)
             self.send_header("content-length", str(len(data)))
+            self.send_header("cache-control", "no-store")
             self.end_headers()
             self.wfile.write(data)
 
-        def _reaction(self) -> tuple[str, str] | None:
-            kind, _, push_id = self.path.lstrip("/").partition("/")
-            return (kind, push_id) if kind in REACTIONS and push_id else None
+        def _route(self) -> tuple[str, str]:
+            route, _, push_id = self.path.split("?")[0].lstrip("/").partition("/")
+            return route, push_id
 
         def do_POST(self):
-            r = self._reaction()
-            if r is None or not store.react(r[1], r[0]):
+            route, push_id = self._route()
+            body = self.rfile.read(min(int(self.headers.get("content-length") or 0), 16)).decode(errors="replace")
+            if route == "read":
+                ok = store.read(push_id)
+            elif route in REACTIONS:
+                ok = store.react(push_id, route, on=body.strip() != "off")
+            else:
+                ok = False
+            if not ok:
                 self._send(404, "unknown push", "text/plain")
                 return
-            print(json.dumps({"event": r[0], "push_id": r[1]}))
+            print(json.dumps({"event": route, "push_id": push_id, **({"on": body != "off"} if route in REACTIONS else {})}))
             self._send(200, "ok", "text/plain")
 
         def do_GET(self):
-            if self.path == "/health":
+            route, push_id = self._route()
+            if route == "health":
                 self._send(200, "ok", "text/plain")
-                return
-            if self.path == "/saved":
+            elif route == "saved":
                 self._send(200, reading_list_page(store.reading_list()))
-                return
-            if (r := self._reaction()) is not None:
-                if not store.react(r[1], r[0]):
-                    self._send(404, PAGE.format(body="<p>Unknown push.</p>"))
-                    return
-                print(json.dumps({"event": r[0], "push_id": r[1]}))
-                done = "♥ Loved" if r[0] == "heart" else '🔖 Saved. <a href="/saved">Reading list</a>'
-                self._send(200, PAGE.format(body=f"<h1>{done}</h1>"))
-                return
-            url = store.click(self.path[3:]) if self.path.startswith("/c/") else None
-            if url is None:
-                self._send(404, "not found", "text/plain")
-                return
-            print(json.dumps({"event": "click", "push_id": self.path[3:]}))
-            self.send_response(302)
-            self.send_header("location", url)
-            self.end_headers()
+            elif route == "p" and store.opened(push_id):
+                print(json.dumps({"event": "open", "push_id": push_id}))
+                self._send(200, card_page(store.push(push_id)))
+            else:
+                self._send(404, page("<p>Unknown push.</p>"))
 
         def log_message(self, *args):
             pass
@@ -398,10 +457,10 @@ class Notifier:
 
         sent = passes and under_cap and not self.dry_run
         if sent:
-            click = f"{self.click_base}/c/{push_id}" if self.click_base else article["url"]
-            actions = self.actions(push_id) if self.click_base else None
+            # the tap opens the push's card (Read on NYT, ♥, Save); without a tracker, the article itself
+            click = f"{self.click_base}/p/{push_id}" if self.click_base else article["url"]
             send_ntfy(self.cfg["ntfy_server"], self.topic, article["title"], article["abstract"], click,
-                      tags=["newspaper"], actions=actions)
+                      tags=["newspaper"])
 
         out = scores.drop(columns=["impression_id"]).merge(
             cand[["news_id", "title", "section", "subcategory", "subcat_sim", "url", "published"]], on="news_id")
@@ -416,6 +475,7 @@ class Notifier:
         out["sent_at"] = out["sent"].map({True: self.store.now(), False: None})
         out["sent_ts"] = out["sent"].map({True: int(time.time()), False: None})
         out["clicked_at"] = None
+        out["read_at"] = None
         self.store.add_scores(out)
 
         result = {"slot": now.isoformat(timespec="minutes"), "candidates": len(cand), "title": article["title"],
@@ -423,16 +483,6 @@ class Notifier:
                   "sent": sent}
         print(json.dumps(result))
         return result
-
-    def actions(self, push_id: str) -> list[dict]:
-        """ntfy buttons. `http` buttons call the tracker in the background; `view` buttons open a
-        confirmation page instead (for clients without http actions)."""
-        mode, base = self.cfg.get("button_action", "http"), self.click_base
-        def button(label, kind, clear):
-            b = {"action": mode, "label": label, "url": f"{base}/{kind}/{push_id}"}
-            return {**b, "method": "POST", "clear": clear} if mode == "http" else b
-        return [button("♥", "heart", False), button("🔖 Save", "save", True),
-                {"action": "view", "label": "📚 Reading list", "url": f"{base}/saved"}]
 
     def next_slot(self, now: pd.Timestamp) -> pd.Timestamp:
         hours = sorted(self.cfg["slot_hours"])

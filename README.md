@@ -674,10 +674,10 @@ is whether you tapped the push. That gives you labeled push data, which MIND can
 ```
 NYT RSS feeds ──▶ notifier ──HTTP──▶ scorer  (model + MIND user state, from the NYT sim)
                    │    ▲
-   ntfy.sh ◀───────┘    └── click tracker :8090 ◀── you tap the notification, ♥ or Save
+   ntfy.sh ◀───────┘    └── push card :8090 ◀── you tap the notification: Read / ♥ / Save
    (push to phone)  │
                     ▼
-        outputs/notifier/pushes.db  (SQLite: candidates, covariates, sends, clicks, ♥, saves)
+        outputs/notifier/pushes.db  (SQLite: candidates, covariates, sends, taps, reads, ♥, saves)
 ```
 
 At each slot hour (8, 12, 17, 21 New York time by default), the notifier does five things:
@@ -687,14 +687,19 @@ At each slot hour (8, 12, 17, 21 New York time by default), the notifier does fi
 2. Scores every article from the last 12 hours that hasn't already been pushed.
 3. Picks the top article with the push objective (friction from `configs/objective.yml`).
 4. Sends it through [ntfy](https://ntfy.sh) if it passes the send policy, up to 3 a day.
-5. Writes every candidate to the database. A tap opens the click tracker, which records the click
-   and then redirects to the article. Long-pressing a push shows three buttons:
-   - **♥** records a favorite.
-   - **🔖 Save** saves the article for later and clears the notification.
-   - **📚 Reading list** opens your saved articles at `CLICK_BASE_URL/saved`. Opening one from
-     there counts as a tap.
+5. Writes every candidate to the database.
 
-   ♥ and Save run in the background, without opening anything.
+Tapping the notification opens the push's **card**, a small page served from your Mac with the
+headline, the abstract and three buttons:
+
+- **Read on NYT** is a plain nytimes.com link, so iOS opens the NYT app if it's installed and
+  Safari otherwise. Reading needs your NYT login there, as usual.
+- **♡ Love** marks the article as a favorite. Tap again to undo.
+- **🔖 Save** adds it to your reading list at `CLICK_BASE_URL/saved`. Tap again to unsave.
+
+The card records the tap (`clicked_at`), whether you went on to read (`read_at`), and each ♥ and
+save. ntfy's own action buttons are not used, because the iOS app doesn't run them in the
+background.
 
 ### Setup (once)
 
@@ -707,9 +712,8 @@ At each slot hour (8, 12, 17, 21 New York time by default), the notifier does fi
    NTFY_TOPIC=pushnyt-3f9a1c2b7d4e
    CLICK_BASE_URL=http://192.168.1.23:8090
    ```
-   Without `CLICK_BASE_URL`, taps open the article directly, there are no buttons, and nothing is
-   recorded. If ♥ / Save do nothing on your phone, set `button_action: view` in
-   `configs/notifier.yml`; each button then opens a short confirmation page instead.
+   Without `CLICK_BASE_URL`, taps open the article directly, there's no card, and nothing is
+   recorded.
 3. **Images.** The scorer runs in the training image, which needs the `api` extra (FastAPI).
    Images built before that was added won't start the scorer, so rebuild, then remove the old
    image:
@@ -761,8 +765,8 @@ awake and Docker is running:
 
 | Table | One row per | Columns |
 |-------|-------------|---------|
-| `scores` | slot × candidate article | `slot_time`, article (`title`, `section`, `subcategory`, `url`, `published`), every model feature, `p_click`, `p_return`, `novelty`, `push_score`, `is_top`, `passes_policy`, `sent`, `push_id`, `sent_at`, `sent_ts` (Unix seconds), `clicked_at` |
-| `labeled` (view) | sent push | everything in `scores`, plus `label` (1 = tapped, 0 = not tapped within 24 h, NULL = pending), `hearted` and `saved` (0/1) |
+| `scores` | slot × candidate article | `slot_time`, article (`title`, `section`, `subcategory`, `url`, `published`), every model feature, `p_click`, `p_return`, `novelty`, `push_score`, `is_top`, `passes_policy`, `sent`, `push_id`, `sent_at`, `sent_ts` (Unix seconds), `clicked_at` (card opened), `read_at` (Read on NYT tapped) |
+| `labeled` (view) | sent push | everything in `scores`, plus `label` (1 = tapped, 0 = not tapped within 24 h, NULL = pending), and `read`, `hearted`, `saved` (0/1) |
 | `reactions` | push × kind (`heart` or `save`) | `push_id`, `kind`, `news_id`, `user_id`, `created_at`, `minutes_after_push` |
 | `articles` | article read from the feeds | text, URL, publish time, mapped MIND subcategory |
 | `meta` | setting | persona `user_id`, time anchor |
@@ -775,7 +779,7 @@ sqlite3 -header -column outputs/notifier/pushes.db \
 
 # what you hearted or saved, by section
 sqlite3 -header -column outputs/notifier/pushes.db \
-  "SELECT section, sum(hearted) AS hearts, sum(saved) AS saves, sum(label = 1) AS taps, count(*) AS sent FROM labeled GROUP BY section"
+  "SELECT section, count(*) AS sent, sum(label = 1) AS taps, sum(read) AS reads, sum(hearted) AS hearts, sum(saved) AS saves FROM labeled GROUP BY section"
 
 # tap rate by predicted P(click) bucket
 sqlite3 outputs/notifier/pushes.db \
@@ -794,11 +798,16 @@ feeds, ntfy server and click window. The threshold, risk penalty and friction co
 - **It scores for a stand-in, not you.** The scorer only knows MIND users, so a MIND reader
   (sampled, or set with `user_id`) stands in for you. Scoring you directly would mean adding a
   new user's state, e.g. built from a seed list of articles you've read.
-- **Your taps, ♥ and saves aren't fed back yet.** They're stored in the database, but they don't
-  update the persona's state in the scorer. They're explicit signals of different strength:
-  ♥ means "more like this", a save means "interested, not now", and a tap means "read it".
-- **Taps, ♥, saves and the reading list only work on the same Wi-Fi as the Mac.** The phone has to
-  reach the click tracker at `CLICK_BASE_URL`.
+- **Your taps, reads, ♥ and saves aren't fed back yet.** They're stored in the database, but
+  they don't update the persona's state in the scorer. They're signals of different strength:
+  a tap means "curious", a read means "read it", ♥ means "more like this", and a save means
+  "interested, not now".
+- **The card only works on the same Wi-Fi as the Mac.** The phone has to reach
+  `CLICK_BASE_URL`; elsewhere, tapping a push fails to load.
+- **One reader per topic.** Everyone subscribed to the topic gets the same push and the same
+  card, so their taps would mix together. Separate readers would each need their own topic and
+  their own push IDs. ♥ and saves live in this database, not in the reader's NYT account; NYT
+  has no public API for writing to its saved list.
 - **The feeds are RSS.** RSS needs no API key, but it only lists what editors put in each
   section's feed. The NYT Times Wire API would cover every article in one call.
 - **P(click) is a ranking signal here, not a rate.** The model was trained on another outlet
@@ -851,7 +860,7 @@ outputs/
   full/                   # default: every feature group
   analysis/               # pushnyt-exploration and pushnyt-fatigue: exploration.*, fatigue.*
   nyt-sim/                # pushnyt-nyt-sim: scores, pushes, daily.csv, summary.json
-  notifier/pushes.db      # notifier: every candidate, covariates, sends and taps (SQLite)
+  notifier/pushes.db      # notifier: every candidate, covariates, sends, taps, reads, ♥, saves (SQLite)
 ```
 
 | File | Contents |
