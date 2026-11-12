@@ -8,7 +8,7 @@ how much to send each user (the send threshold in objective.py), not which artic
 Labels near the end of the log are censored (the horizon runs past the data) and are dropped,
 so the model is trained on impressions before `fit_end` and evaluated on [fit_end, train_end);
 the test day itself is only scored. In production this would be replaced by a model of real
-notification opt-outs (see the README).
+notification opt-outs (see docs/analysis.md).
 """
 
 import numpy as np

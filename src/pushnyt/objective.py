@@ -143,7 +143,7 @@ def main() -> None:
     pushes["send"] = send_decisions(pushes, send["threshold"], send["risk_penalty"], send["daily_cap"])
     pushes.to_parquet(out / "pushes.parquet", index=False)
     # evaluate volume on large impressions: MIND logs only impressions with a click, which
-    # inflates click rates in small ones (see README, "Calibration")
+    # inflates click rates in small ones (see docs/analysis.md, "Calibration")
     large = pushes[pushes["n_candidates"] >= send["eval_min_candidates"]].reset_index(drop=True)
     thresholds = sorted(set(send["sweep"]) | {send["threshold"]})
     volume = volume_curve(large, thresholds, send["risk_penalty"], send["daily_cap"])

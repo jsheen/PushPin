@@ -15,7 +15,7 @@ Status (2026-11-03): **phases 1–3 done as an offline replay; no live endpoint 
 - New articles can join the catalog after training (`LiveScorer.add_articles`: text projected
   with the saved TF-IDF/SVD, a training subcategory, a publish time), and `score_many` scores
   many users in one pass (4 ms per request). `pushnyt-nyt-sim` uses both to push a week of NYT
-  articles to 1,000 MIND users; see the README.
+  articles to 1,000 MIND users; see the README (API → Request-time scoring).
 
 The rest of this document is the original plan; phases 4–6 are still open. The wider production
 design (scheduled push jobs, delivery, feedback loop, retraining) is in [production.md](production.md).
