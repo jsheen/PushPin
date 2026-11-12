@@ -10,14 +10,18 @@ A long-running service, separate from the push job. At each slot hour (configs/n
   4. writes every candidate and its covariates to a SQLite database
 
 It also serves a click tracker. The notification's tap action opens CLICK_BASE_URL/c/<push_id>,
-which records the click and redirects to the article. Without CLICK_BASE_URL, taps open the
-article directly and no clicks are recorded.
+which records the click and redirects to the article. The notification also has a "Comment"
+button that opens CLICK_BASE_URL/comment/<push_id>, a one-box form whose text is stored with the
+push. Without CLICK_BASE_URL, taps open the article directly and nothing is recorded.
 
 Database (outputs/notifier/pushes.db):
   scores    one row per (slot, candidate article): article fields, every model feature,
             p_click / p_return / push_score, is_top, sent, push_id, sent_at, clicked_at
+            (local times in the configured time zone) and sent_ts (Unix seconds)
   labeled   view over the sent pushes: label = 1 if clicked, 0 if not clicked within
-            `click_window_hours`, NULL while still pending
+            `click_window_hours`, NULL while still pending; n_comments
+  comments  one row per comment: push_id, news_id, user_id, text, created_at,
+            minutes_after_push
   articles  every article read from the feeds, with its mapped MIND subcategory
   meta      persona user_id and the time anchor
 
@@ -33,6 +37,7 @@ Needs only the core dependencies plus the standard library, so it runs in the ob
 
 import argparse
 import hashlib
+import html
 import json
 import os
 import sqlite3
@@ -44,7 +49,7 @@ from datetime import datetime, timedelta
 from email.utils import parsedate_to_datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -54,6 +59,7 @@ from pushnyt.objective import push_scores, send_decisions
 from pushnyt.push_job import HttpScorer
 
 ARTICLE_COLUMNS = ["news_id", "title", "abstract", "section", "url", "published"]
+MAX_COMMENT_CHARS = 5000
 
 
 # --- feeds ---------------------------------------------------------------------------------------
@@ -91,9 +97,13 @@ def fetch_feeds(urls: list[str], tz: ZoneInfo) -> pd.DataFrame:
 
 # --- delivery ------------------------------------------------------------------------------------
 
-def send_ntfy(server: str, topic: str, title: str, message: str, click: str, tags: list[str] | None = None) -> None:
-    """Publish through ntfy's JSON API (body JSON, so non-ASCII titles are fine)."""
-    body = {"topic": topic, "title": title, "message": message, "click": click, "tags": tags or []}
+def send_ntfy(server: str, topic: str, title: str, message: str, click: str, tags: list[str] | None = None,
+              actions: list[dict] | None = None) -> None:
+    """Publish through ntfy's JSON API (body JSON, so non-ASCII titles are fine).
+
+    `actions` are ntfy action buttons, e.g. {"action": "view", "label": "Comment", "url": ...}."""
+    body = {"topic": topic, "title": title, "message": message, "click": click, "tags": tags or [],
+            **({"actions": actions} if actions else {})}
     req = urllib.request.Request(server.rstrip("/"), data=json.dumps(body).encode(),
                                  headers={"content-type": "application/json"})
     with urllib.request.urlopen(req, timeout=30) as resp:
@@ -105,26 +115,35 @@ def send_ntfy(server: str, topic: str, title: str, message: str, click: str, tag
 class Store:
     """The SQLite database. One connection, guarded by a lock (the click server is threaded)."""
 
-    def __init__(self, path: Path, click_window_hours: float):
+    def __init__(self, path: Path, click_window_hours: float, tz: ZoneInfo):
         path.parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(path, check_same_thread=False)
         self.lock = threading.Lock()
-        self.click_window_hours = click_window_hours
+        self.click_window_hours, self.tz = click_window_hours, tz
         with self.lock, self.db:
             self.db.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
             self.db.execute("""CREATE TABLE IF NOT EXISTS articles (news_id TEXT PRIMARY KEY, title TEXT,
                 abstract TEXT, section TEXT, url TEXT, published TEXT, subcategory TEXT, subcat_sim REAL)""")
+            self.db.execute("""CREATE TABLE IF NOT EXISTS comments (comment_id INTEGER PRIMARY KEY, push_id TEXT,
+                news_id TEXT, user_id TEXT, text TEXT, created_at TEXT, minutes_after_push REAL)""")
             self._labeled_view()
 
     def _labeled_view(self) -> None:
         if not self._has_table("scores"):
             return
         self.db.execute("DROP VIEW IF EXISTS labeled")
+        # Unix seconds, so the cutoff doesn't depend on the container's time zone
+        window = int(self.click_window_hours * 3600)
         self.db.execute(f"""CREATE VIEW labeled AS SELECT *,
             CASE WHEN clicked_at IS NOT NULL THEN 1
-                 WHEN sent_at <= strftime('%Y-%m-%dT%H:%M:%S', 'now', 'localtime', '-{float(self.click_window_hours)} hours') THEN 0
-            END AS label
+                 WHEN sent_ts <= CAST(strftime('%s', 'now') AS INTEGER) - {window} THEN 0
+            END AS label,
+            (SELECT COUNT(*) FROM comments c WHERE c.push_id = scores.push_id) AS n_comments
             FROM scores WHERE sent = 1""")
+
+    def now(self) -> str:
+        """Current local time in the configured zone, as stored in the *_at columns."""
+        return datetime.now(self.tz).replace(tzinfo=None).isoformat(timespec="seconds")
 
     def _has_table(self, name: str) -> bool:
         return self.db.execute("SELECT 1 FROM sqlite_master WHERE name = ?", (name,)).fetchone() is not None
@@ -184,24 +203,97 @@ class Store:
         """Record the first click on a push; returns the article URL (None if unknown)."""
         if not self._has_table("scores"):
             return None
-        now = datetime.now().isoformat(timespec="seconds")
         with self.lock, self.db:
             row = self.db.execute("SELECT url FROM scores WHERE push_id = ?", (push_id,)).fetchone()
             if row:
                 self.db.execute("UPDATE scores SET clicked_at = ? WHERE push_id = ? AND clicked_at IS NULL",
-                                (now, push_id))
+                                (self.now(), push_id))
         return row[0] if row else None
+
+    def push(self, push_id: str) -> dict | None:
+        """The sent push with this id: news_id, user_id, title, url, sent_ts (None if unknown)."""
+        if not self._has_table("scores"):
+            return None
+        with self.lock:
+            row = self.db.execute("SELECT news_id, user_id, title, url, sent_ts FROM scores WHERE push_id = ?",
+                                  (push_id,)).fetchone()
+        return dict(zip(["news_id", "user_id", "title", "url", "sent_ts"], row)) if row else None
+
+    def comment(self, push_id: str, text: str) -> bool:
+        """Store a comment on a push; False if the push is unknown or the text is empty."""
+        push, text = self.push(push_id), text.strip()[:MAX_COMMENT_CHARS]
+        if push is None or not text:
+            return False
+        minutes = (time.time() - push["sent_ts"]) / 60 if push["sent_ts"] is not None else None
+        with self.lock, self.db:
+            self.db.execute("INSERT INTO comments (push_id, news_id, user_id, text, created_at, minutes_after_push) "
+                            "VALUES (?, ?, ?, ?, ?, ?)",
+                            (push_id, push["news_id"], push["user_id"], text, self.now(), minutes))
+        return True
+
+
+PAGE = """<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>pushNYT</title>
+<style>body{{font:17px -apple-system,system-ui,sans-serif;margin:0;padding:20px;max-width:640px;
+background:#fff;color:#111}}h1{{font:600 20px Georgia,serif;margin:0 0 16px}}
+textarea{{width:100%;box-sizing:border-box;height:160px;font:inherit;padding:10px;border:1px solid #bbb;
+border-radius:8px}}button{{margin-top:12px;font:inherit;padding:10px 18px;border:0;border-radius:8px;
+background:#111;color:#fff}}a{{color:#326891}}p{{color:#555}}
+@media (prefers-color-scheme:dark){{body{{background:#121212;color:#eee}}textarea{{background:#1e1e1e;
+color:#eee;border-color:#444}}button{{background:#eee;color:#111}}p{{color:#aaa}}a{{color:#8ab4f8}}}}
+</style></head><body>{body}</body></html>"""
+
+
+def comment_form(push: dict, push_id: str) -> str:
+    return PAGE.format(body=f"""<h1>{html.escape(push["title"])}</h1>
+<form method="post" action="/comment/{html.escape(push_id)}">
+<textarea name="text" maxlength="{MAX_COMMENT_CHARS}" placeholder="Add your comment" autofocus required></textarea>
+<button type="submit">Post</button></form>
+<p><a href="{html.escape(push["url"])}">Read the article</a></p>""")
 
 
 def serve_clicks(store: Store, port: int) -> ThreadingHTTPServer:
-    """GET /c/<push_id>: record the click, redirect to the article. GET /health: liveness."""
+    """The phone-facing endpoints.
+
+      GET  /c/<push_id>        record the click, redirect to the article
+      GET  /comment/<push_id>  comment form for the push
+      POST /comment/<push_id>  store the comment (form field `text`)
+      GET  /health             liveness
+    """
 
     class Handler(BaseHTTPRequestHandler):
+        def _page(self, status: int, body: str) -> None:
+            data = body.encode()
+            self.send_response(status)
+            self.send_header("content-type", "text/html; charset=utf-8")
+            self.send_header("content-length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_POST(self):
+            push_id = self.path[len("/comment/"):] if self.path.startswith("/comment/") else ""
+            length = min(int(self.headers.get("content-length") or 0), 4 * MAX_COMMENT_CHARS)
+            text = parse_qs(self.rfile.read(length).decode("utf-8", "replace")).get("text", [""])[0]
+            if not store.comment(push_id, text):
+                self._page(404 if store.push(push_id) is None else 400, PAGE.format(body="<p>Nothing posted.</p>"))
+                return
+            print(json.dumps({"event": "comment", "push_id": push_id, "chars": len(text.strip())}))
+            url = html.escape(store.push(push_id)["url"])
+            self._page(200, PAGE.format(body=f'<h1>Thanks, comment saved.</h1><p><a href="{url}">Read the article</a></p>'))
+
         def do_GET(self):
             if self.path == "/health":
                 self.send_response(200)
                 self.end_headers()
                 self.wfile.write(b"ok")
+                return
+            if self.path.startswith("/comment/"):
+                push_id = self.path[len("/comment/"):]
+                push = store.push(push_id)
+                if push is None:
+                    self._page(404, PAGE.format(body="<p>Unknown push.</p>"))
+                else:
+                    self._page(200, comment_form(push, push_id))
                 return
             url = store.click(self.path[3:]) if self.path.startswith("/c/") else None
             if url is None:
@@ -292,8 +384,10 @@ class Notifier:
         sent = passes and under_cap and not self.dry_run
         if sent:
             click = f"{self.click_base}/c/{push_id}" if self.click_base else article["url"]
+            actions = ([{"action": "view", "label": "💬 Comment", "url": f"{self.click_base}/comment/{push_id}"}]
+                       if self.click_base else None)
             send_ntfy(self.cfg["ntfy_server"], self.topic, article["title"], article["abstract"], click,
-                      tags=["newspaper"])
+                      tags=["newspaper"], actions=actions)
 
         out = scores.drop(columns=["impression_id"]).merge(
             cand[["news_id", "title", "section", "subcategory", "subcat_sim", "url", "published"]], on="news_id")
@@ -305,8 +399,8 @@ class Notifier:
         out["sent"] = out["is_top"] & sent
         out["dry_run"] = self.dry_run
         out["push_id"] = out["is_top"].map({True: push_id, False: None})
-        out["sent_at"] = out["sent"].map({True: datetime.now(self.tz).replace(tzinfo=None).isoformat(timespec="seconds"),
-                                          False: None})
+        out["sent_at"] = out["sent"].map({True: self.store.now(), False: None})
+        out["sent_ts"] = out["sent"].map({True: int(time.time()), False: None})
         out["clicked_at"] = None
         self.store.add_scores(out)
 
@@ -367,7 +461,7 @@ def main() -> None:
         print("sent")
         return
 
-    store = Store(Path(config["db"]), config["click_window_hours"])
+    store = Store(Path(config["db"]), config["click_window_hours"], ZoneInfo(config["timezone"]))
     scorer = HttpScorer(args.scorer)
     wait_for(scorer)
     notifier = Notifier(scorer, store, config, objective, topic, os.environ.get("CLICK_BASE_URL"), args.dry_run)

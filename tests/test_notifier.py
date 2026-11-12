@@ -35,10 +35,10 @@ class FeatureScorer(FakeScorer):
 def setup(tmp_path, monkeypatch):
     sent = []
     monkeypatch.setattr(nt, "fetch_feeds", lambda urls, tz: nt.parse_rss(rss(ITEMS), tz))
-    monkeypatch.setattr(nt, "send_ntfy", lambda *a, **k: sent.append(a))
+    monkeypatch.setattr(nt, "send_ntfy", lambda *a, **k: sent.append((*a, k)))
     config = {"timezone": "America/New_York", "slot_hours": [8, 12, 17, 21], "lookback_hours": 24,
               "daily_cap": 2, "user_id": None, "seed": 42, "ntfy_server": "https://ntfy.sh", "feeds": []}
-    store = nt.Store(tmp_path / "pushes.db", click_window_hours=24)
+    store = nt.Store(tmp_path / "pushes.db", click_window_hours=24, tz=TZ)
     n = nt.Notifier(FeatureScorer(), store, config, OBJECTIVE, "topic", "http://mac:8090")
     return n, store, sent, tmp_path / "pushes.db"
 
@@ -102,3 +102,49 @@ def test_next_slot(setup):
     n = setup[0]
     assert n.next_slot(pd.Timestamp("2026-11-12 09:30")) == pd.Timestamp("2026-11-12 12:00")
     assert n.next_slot(pd.Timestamp("2026-11-12 21:00")) == pd.Timestamp("2026-11-13 08:00")
+
+
+def test_push_has_comment_button(setup):
+    n, store, sent, db = setup
+    n.run_slot(pd.Timestamp("2026-11-12 12:00"))
+    push_id = sent[0][4].rsplit("/", 1)[1]
+    assert sent[0][5]["actions"][0]["url"] == f"http://mac:8090/comment/{push_id}"
+
+
+def test_comment_form_and_storage(setup):
+    import urllib.parse
+
+    n, store, sent, db = setup
+    n.run_slot(pd.Timestamp("2026-11-12 12:00"))
+    push_id = sent[0][4].rsplit("/", 1)[1]
+    server = nt.serve_clicks(store, 0)
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        page = urllib.request.urlopen(f"{base}/comment/{push_id}").read().decode()
+        assert "<textarea" in page and "Story" in page
+        text = "Interesting <b>take</b> & more"
+        data = urllib.parse.urlencode({"text": text}).encode()
+        done = urllib.request.urlopen(f"{base}/comment/{push_id}", data=data).read().decode()
+        assert "comment saved" in done
+        for bad, code in ((f"{base}/comment/nope", 404), (f"{base}/comment/{push_id}", 400)):
+            with pytest.raises(urllib.error.HTTPError) as e:
+                urllib.request.urlopen(bad, data=urllib.parse.urlencode({"text": "  "}).encode())
+            assert e.value.code == code
+    finally:
+        server.shutdown()
+    con = sqlite3.connect(db)
+    comments = pd.read_sql("SELECT * FROM comments", con)
+    assert comments["text"].tolist() == [text] and comments["user_id"].iloc[0] == n.user_id
+    assert 0 <= comments["minutes_after_push"].iloc[0] < 1
+    labeled = pd.read_sql("SELECT push_id, n_comments, label FROM labeled", con).set_index("push_id")
+    assert labeled.at[push_id, "n_comments"] == 1
+    assert pd.isna(labeled.at[push_id, "label"])  # not tapped, still inside the 24h window
+
+
+def test_unclicked_push_labeled_zero_after_window(setup):
+    n, store, sent, db = setup
+    n.run_slot(pd.Timestamp("2026-11-12 12:00"))
+    con = sqlite3.connect(db)
+    con.execute("UPDATE scores SET sent_ts = sent_ts - 25 * 3600 WHERE sent = 1")
+    con.commit()
+    assert pd.read_sql("SELECT label FROM labeled", con)["label"].tolist() == [0]

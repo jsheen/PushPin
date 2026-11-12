@@ -674,10 +674,10 @@ is whether you tapped the push. That gives you labeled push data, which MIND can
 ```
 NYT RSS feeds ──▶ notifier ──HTTP──▶ scorer  (model + MIND user state, from the NYT sim)
                    │    ▲
-   ntfy.sh ◀───────┘    └── click tracker :8090 ◀── you tap the notification
+   ntfy.sh ◀───────┘    └── click tracker :8090 ◀── you tap the notification, or comment
    (push to phone)  │
                     ▼
-        outputs/notifier/pushes.db  (SQLite: candidates, covariates, sends, clicks)
+        outputs/notifier/pushes.db  (SQLite: candidates, covariates, sends, clicks, comments)
 ```
 
 At each slot hour (8, 12, 17, 21 New York time by default), the notifier does five things:
@@ -688,7 +688,9 @@ At each slot hour (8, 12, 17, 21 New York time by default), the notifier does fi
 3. Picks the top article with the push objective (friction from `configs/objective.yml`).
 4. Sends it through [ntfy](https://ntfy.sh) if it passes the send policy, up to 3 a day.
 5. Writes every candidate to the database. A tap opens the click tracker, which records the click
-   and then redirects to the article.
+   and then redirects to the article. Each push also has a **💬 Comment** button, opened by
+   long-pressing the notification. It leads to a one-box form, and the comment is stored with the
+   push.
 
 ### Setup (once)
 
@@ -701,7 +703,8 @@ At each slot hour (8, 12, 17, 21 New York time by default), the notifier does fi
    NTFY_TOPIC=pushnyt-3f9a1c2b7d4e
    CLICK_BASE_URL=http://192.168.1.23:8090
    ```
-   Without `CLICK_BASE_URL`, taps open the article directly and no clicks are recorded.
+   Without `CLICK_BASE_URL`, taps open the article directly, there's no Comment button, and
+   nothing is recorded.
 3. **Images.** The scorer runs in the training image, which needs the `api` extra (FastAPI).
    Images built before that was added won't start the scorer, so rebuild, then remove the old
    image:
@@ -753,8 +756,9 @@ awake and Docker is running:
 
 | Table | One row per | Columns |
 |-------|-------------|---------|
-| `scores` | slot × candidate article | `slot_time`, article (`title`, `section`, `subcategory`, `url`, `published`), every model feature, `p_click`, `p_return`, `novelty`, `push_score`, `is_top`, `passes_policy`, `sent`, `push_id`, `sent_at`, `clicked_at` |
-| `labeled` (view) | sent push | everything in `scores`, plus `label`: 1 = tapped, 0 = not tapped within 24 h, NULL = pending |
+| `scores` | slot × candidate article | `slot_time`, article (`title`, `section`, `subcategory`, `url`, `published`), every model feature, `p_click`, `p_return`, `novelty`, `push_score`, `is_top`, `passes_policy`, `sent`, `push_id`, `sent_at`, `sent_ts` (Unix seconds), `clicked_at` |
+| `labeled` (view) | sent push | everything in `scores`, plus `label` (1 = tapped, 0 = not tapped within 24 h, NULL = pending) and `n_comments` |
+| `comments` | comment | `push_id`, `news_id`, `user_id`, `text`, `created_at`, `minutes_after_push` |
 | `articles` | article read from the feeds | text, URL, publish time, mapped MIND subcategory |
 | `meta` | setting | persona `user_id`, time anchor |
 
@@ -763,6 +767,10 @@ Example queries:
 ```bash
 sqlite3 -header -column outputs/notifier/pushes.db \
   "SELECT slot_time, section, round(p_click, 3) AS p_click, label, title FROM labeled ORDER BY slot_time DESC LIMIT 20"
+
+# comments with their push
+sqlite3 -header -column outputs/notifier/pushes.db \
+  "SELECT c.created_at, s.section, s.title, c.text FROM comments c JOIN scores s USING (push_id) WHERE s.sent = 1"
 
 # tap rate by predicted P(click) bucket
 sqlite3 outputs/notifier/pushes.db \
@@ -781,8 +789,11 @@ feeds, ntfy server and click window. The threshold, risk penalty and friction co
 - **It scores for a stand-in, not you.** The scorer only knows MIND users, so a MIND reader
   (sampled, or set with `user_id`) stands in for you. Scoring you directly would mean adding a
   new user's state, e.g. built from a seed list of articles you've read.
-- **Your taps aren't fed back yet.** They're stored in the database, but they don't update the
-  persona's state in the scorer.
+- **Your taps and comments aren't fed back yet.** They're stored in the database, but they
+  don't update the persona's state in the scorer. Comments are raw text; turning them into
+  features (sentiment, stance, topics, e.g. with an LLM) is a next step.
+- **Clicks and comments are only recorded on the same Wi-Fi as the Mac.** The phone has to
+  reach the click tracker at `CLICK_BASE_URL`.
 - **The feeds are RSS.** RSS needs no API key, but it only lists what editors put in each
   section's feed. The NYT Times Wire API would cover every article in one call.
 - **P(click) is a ranking signal here, not a rate.** The model was trained on another outlet
