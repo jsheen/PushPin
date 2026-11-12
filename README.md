@@ -18,6 +18,7 @@ given time slot, `P(click | user, article, time slot)`. Slots are:
 The model is an XGBoost classifier trained on the
 [Microsoft News Dataset (MIND)](https://msnews.github.io/), with article abstracts embedded into
 a local [Chroma](https://www.trychroma.com/) vector database to power retrieval-based features.
+To get its pushes on your own phone, see [Real pushes to your phone](#real-pushes-to-your-phone).
 
 ## Pipeline
 
@@ -103,13 +104,10 @@ Whole impressions are resampled, since the candidates shown together are correla
 replicate reweights the rows by how often its impression was drawn. The number of replicates and
 the interval level are set under `evaluation` in `configs/train.yml` (`bootstrap_samples: 0` skips this).
 
-The bootstrap runs only here, on the test-day predictions; it measures uncertainty and never
-changes the model. Training and Platt calibration both treat each candidate row as an independent
-example. The impression structure is kept only as columns (`impression_id`, `user_id`) on the rows,
-and only evaluation uses it. Resampling impressions keeps candidates from the same list together,
-but a user's impressions are also correlated with each other, and so are the rows for one article
-across many lists (an article that is popular on the test day lifts all of them). So the intervals
-are probably still somewhat narrow. Resampling users would be the next step.
+The bootstrap only measures uncertainty on the test-day predictions; training and calibration
+treat each row as independent. A user's impressions, and one article's rows across lists, are
+also correlated, so the intervals are probably still a little narrow. Resampling users would be
+the next step.
 
 **Quality gate.** If test AUC falls below `evaluation.min_auc` (0.644, the lower bound of the
 baseline's 95% CI), `pushnyt-train` exits with an error after saving its artifacts, so a regression
@@ -179,15 +177,11 @@ score = (1 − friction) · engagement + friction · novelty,     friction ∈ [
   exposure is their pre-period history clicks plus every article shown in earlier impressions.
   1 = a subcategory they have never been shown; near 0 = what they are usually shown.
 
-**Putting the two halves on the same scale.** The raw values are not comparable: `P(click)` sits in
-a narrow band near the base CTR (~0.04), while novelty spans 0–1 (and is close to 1 for most
-subcategories). Adding them raw would let novelty swamp engagement at almost any friction, and
-the meaning of a given friction would shift whenever the model's calibration changed. So each half
-is converted to its **percentile rank among the candidates in the same impression** — the set we
-choose one push from. Both then mean "the share of the other candidates this one beats", on the
-same 0–1 scale, and friction becomes a literal weight between two rankings: at 0.2, the push is
-80% "most likely to be clicked" and 20% "least like what they usually get". Ranks also make the
-objective unaffected by any monotone rescaling of `P(click)` (e.g. recalibration).
+**Same scale.** The raw values aren't comparable. `P(click)` sits near the base CTR (~0.04),
+while novelty spans 0–1, so adding them raw would let novelty swamp engagement. Each half is
+therefore converted to its **percentile rank among the candidates in the same impression**. That
+makes friction a literal weight between two rankings, and it isn't affected by recalibrating
+`P(click)`.
 
 **Baseline click rates.** Clicks are rare. On the test day (30,270 impressions, 1.22M candidates):
 
@@ -197,11 +191,9 @@ objective unaffected by any monotone rescaling of `P(click)` (e.g. recalibration
 | One candidate picked at random from each impression | 9.1% |
 | The model's top pick per impression (friction 0) | 16.7% |
 
-A random pick beats the per-candidate rate because MIND only logs impressions with at least one
-click, and short impressions have a high click share (impressions hold 40 candidates on average,
-median 27). So 9.1% is the fair "pick one push at random" baseline, and the click model nearly
-doubles it. MIND impressions are on-site feed impressions rather than push notifications, so
-absolute push click rates in production would be lower.
+A random pick beats the per-candidate rate because MIND only logs impressions with a click, and
+short impressions have a high click share. So 9.1% is the fair random baseline, and the model
+nearly doubles it. These are feed impressions, so real push click rates would be lower.
 
 **The trade-off.** `pushnyt-objective` sweeps friction and plots, for the single top push per
 impression, the click rate against the share of pushes from a never-shown subcategory. The dashed
@@ -223,13 +215,9 @@ between the curves is what the model adds at each level of novelty (`recency-dep
 | 0.7 | 10.0% | 8.0% | 76% |
 | 1 | 8.1% | 8.1% | 87% |
 
-The never-shown share in the third column is for the model; under random engagement it is higher
-at low friction (29% at friction 0), since a random ranking ignores the user's habits. The two
-curves meet at friction 1, where engagement is ignored. Low friction buys a lot of novelty cheaply:
-going from 0 to 0.2 more than triples the never-shown share for about 3 points of CTR. Above
-roughly 0.5 the model keeps less and less of its edge. CTR is measured against logged clicks, so
-it only credits pushes that were in the original candidate set, which likely understates how
-novel pushes would do.
+Low friction buys novelty cheaply: going from 0 to 0.2 more than triples the never-shown share
+for about 3 points of CTR. Above about 0.5 the model keeps less and less of its edge. CTR only
+credits logged clicks, so it likely understates how novel pushes would do.
 
 ### Calibration
 
@@ -256,34 +244,18 @@ On average the raw model was already close; the fix matters at the top, where it
 **overconfident**, and the top is exactly where a send threshold operates. ECE is the
 count-weighted mean gap between predicted and observed rates over 20 equal-count bins.
 
-**A MIND caveat.** Calibration is per *candidate*. It does not make the *chosen* push calibrated,
-because MIND only logs impressions that contain a click: in impressions with ≤10 candidates, 18.6%
-of candidates are clicked (the model predicts 4.8%); with >100, 1.9% (it predicts 3.8%). The model
-cannot see impression size, and real pushes have no guaranteed click. So the send policy below is
-evaluated on impressions with 50+ candidates, where the artifact is weakest; within those, the
-model's top picks still click at a higher rate as its prediction rises (3.6% → 8.5% across
-quintiles), though it over-predicts their level.
-
-**Candidates compete within an impression.** Splitting impressions into candidate rows hides two
-problems that the 50+ filter only partly fixes:
-
-- *The label is "picked from this list", not "wants this article".* Nearly every logged impression
-  has about one click, so the candidates shown together compete for it, and their labels are
-  negatively dependent. The model learns P(this candidate is the one clicked, among the others
-  shown with it), and since it cannot see list size, that probability is averaged over MIND's mix
-  of list sizes. The same user and article would earn roughly 1/size of a click in a list of any
-  size. So the send threshold (0.07) is in feed units, a top pick out of a list of about 37, not
-  the chance of opening a lone notification. Rankings within a list are unaffected, but absolute
-  probabilities don't carry over to push.
-- *Training and calibration still include the inflated small impressions.* The 50+ filter applies
-  only to the send-policy evaluation. The model is trained, and Platt is fit, on every impression,
-  including small ones whose click rate the click-only logging inflates. A large share of what the
-  calibrator fits is therefore the logging artifact.
-
-A possible fix is to add impression size as a feature during training and fix it at a reference
-value when scoring for push, or to weight rows so each impression counts once. Either way, the
-push-unit probability can only be estimated properly from real push logs (see
-[Production](#production-plugging-in-real-opt-out-data)).
+**MIND caveats.** Calibration is per *candidate*, not per chosen push, and MIND only logs
+impressions that contain a click. Small impressions therefore have inflated click rates (18.6%
+with ≤10 candidates vs 1.9% with >100), and the model can't see impression size. The labels also
+mean "picked from this list", not "wants this article": candidates shown together compete for
+about one click. So the 0.07 send threshold is in feed units (a top pick from about 37
+candidates), not the chance of opening a lone notification. The send policy is evaluated on
+impressions with 50+ candidates, where the artifact is weakest. Within those, top picks still
+click more as the prediction rises (3.6% → 8.5% across quintiles), but the model over-predicts the
+level. Two possible fixes are an impression-size feature fixed at a reference value at push time,
+or weighting each impression once. Real push logs are the proper source (see
+[Production](#production-plugging-in-real-opt-out-data) and
+[Real pushes to your phone](#real-pushes-to-your-phone)).
 
 ### Return model (churn proxy)
 
@@ -424,6 +396,7 @@ docker compose run --rm train "pushnyt-fatigue"       # writes outputs/analysis/
 ```
 configs/train.yml       # all data, split, feature, embedding, and model settings
 configs/objective.yml   # push objective: which run to re-rank, friction, sweep
+configs/notifier.yml    # real pushes: slot hours, feeds, persona, ntfy, click window
 scripts/sync-data.sh    # pull gs://pushnyt-data into ./data
 scripts/smoke-api.sh    # start the API image on a fixture run and check it responds (used by CI)
 scripts/build-api-image.sh  # build + smoke-test a production API image with one run baked in
@@ -474,25 +447,23 @@ docker compose run --rm train     # build + run training with configs/train.yml
 docker compose run --rm objective # build + run the push objective with configs/objective.yml
 docker compose up -d api          # build + start the serving API on http://localhost:8000
 docker compose run --rm shell     # interactive shell via compose (training image)
+docker compose up -d scorer notifier  # real pushes to your phone (see that section)
 ```
 
 There are three images. `pushnyt-train` holds the heavy training stack (`pip install .[train]`);
 `pushnyt-objective` holds only the core dependencies and mounts just `src/`, `configs/`, and
 `outputs/`; `pushnyt-api` adds FastAPI to the core dependencies and mounts `outputs/` read-only.
-They never call each other: the only thing passed between them is a run's
-`predictions.parquet`, through the shared `outputs/` folder.
+Batch steps pass a run's `predictions.parquet` through the shared `outputs/` folder. Only the
+live services talk over HTTP: `scorer` (training image) serves `push-job` and `notifier`, which
+both run in the objective image.
 
 `src/`, `configs/`, `data/`, and `outputs/` are bind-mounted, so code and config edits
 take effect without rebuilding. Rebuild after changing `pyproject.toml`.
 
-**Memory.** On macOS, all containers share Docker Desktop's Linux VM, which defaults to half the
-host's RAM (4 GB on an 8 GB Mac); a process over the limit is killed with exit code 137. Full
-training with the LLM features peaks at about 3.7 GB and without them about 3.4 GB, so both fit
-in 4 GB. To stay under it, feature building works on fixed-size slices (100k rows for per-row
-vector math, 2,000 users per Chroma query, 20k impressions per parse) rather than materializing
-whole-dataset intermediates, and the LLM theme vectors are memory-mapped from disk. If runs are
-killed, raise Settings → Resources → Memory; setting Swap to 0 there makes an out-of-memory run
-fail fast instead of slowing down.
+**Memory.** On macOS, all containers share Docker Desktop's VM (4 GB on an 8 GB Mac), and a
+process over the limit exits with code 137. Full training peaks at about 3.7 GB. It stays under
+the limit by building features in fixed-size slices and memory-mapping the LLM theme vectors. If
+runs are killed, raise Settings → Resources → Memory.
 
 ### Running the pipeline
 
@@ -548,36 +519,23 @@ The click/skip contrast features compare a candidate with the user's own clicked
 articles. The LLM profile asks whether an LLM, given the same evidence, captures *why* a reader
 clicks one article and passes over a similar one better than the raw nearest neighbors do.
 
-- **Retrieve.** For day D, a user's 10 most recent clicks before D, and for each the 2 skipped
-  articles closest to it (cosine in the abstract embedding space), drawn from that user's
-  impressions before D. Skips they later clicked are dropped. Skips close to a click are the
-  informative ones: they show within-topic preferences that subcategory counts can't.
+- **Retrieve.** For day D: the user's 10 most recent clicks before D, and for each, the 2
+  nearest skipped articles from their earlier impressions. Skips they later clicked are dropped.
+  Skips close to a click show within-topic preferences that subcategory counts can't.
 - **Generate.** One request per user-day to `claude-haiku-5-5` through the Message Batches API
-  (half price), with structured output `{click_themes: [...], skip_themes: [...]}`, 2-4 themes each.
-  Themes are written like headlines or section topics ("NFL game recaps, injuries and trade
-  rumors"), not reader descriptions, so they sit close to article abstracts in embedding space.
-  A theme can be a format ("Celebrity photo galleries"), since many skips are galleries and videos
-  on topics the user does click. Each set's themes describe only that set: MiniLM ignores
-  "rather than", so naming clicked topics in a skip theme would pull it toward the clicks and
-  wash out the contrast. The comparison is left to `llm_contrast`.
+  (half price). The structured output is `{click_themes, skip_themes}`, 2-4 each. Themes read
+  like headlines ("NFL game recaps, injuries and trade rumors"), so they embed near abstracts.
+  Each set describes only itself, because MiniLM ignores "rather than"; the comparison is left to
+  `llm_contrast`.
 - **Embed and score.** Each theme is its own vector in the `profiles` Chroma collection, and a
-  candidate is scored by its best-matching theme (max, like `emb_sim_clicked_max`). One vector per
-  summary would average a reader of football, diets and politics into a point that matches none of
-  them. Each candidate row uses the profile for its own day. Users with no clicks get no profile,
-  and users with no earlier skips get no skip themes; their features are missing, which XGBoost
-  handles.
+  candidate is scored by its best-matching theme. Users with no clicks or no skips have missing
+  features, which XGBoost handles.
 
-Profiles use only data before their day, so a profile never sees the impressions it scores.
-`data/llm/batches.json` records the submitted batch ids per prompt version (a hash of the prompt,
-schema, model, and settings), so a rerun resumes the same batches and a changed prompt submits new
-ones. `data/llm/report.json` has token usage, cost, and failures. MIND-small has about 41k
-user-days to profile (users active on the train or test day).
-
-At training time the theme vectors are read memory-mapped from
-`data/llm/theme_vectors_{click,skip}.npy` (NaN-padded `(profiles, 4, 384)` arrays) instead of
-through Chroma, which would load the whole 275k-vector collection into RAM. `pushnyt-profile`
-writes them; if they are missing or older than `profiles.parquet`, training rebuilds them from
-Chroma first.
+Profiles only use data from before their day. `data/llm/batches.json` stores the batch ids for
+each prompt version, so reruns resume and prompt changes resubmit. `data/llm/report.json` has
+token usage and cost. MIND-small has about 41k user-days. For training, the theme vectors are
+memory-mapped from `data/llm/theme_vectors_{click,skip}.npy` rather than loaded from Chroma
+(275k vectors); training rebuilds them if they are stale.
 
 To measure the uplift, train with and without the three `llm_*` features, then compare the two
 runs on the same test impressions (results under [Results](#results)):
@@ -643,13 +601,9 @@ scripts/build-api-image.sh ablation-with-llm   # builds pushnyt-api:ablation-wit
 docker run -p 8000:8000 pushnyt-api:ablation-with-llm
 ```
 
-The `baked` target of `Dockerfile.api` copies the run's `predictions.parquet`, `metrics.json`,
-`config.yml` and `xgb_click.json` (about 20 MB) into `/app/model/<run>` and points
-`PUSHNYT_RUN_DIR` there. The script then starts the image without volumes and checks that
-`/health` reports the run and `/push` answers for one of its impressions. Deploy a new model by
-building a new tag; roll back by redeploying the previous one. The default target (used by
-compose and CI) is unchanged. API builds use `Dockerfile.api.dockerignore`, which lets only those
-four files per run into the build context.
+The `baked` target copies the run's four serving files (about 20 MB) into the image. The script
+then starts it without volumes and checks `/health` and `/push`. To deploy a model, build a new
+tag; to roll back, redeploy the previous one.
 
 The API serves **precomputed** scores: it looks up the batch predictions for impressions in the
 run and can't score new users or articles. Request-time scoring exists as an offline replay:
@@ -667,15 +621,10 @@ MIND test-day users at 8:00, 13:00 and 19:00 New York time. At each slot a user'
 the articles published since the previous slot; the push objective and send policy from
 `configs/objective.yml` pick one and decide whether to send it.
 
-- **Users** keep their real MIND state (history, logged impressions, LLM themes) as of the end of
-  the log, frozen for the week: there are no NYT clicks to add.
-- **Articles** are embedded with the training MiniLM model, projected into the training text
-  space, and mapped to the nearest MIND subcategory centroid (median cosine 0.40; puzzles and
-  food map loosely, since MIND has no such sections). NYT has no entity annotations, so
-  `sim_entity` is missing. Article age uses the real publish time, and the retrieval index holds
-  MIND plus the NYT articles published so far.
-- The NYT week is shifted to start the day after the MIND log, so gaps since each user's last
-  visit stay realistic.
+Users keep their MIND state as of the end of the log, frozen for the week. Articles are embedded
+with the training MiniLM model and mapped to the nearest MIND subcategory centroid (median cosine
+0.40). They have no entities. The week is shifted to start the day after the log, so gaps since
+each user's last visit stay realistic.
 
 | | |
 |---|---|
@@ -685,63 +634,16 @@ the articles published since the previous slot; the push objective and send poli
 | Latency | 4.3 ms per request, scoring 250 users per pass |
 
 There are no labels, so these are sanity checks, not accuracy. The chosen push is closer to the
-user than the average candidate on every signal (P(click) 0.071 vs 0.034, similarity to their
-LLM click themes 0.224 vs 0.156, best match to their history 0.275 vs 0.193). Sent pushes lean
-toward U.S. news (35% of sends vs 17% of articles published), which matches MIND readers'
-news-heavy histories, and average 3.3 distinct sections per user over the week. The model is
-applied to another outlet and era, so its P(click) is a ranking signal here, not a click rate.
-Outputs go to `outputs/nyt-sim/`: `scores.parquet` (every user-article score),
-`pushes.parquet` (each slot's pick, with title, section and whether it was sent),
-`daily.csv` (per day: articles published, pushes sent, readers reached, share of articles
-pushed to anyone, top section, most-sent story, mean predicted P(click) and novelty), and
-`summary.json`. In the simulated week, weekends had about half as many articles but as many
-sends, so the fixed send threshold effectively loosens when the pool shrinks.
+user than the average candidate on every signal (P(click) 0.071 vs 0.034, LLM click-theme
+similarity 0.224 vs 0.156). Sends lean toward U.S. news (35% of sends vs 17% of articles), and
+users get 3.3 distinct sections over the week. Weekends had half the articles but as many sends,
+so a fixed threshold loosens when the pool shrinks. Outputs in `outputs/nyt-sim/`:
+`scores.parquet`, `pushes.parquet`, `daily.csv` (per-day volume, reach, top section and story)
+and `summary.json`.
 
 How this would run in production (scheduled push jobs, article ingestion, delivery, the
 feedback loop from real clicks, scheduled retraining, daily monitoring) is written up in
 [docs/production.md](docs/production.md).
-
-#### Real pushes to your phone
-
-The `notifier` service runs the same pipeline on today's news for one reader and sends the
-pushes to a real phone. It runs in its own container next to `scorer`. At each slot hour in
-`configs/notifier.yml` it does four things:
-
-- reads the NYT RSS feeds
-- scores the last 12 hours of unpushed articles for a MIND persona, standing in for you
-- applies the push objective and send policy
-- delivers the top pick through [ntfy](https://ntfy.sh)
-
-Every candidate is logged to `outputs/notifier/pushes.db` (SQLite) with all its model
-covariates. Tapping a notification goes through a click tracker on port 8090 first, which records
-the click and then redirects to the article.
-
-1. Install the ntfy app on your phone and subscribe to a hard-to-guess topic name.
-2. Put `NTFY_TOPIC=<that name>` in `.env`. Add `CLICK_BASE_URL=http://<your Mac's LAN IP>:8090`
-   to record taps while the phone is on the same Wi-Fi (or use a tunnel such as Tailscale).
-3. Start it:
-
-```bash
-docker compose up -d scorer notifier
-docker compose run --rm notifier "python -m pushnyt.notifier --test"            # delivery check
-docker compose run --rm notifier "python -m pushnyt.notifier --once --dry-run"  # one slot, no send
-```
-
-To see the pushes on the Mac, open ntfy's web app or use iPhone Mirroring.
-
-The tables in `pushes.db`:
-
-- `scores`: one row per slot × candidate, with features, `p_click`, `push_score`, `is_top`,
-  `sent`, `push_id`, `sent_at` and `clicked_at`
-- `labeled`: the sent pushes with `label` (1 = tapped, 0 = not tapped within 24 hours,
-  NULL = pending)
-- `articles` and `meta`
-
-Example query:
-
-```bash
-sqlite3 outputs/notifier/pushes.db "SELECT slot_time, title, p_click, label FROM labeled"
-```
 
 ### Monitoring
 
@@ -762,6 +664,130 @@ joined back (see "Production: plugging in real opt-out data").
 **Limitation:** the API serves a run's precomputed test-day predictions, so it only knows the
 impressions in that run's `predictions.parquet`. Scoring live requests would need each user's
 features (history, recent skips, exposure) computed online from a feature store.
+
+## Real pushes to your phone
+
+The `notifier` service runs the model on today's NYT news for one reader and sends real push
+notifications to your phone. Every candidate it scores is logged with all its covariates, and so
+is whether you tapped the push. That gives you labeled push data, which MIND can't provide.
+
+```
+NYT RSS feeds ──▶ notifier ──HTTP──▶ scorer  (model + MIND user state, from the NYT sim)
+                   │    ▲
+   ntfy.sh ◀───────┘    └── click tracker :8090 ◀── you tap the notification
+   (push to phone)  │
+                    ▼
+        outputs/notifier/pushes.db  (SQLite: candidates, covariates, sends, clicks)
+```
+
+At each slot hour (8, 12, 17, 21 New York time by default), the notifier does five things:
+
+1. Reads the NYT RSS feeds and adds new articles to the scorer, which embeds them and maps them
+   to MIND subcategories as in the simulation.
+2. Scores every article from the last 12 hours that hasn't already been pushed.
+3. Picks the top article with the push objective (friction from `configs/objective.yml`).
+4. Sends it through [ntfy](https://ntfy.sh) if it passes the send policy, up to 3 a day.
+5. Writes every candidate to the database. A tap opens the click tracker, which records the click
+   and then redirects to the article.
+
+### Setup (once)
+
+1. **Phone.** Install **ntfy** from the App Store and allow notifications. Tap **+** and subscribe
+   to a topic on `ntfy.sh`. Anyone who knows the topic name can read it, so make it hard to guess
+   (e.g. `pushnyt-` plus the output of `openssl rand -hex 6`).
+2. **`.env`.** Add the topic. To record taps, also add your Mac's LAN address, which
+   `ipconfig getifaddr en0` prints:
+   ```
+   NTFY_TOPIC=pushnyt-3f9a1c2b7d4e
+   CLICK_BASE_URL=http://192.168.1.23:8090
+   ```
+   Without `CLICK_BASE_URL`, taps open the article directly and no clicks are recorded.
+3. **Images.** The scorer runs in the training image, which needs the `api` extra (FastAPI).
+   Images built before that was added won't start the scorer, so rebuild, then remove the old
+   image:
+   ```bash
+   docker compose build scorer notifier
+   docker image prune -f
+   ```
+4. **Memory.** The scorer is capped at 2.5 GB of Docker's 4 GB VM, so stop anything else heavy
+   first, e.g. `docker compose stop api`.
+
+### Run
+
+```bash
+docker compose up -d scorer        # loads the model and MIND state; about 2-5 min
+docker compose ps                  # wait until scorer shows (healthy)
+
+docker compose run --rm notifier "python -m pushnyt.notifier --test"            # a test push should reach your phone
+docker compose run --rm notifier "python -m pushnyt.notifier --once --dry-run"  # score one slot now, log it, send nothing
+
+docker compose up -d notifier      # start the schedule
+docker compose logs -f notifier    # one JSON line per slot: candidates, pick, p_click, sent
+```
+
+The first run picks the MIND persona and fixes the time shift, and both are stored in the
+database. To see the pushes on your Mac, open ntfy's web app (ntfy.sh/app, subscribe to the same
+topic) or use iPhone Mirroring.
+
+Stop it with `docker compose stop notifier scorer`.
+
+### Keeping it running
+
+The containers run inside Docker Desktop on your Mac, so pushes only go out while the Mac is
+awake and Docker is running:
+
+- **Sleep.** Containers pause while the Mac sleeps. On wake, the notifier sends the slot it
+  was waiting for, late, and skips any others it missed.
+- **Reboot or Docker restart.** Turn on Docker Desktop → Settings → General → *Start Docker
+  Desktop when you sign in*. The notifier has `restart: unless-stopped` and comes back by
+  itself. The scorer doesn't, so it doesn't hold 2.5 GB all the time; start it again with
+  `docker compose up -d scorer`. Until you do, slots fail and are logged, without stopping the
+  notifier.
+- **Always on.** Pushing with the laptop closed means running the same two services on a small
+  cloud VM with about 4 GB of RAM. That would also make the click tracker reachable away from
+  home Wi-Fi.
+
+### The data
+
+`outputs/notifier/pushes.db` contains:
+
+| Table | One row per | Columns |
+|-------|-------------|---------|
+| `scores` | slot × candidate article | `slot_time`, article (`title`, `section`, `subcategory`, `url`, `published`), every model feature, `p_click`, `p_return`, `novelty`, `push_score`, `is_top`, `passes_policy`, `sent`, `push_id`, `sent_at`, `clicked_at` |
+| `labeled` (view) | sent push | everything in `scores`, plus `label`: 1 = tapped, 0 = not tapped within 24 h, NULL = pending |
+| `articles` | article read from the feeds | text, URL, publish time, mapped MIND subcategory |
+| `meta` | setting | persona `user_id`, time anchor |
+
+Example queries:
+
+```bash
+sqlite3 -header -column outputs/notifier/pushes.db \
+  "SELECT slot_time, section, round(p_click, 3) AS p_click, label, title FROM labeled ORDER BY slot_time DESC LIMIT 20"
+
+# tap rate by predicted P(click) bucket
+sqlite3 outputs/notifier/pushes.db \
+  "SELECT round(p_click, 2) AS bucket, count(*) AS n, avg(label) AS tap_rate FROM labeled WHERE label IS NOT NULL GROUP BY bucket"
+```
+
+The non-pushed candidates are kept too (`is_top = 0`), so the table can also serve as training or
+off-policy data later. In pandas: `pd.read_sql("SELECT * FROM labeled", sqlite3.connect(path))`.
+
+### Settings and limitations
+
+`configs/notifier.yml` holds the slot hours, time zone, lookback, daily cap, persona `user_id`,
+feeds, ntfy server and click window. The threshold, risk penalty and friction come from
+`configs/objective.yml`.
+
+- **It scores for a stand-in, not you.** The scorer only knows MIND users, so a MIND reader
+  (sampled, or set with `user_id`) stands in for you. Scoring you directly would mean adding a
+  new user's state, e.g. built from a seed list of articles you've read.
+- **Your taps aren't fed back yet.** They're stored in the database, but they don't update the
+  persona's state in the scorer.
+- **The feeds are RSS.** RSS needs no API key, but it only lists what editors put in each
+  section's feed. The NYT Times Wire API would cover every article in one call.
+- **P(click) is a ranking signal here, not a rate.** The model was trained on another outlet
+  and era, so the 0.07 send threshold is in MIND feed units. Your logged taps are what would
+  recalibrate it.
 
 ## Development
 
@@ -808,6 +834,8 @@ outputs/
   recency-depth-no-emb/   # adds article recency + user depth, minus embedding retrieval
   full/                   # default: every feature group
   analysis/               # pushnyt-exploration and pushnyt-fatigue: exploration.*, fatigue.*
+  nyt-sim/                # pushnyt-nyt-sim: scores, pushes, daily.csv, summary.json
+  notifier/pushes.db      # notifier: every candidate, covariates, sends and taps (SQLite)
 ```
 
 | File | Contents |
