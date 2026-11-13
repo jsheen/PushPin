@@ -366,32 +366,73 @@ const sw = document.getElementById('papier-on'), box = document.getElementById('
 const titles = JSON.parse(document.getElementById('papier-data').textContent), PER = %PER%;
 const panel = sw.closest('details'), list = panel.querySelector('.list'), hint = panel.querySelector('.papier-hint');
 let on = false, built = false;
-function dino(c, w, h, flip) {  // a little sauropod, designed on a 200 x 130 grid
+// six species, each drawn facing right on a 200 x 130 grid, feet on the ground
+const E = (c, x, y, rx, ry, r = 0) => { c.beginPath(); c.ellipse(x, y, rx, ry, r, 0, 7); c.fill(); };
+const R = (c, x, y, w, h, r) => { c.beginPath(); c.roundRect(x, y, w, h, r); c.fill(); };
+const P = (c, ...p) => { c.beginPath(); c.moveTo(p[0], p[1]); for (let i = 2; i < p.length; i += 2) c.lineTo(p[i], p[i + 1]); c.closePath(); c.fill(); };
+const L = (c, w, ...p) => {  // a thick round stroke: a line, or a curve through a control point
+  c.lineWidth = w; c.lineCap = c.lineJoin = 'round'; c.beginPath(); c.moveTo(p[0], p[1]);
+  if (p.length === 6) c.quadraticCurveTo(p[2], p[3], p[4], p[5]); else c.lineTo(p[2], p[3]);
+  c.stroke();
+};
+const KINDS = [
+  {name: 'Brontosaurus', eye: [178, 16], draw: c => {
+    E(c, 100, 78, 50, 30);
+    c.beginPath(); c.moveTo(60, 60); c.quadraticCurveTo(18, 66, 2, 106); c.quadraticCurveTo(36, 100, 70, 100); c.closePath(); c.fill();
+    L(c, 24, 128, 72, 148, 42, 166, 24); E(c, 172, 21, 20, 13, -0.2);
+    for (const x of [70, 88, 112, 130]) R(c, x, 92, 14, 32, 6);
+  }},
+  {name: 'T. rex', eye: [174, 23], draw: c => {
+    E(c, 92, 64, 46, 26, -0.3); P(c, 58, 50, 2, 88, 64, 80);              // body, tail
+    L(c, 26, 116, 52, 142, 32); R(c, 128, 10, 62, 30, 12);                // neck, head
+    P(c, 140, 32, 192, 34, 186, 48, 142, 48);                             // jaw
+    R(c, 78, 74, 22, 50, 9); R(c, 100, 80, 18, 44, 8); L(c, 7, 132, 62, 144, 72);  // legs, little arm
+  }},
+  {name: 'Stegosaurus', eye: [184, 94], draw: c => {
+    E(c, 100, 82, 54, 28); L(c, 16, 150, 90, 176, 98); E(c, 180, 98, 13, 9);
+    L(c, 16, 50, 86, 30, 76, 8, 66); P(c, 2, 56, 14, 52, 16, 72); P(c, 8, 80, 14, 64, 22, 74);  // tail, spikes
+    for (const [x, y] of [[62, 54], [82, 42], [104, 40], [126, 44], [146, 58]]) P(c, x - 12, y + 22, x, y - 12, x + 12, y + 22);  // plates
+    for (const x of [66, 84, 116, 134]) R(c, x, 96, 15, 28, 6);
+  }},
+  {name: 'Triceratops', eye: [164, 64], draw: c => {
+    E(c, 86, 80, 52, 32); P(c, 42, 68, 2, 92, 46, 96);                    // body, tail
+    E(c, 144, 56, 26, 32, 0.35);                                          // frill
+    P(c, 144, 60, 196, 86, 182, 100, 138, 94);                            // face and beak
+    P(c, 158, 50, 198, 34, 168, 62); P(c, 180, 80, 194, 64, 190, 88);     // horns
+    for (const x of [52, 70, 102, 120]) R(c, x, 98, 16, 26, 7);
+  }},
+  {name: 'Parasaurolophus', eye: [167, 27], draw: c => {
+    E(c, 96, 74, 46, 28, -0.15); P(c, 56, 62, 2, 90, 62, 90);
+    L(c, 18, 126, 62, 150, 36); E(c, 160, 31, 19, 11, 0.15);              // neck, head
+    L(c, 11, 154, 24, 112, 6);                                            // the crest
+    R(c, 82, 86, 18, 38, 8); R(c, 102, 88, 16, 36, 8); L(c, 7, 134, 76, 146, 88);
+  }},
+  {name: 'Ankylosaurus', eye: [184, 92], draw: c => {
+    E(c, 98, 88, 62, 26); for (const x of [56, 76, 96, 116, 136]) E(c, x, 64, 10, 8);  // body, armor
+    E(c, 172, 96, 19, 13); L(c, 10, 40, 94, 16, 92); E(c, 12, 92, 13, 11);  // head, tail and its club
+    for (const x of [58, 76, 112, 130]) R(c, x, 100, 15, 24, 6);
+  }},
+];
+function dino(c, w, h, flip, kind) {
   c.save();
   const s = Math.min(w / 200, h / 130);
   c.translate((w - 200 * s) / 2, (h - 130 * s) / 2);
   if (flip) { c.translate(200 * s, 0); c.scale(-1, 1); }
   c.scale(s, s);
   c.fillStyle = c.strokeStyle = '#000';
-  c.beginPath(); c.ellipse(100, 78, 50, 30, 0, 0, 7); c.fill();                       // body
-  c.beginPath(); c.moveTo(60, 60); c.quadraticCurveTo(18, 66, 2, 106);
-  c.quadraticCurveTo(36, 100, 70, 100); c.closePath(); c.fill();                     // tail
-  c.lineCap = 'round'; c.lineWidth = 24;
-  c.beginPath(); c.moveTo(128, 72); c.quadraticCurveTo(148, 42, 166, 24); c.stroke(); // neck
-  c.beginPath(); c.ellipse(172, 21, 20, 13, -0.2, 0, 7); c.fill();                   // head
-  for (const x of [70, 88, 112, 130]) { c.beginPath(); c.roundRect(x, 92, 14, 32, 6); c.fill(); }  // legs
+  kind.draw(c);
   c.globalCompositeOperation = 'destination-out';
-  c.beginPath(); c.arc(178, 16, 2.8, 0, 7); c.fill();                                // eye
+  c.beginPath(); c.arc(kind.eye[0], kind.eye[1], 2.8, 0, 7); c.fill();
   c.restore();
 }
-function draw(canvas, words, built, flip, animate) {
+function draw(canvas, words, built, flip, animate, kind) {
   const dpr = window.devicePixelRatio || 1, w = Math.round(canvas.clientWidth), h = Math.round(w * 0.64);
   canvas.style.height = h + 'px'; canvas.width = w * dpr; canvas.height = h * dpr;
   const c = canvas.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
   const m = document.createElement('canvas'); m.width = w; m.height = h;
-  const mc = m.getContext('2d'); dino(mc, w, h, flip);
+  const mc = m.getContext('2d'); dino(mc, w, h, flip, kind);
   const mask = mc.getImageData(0, 0, w, h).data, inside = (x, y) => mask[(y * w + x) * 4 + 3] > 127;
-  const fs = Math.max(7, Math.round(w / 50)), lh = Math.round(fs * 1.08);
+  const fs = Math.max(6, Math.round(w / 60)), lh = Math.round(fs * 1.1);
   c.font = fs + 'px Georgia, "Times New Roman", serif'; c.textBaseline = 'middle';
   const text = words.join(' · ') + ' · ', widths = {};
   const width = ch => widths[ch] ??= c.measureText(ch).width;
@@ -413,12 +454,18 @@ function draw(canvas, words, built, flip, animate) {
   }
   const css = getComputedStyle(document.documentElement);
   const ink = css.getPropertyValue('--fg').trim() || '#121212', pencil = css.getPropertyValue('--line').trim() || '#e2e2e2';
+  // the silhouette itself, very faint behind the letters, so each species reads at a glance
+  const shade = document.createElement('canvas'); shade.width = w * dpr; shade.height = h * dpr;
+  const sc = shade.getContext('2d'); dino(sc, w * dpr, h * dpr, flip, kind);
+  sc.globalCompositeOperation = 'source-in'; sc.fillStyle = ink; sc.fillRect(0, 0, shade.width, shade.height);
   const reach = w * built;  // built from the tail: left to right, or right to left when flipped
   const isBuilt = ([, x]) => built >= 1 || (flip ? x >= w - reach : x <= reach);
   const start = performance.now(), sweep = animate ? 900 : 0, fade = animate ? 280 : 0;
   const frame = now => {
     c.clearRect(0, 0, w, h);
-    let busy = false;
+    const p = sweep ? Math.min(1, (now - start) / (sweep + fade)) : 1;
+    c.globalAlpha = 0.07 * p; c.drawImage(shade, 0, 0, w, h);
+    let busy = p < 1;
     for (const g of glyphs) {
       const along = flip ? 1 - g[1] / w : g[1] / w;
       const t = fade ? Math.min(1, Math.max(0, (now - start - along * sweep - (g[2] / h) * 120) / fade)) : 1;
@@ -441,11 +488,12 @@ function build(animate) {
     const fig = document.createElement('figure'), canvas = document.createElement('canvas');
     const cap = document.createElement('figcaption');
     canvas.setAttribute('role', 'img');
-    canvas.setAttribute('aria-label', 'A dinosaur made of the titles: ' + group.join('; '));
-    cap.textContent = built >= 1 ? 'Dinosaur ' + (k + 1) : 'Dinosaur ' + (k + 1) + ' · ' + group.length + ' of ' + PER + ' read';
+    const kind = KINDS[k % KINDS.length];
+    canvas.setAttribute('aria-label', 'A ' + kind.name + ' made of the titles: ' + group.join('; '));
+    cap.textContent = (k + 1) + ' · ' + kind.name + (built >= 1 ? '' : ' · ' + group.length + ' of ' + PER + ' read');
     fig.className = k % 2 ? 'right' : 'left';  // a zig-zag down the page, each facing the middle
     fig.append(canvas, cap); box.append(fig);
-    draw(canvas, group, built, k % 2 === 1, animate);
+    draw(canvas, group, built, k % 2 === 1, animate, kind);
   }
 }
 function show(animate) {  // draw once the panel is open: a closed one has no width to draw into
@@ -490,7 +538,7 @@ def papier(read: list[dict]) -> tuple[str, str, str]:
     return switch, hint, gallery
 
 
-# /demo: a public profile with made-up reads, to show several dinosaurs. Nothing is stored: real
+# /demo: a public profile with made-up reads, to show every kind of dinosaur (29: five and one in progress). Nothing is stored: real
 # opens and reads are the model's labels, so fake ones must never reach the database.
 DEMO_TITLES = [
     "The Quiet Return of the Night Train", "What the Tide Leaves Behind", "A City Learns to Love Its Rain",
@@ -500,14 +548,16 @@ DEMO_TITLES = [
     "The Orchard That Outlived Three Owners", "Learning to Swim at Seventy", "A Museum for Lost Mittens",
     "The Beekeepers of the Rooftops", "What Your Houseplants Are Telling You", "The Comeback of the Corner Bookstore",
     "A Ferry Captain's Last Crossing", "The Mathematics of a Perfect Pancake", "Where the Fireflies Went",
-    "A Choir of Strangers Sings at Dawn", "The Map That Fits in a Pocket",
+    "A Choir of Strangers Sings at Dawn", "The Map That Fits in a Pocket", "The Night Market Under the Bridge",
+    "A Glacier's Slow Goodbye", "The Puzzle Makers of Vermont", "How Owls See in the Dark",
+    "A Garden on the Fortieth Floor", "The Postman Who Knew Everyone",
 ]
 
 
 def demo_page() -> str:
     read = [{"news_id": f"DEMO{i}", "title": t, "url": "https://www.nytimes.com", "section": None,
              "read_at": f"2026-10-{1 + i:02d}T09:00"} for i, t in enumerate(DEMO_TITLES)]
-    return profile_page({"name": "Demo", "history_public": 1}, read, [], owner=False, today=date(2026, 10, 23))
+    return profile_page({"name": "Demo", "history_public": 1}, read, [], owner=False, today=date(2026, 10, 29))
 
 
 PIN_MARK = '<img class="pinmark" src="/icon.png" alt="PushPin">'
@@ -533,7 +583,7 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
       GET  /u/<slug>           a reader's public profile
       GET  /stats              {"readers": n} for autoscaling (KEDA), only with header
                                X-Api-Key = $CARDS_STATS_TOKEN; 404 when that isn't set
-      GET  /demo               a public profile with 23 made-up reads (4 dinosaurs and one in progress); stores nothing
+      GET  /demo               a public profile with 29 made-up reads (5 dinosaurs and one in progress); stores nothing
       GET  /health             liveness
 
     The iOS app's JSON API, on when PUSHPIN_SESSION_SECRET and PUSHPIN_APPLE_BUNDLE_ID are set.
