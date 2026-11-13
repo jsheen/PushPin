@@ -223,12 +223,12 @@ def profile_page(reader: dict, read: list[dict], favorites: list[str], owner: bo
     else:
         bottom = '<p class="empty">Reading history is private.</p>'
 
-    title = f"{e(name)}’s reading" if name else ("Your reading" if owner else "A pushPin reader")
-    sub = "Only you see this page. Favorites show on your public link." if owner else "on pushPin"
+    title = f"{e(name)}’s pushPin" if name else ("Your pushPin" if owner else "A reader’s pushPin")
+    sub = '<p class="sub">Only you see this page. Favorites show on your public link.</p>' if owner else ""
     ask_name = ('<form class="who"><input name="name" maxlength="40" placeholder="Your first name (optional)" '
                 'autocomplete="given-name"><button>Save</button></form>') if owner and not name else ""
     scripts = (CARD_SCRIPT.replace("%ID%", "null") + PROFILE_SCRIPT) if owner else ""
-    body = (f'<div class="profile"><header><h1>{title}</h1>{count}<p class="sub">{sub}</p>{ask_name}</header>{top}'
+    body = (f'<div class="profile"><header><h1>{title}</h1>{count}{sub}{ask_name}</header>{top}'
             f'<section><h2>Read</h2>{bottom}</section></div>{scripts}')
     return page(body).replace("<main>", '<main style="max-width:540px">', 1)
 
