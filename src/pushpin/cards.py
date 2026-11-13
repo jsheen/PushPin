@@ -282,7 +282,7 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
     first = date.fromisoformat(min(a["read_at"] for a in read)[:10]) if read else None
     since = f'<p class="since">Started reading on {first:%B} {first.day}, {first.year}</p>' if first else ""
     days = streak(read, today or date.today())
-    on_a_roll = f' <span class="streak">(Streak <span class="n">{days}</span>)</span>' if days else ""
+    on_a_roll = f' <span class="streak">(Daily streak <span class="n">{days}</span>)</span>' if days else ""
     count = since if owner or public else ""  # the number itself is in "Read n +" below
     # the list is folded under "Read  n  +"; tapping + opens it
     articles = (f'<details><summary><h2>Read <span class="n">{n}</span>{on_a_roll}</h2><span class="plus" aria-hidden="true">+</span>'
@@ -307,7 +307,7 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
     scripts = (OWNER_SCRIPT + PROFILE_SCRIPT) if owner else ""
     intro = ""
     if not owner:  # the public link opens with a short summary
-        stats = [("Read", n), *([("Streak", days)] if days else [])] if public else []
+        stats = [("Read", n), *([("Daily streak", days)] if days else [])] if public else []
         intro = splash(title, stats)
     if owner:  # the pinned push first; until they choose, the pushes-a-day question next
         intro = ((pin_panel(pinned, fav_ids) if pinned else "")
