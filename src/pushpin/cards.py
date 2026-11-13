@@ -86,6 +86,11 @@ animation:splash-in .6s ease both}
 .splash~.profile{opacity:0;transition:opacity .6s ease}.splash.gone~.profile{opacity:1}
 @keyframes splash-in{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){.splash,.splash~.profile{transition:none}.splash>div,.splash .tap{animation:none}}
+.profile summary{display:flex;align-items:center;justify-content:space-between;cursor:pointer;list-style:none;
+margin:0 0 12px}.profile summary::-webkit-details-marker{display:none}.profile summary h2{margin:0}
+.profile summary .n{color:var(--fg);margin-left:6px;letter-spacing:0}
+.plus{font-size:24px;line-height:1;color:var(--muted);transition:transform .2s ease}details[open] .plus{transform:rotate(45deg)}
+.profile details+.toggle{margin-top:4px}
 .note{font-size:14px;color:var(--on);min-height:1em;margin:0 0 8px}
 </style></head><body><main>%BODY%</main></body></html>"""
 
@@ -177,6 +182,8 @@ def reading_list_page(items: list[dict]) -> str:
 
 
 PROFILE_SCRIPT = """<script>
+const folded = document.querySelector("details");
+if (folded && location.hash === "#read") folded.open = true;
 const pub = document.querySelector("#public");
 if (pub) pub.addEventListener("change", async () => {
   const r = await fetch("/public", {method: "POST", body: pub.checked ? "on" : "off"}).catch(() => null);
@@ -187,7 +194,7 @@ document.querySelectorAll("button[data-fav]").forEach(b => b.addEventListener("c
   const on = b.getAttribute("aria-pressed") !== "true";
   const r = await fetch(`/favorite/${encodeURIComponent(b.dataset.fav)}`,
                         {method: "POST", body: on ? "on" : "off"}).catch(() => null);
-  if (r && r.ok) return location.reload();
+  if (r && r.ok) { history.replaceState(null, "", "#read"); return location.reload(); }  // reopen the list
   document.querySelector(".note").textContent = r && r.status === 409
     ? "You already have three favorites. Remove one first." : "Couldn't save that, try again.";
 }));
@@ -256,17 +263,19 @@ def profile_page(reader: dict, read: list[dict], favorites: list[str], owner: bo
     since = f'<p class="since">Started reading on {first:%B} {first.day}, {first.year}</p>' if first else ""
     count = (f'<p class="total"><strong>{n}</strong> article{"" if n == 1 else "s"} read</p>{since}'
              if owner or public else "")
-    articles = (f'<ul class="list">{"".join(item(a, owner) for a in read)}</ul>' if read
-                else '<p class="empty">Nothing yet. Open a push to start.</p>')
+    # the list is folded under "Read  n  +"; tapping + opens it
+    articles = (f'<details><summary><h2>Read <span class="n">{n}</span></h2><span class="plus" aria-hidden="true">+</span>'
+                f'</summary><ul class="list">{"".join(item(a, owner) for a in read)}</ul></details>' if read
+                else '<h2>Read</h2><p class="empty">Nothing yet. Open a push to start.</p>')
     if owner:
-        bottom = (f'<label class="toggle"><input type="checkbox" id="public"{" checked" if public else ""}> '
+        bottom = (f'{articles}<label class="toggle"><input type="checkbox" id="public"{" checked" if public else ""}> '
                   f'Make my reading public</label><p class="share"{"" if public else " hidden"}>Anyone with this link '
                   f'can see what you’ve read: <a href="{e(share_url)}">{e(share_url)}</a></p>'
-                  f'<p class="note" aria-live="polite"></p>{articles}')
+                  f'<p class="note" aria-live="polite"></p>')
     elif public:
         bottom = articles
     else:
-        bottom = '<p class="empty">Reading history is private.</p>'
+        bottom = '<h2>Read</h2><p class="empty">Reading history is private.</p>'
 
     title = f"{e(name)}’s PushPin" if name else ("Your PushPin" if owner else "A reader’s PushPin")
     sub = '<p class="sub">Only you see this page. Favorites show on your public link.</p>' if owner else ""
@@ -279,7 +288,7 @@ def profile_page(reader: dict, read: list[dict], favorites: list[str], owner: bo
         lines = [f'{n} article{"" if n == 1 else "s"} read', *([f"{days} day streak"] if days else [])] if public else []
         intro = splash(title, lines)
     body = (f'{intro}<div class="profile"><header><h1>{title}</h1>{count}{sub}{ask_name}</header>{top}'
-            f'<section><h2>Read</h2>{bottom}</section></div>{scripts}')
+            f'<section>{bottom}</section></div>{scripts}')
     return page(body).replace("<main>", '<main style="max-width:540px">', 1)
 
 
