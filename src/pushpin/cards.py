@@ -75,17 +75,17 @@ border-radius:8px;background:var(--btn);color:var(--fg)}
 .toggle{display:flex;align-items:center;gap:8px;font-size:15px;margin:0 0 6px;cursor:pointer}
 .toggle input{width:18px;height:18px;margin:0}
 .share{font-size:14px;color:var(--muted);margin:0 0 12px;word-break:break-all}.share a{color:var(--link)}
-.splash{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:16px;
-background:var(--bg);z-index:10;animation:splash-out 5.6s ease forwards}
+.splash{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+padding:16px;background:var(--bg);z-index:10;cursor:pointer;outline:none;transition:opacity .6s ease,visibility .6s}
+.splash.gone{opacity:0;visibility:hidden}
 .splash>div{background:#fff;color:#121212;border-radius:20px;padding:48px 32px;text-align:center;
 width:min(100%,460px);box-sizing:border-box;box-shadow:0 16px 60px rgba(0,0,0,.3);font-size:24px;line-height:1.5;
 animation:splash-in .6s ease both}
 .splash strong{display:block;font:700 36px/1.2 Georgia,"Times New Roman",serif;margin-bottom:16px}
-.splash+.profile{animation:page-in 5.6s ease both}
+.splash .tap{margin-top:20px;font-size:14px;color:var(--muted);animation:splash-in .6s ease 1.2s both}
+.splash~.profile{opacity:0;transition:opacity .6s ease}.splash.gone~.profile{opacity:1}
 @keyframes splash-in{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:none}}
-@keyframes splash-out{0%,89%{opacity:1}100%{opacity:0;visibility:hidden}}
-@keyframes page-in{0%,89%{opacity:0}100%{opacity:1}}
-@media (prefers-reduced-motion:reduce){.splash,.splash>div,.splash+.profile{animation-timing-function:steps(1,jump-none)}}
+@media (prefers-reduced-motion:reduce){.splash,.splash~.profile{transition:none}.splash>div,.splash .tap{animation:none}}
 .note{font-size:14px;color:var(--on);min-height:1em;margin:0 0 8px}
 </style></head><body><main>%BODY%</main></body></html>"""
 
@@ -206,10 +206,22 @@ def streak(read: list[dict], today: date) -> int:
 
 
 def splash(title: str, lines: list[str]) -> str:
-    """A large white window in place of the page: fades in, stays 5 seconds, then fades out
-    as the page fades in. CSS only."""
-    return (f'<div class="splash" role="status"><div><strong>{title}</strong>'
-            f'{"".join(f"<div>{html.escape(x)}</div>" for x in lines)}</div></div>')
+    """A large white window in place of the page: fades in and stays until a tap, click or key,
+    then fades out as the page fades in. Without JavaScript it's skipped."""
+    return (f'<div class="splash" role="button" tabindex="0" aria-label="Continue"><div><strong>{title}</strong>'
+            f'{"".join(f"<div>{html.escape(x)}</div>" for x in lines)}</div><p class="tap">Tap to continue</p></div>'
+            + SPLASH_SCRIPT)
+
+
+SPLASH_SCRIPT = """<noscript><style>.splash{display:none}.splash~.profile{opacity:1}</style></noscript><script>
+(() => {
+  const s = document.querySelector(".splash");
+  const go = () => s.classList.add("gone");
+  s.addEventListener("click", go, {once: true});
+  document.addEventListener("keydown", go, {once: true});
+  s.focus();
+})();
+</script>"""
 
 
 def profile_page(reader: dict, read: list[dict], favorites: list[str], owner: bool, share_url: str = "",
