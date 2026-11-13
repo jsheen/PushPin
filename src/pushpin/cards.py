@@ -25,6 +25,7 @@ import os
 import secrets
 import threading
 import time
+from datetime import date
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -210,7 +211,8 @@ def profile_page(reader: dict, read: list[dict], favorites: list[str], owner: bo
     top = f'<section><h2>Favorites</h2><ul class="list">{slots}</ul></section>'
 
     n = len(read)
-    since = f'<p class="since">Reading since {e(min(a["read_at"] for a in read)[:10])}</p>' if read else ""
+    first = date.fromisoformat(min(a["read_at"] for a in read)[:10]) if read else None
+    since = f'<p class="since">Started reading on {first:%B} {first.day}, {first.year}</p>' if first else ""
     count = (f'<p class="total"><strong>{n}</strong> article{"" if n == 1 else "s"} read</p>{since}'
              if owner or public else "")
     articles = (f'<ul class="list">{"".join(item(a, owner) for a in read)}</ul>' if read
