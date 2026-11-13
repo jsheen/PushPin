@@ -87,7 +87,7 @@ def test_app_pins_reads_and_deletes_its_account(api):
     n.run_slot(pd.Timestamp("2026-11-12 12:00"))
     push_id = sent[0][4].rsplit("/", 1)[1]
     status, opened = call("POST", f"/open/{push_id}", session=session)
-    assert status == 200 and opened["push"]["push_id"] == push_id
+    assert status == 200 and opened["push"]["push_id"] == push_id and opened["push"]["read"] is False
     assert [a["push_id"] for a in opened["profile"]["pinned"]] == [push_id]
     news_id = opened["push"]["news_id"]
     assert call("POST", f"/favorite/{news_id}", {"on": True}, session)[1]["creme"][0]["news_id"] == news_id

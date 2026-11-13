@@ -42,3 +42,21 @@ APNs ones are.
 
 Development builds run from Xcode register as `"sandbox": true` and go through APNs' sandbox;
 TestFlight and App Store builds use production. The app says which when it registers its token.
+
+## The app (`ios/`)
+
+SwiftUI, iOS 17+. The Xcode project is generated from `ios/project.yml`
+(`brew install xcodegen; cd ios && xcodegen`), so only the spec and the sources are in git.
+
+| File | What it is |
+|------|------------|
+| `PushPin/RootView.swift` | Sign in with Apple (and the server address, while it's still the tunnel) or the profile |
+| `PushPin/ProfileView.swift` | The Crème, Pinned (Read, star, swipe to delete), Read with the daily streak, pushes a day, public link, sign out, delete account |
+| `PushPin/PinnedView.swift` | What a tapped push opens: the story with a pin dropping onto it, a haptic thud, Read / Put in Crème |
+| `PushPin/AppState.swift`, `API.swift`, `Keychain.swift` | Server calls, the session in the Keychain, device-token registration |
+| `PushPin/PushPinApp.swift` | Push plumbing: the ARTICLE category with a **Pin it** button, taps, the device token |
+| `PinNotification/` | Notification content extension: the long-press view of a push, with the pin dropping in |
+
+To run it: set `DEVELOPMENT_TEAM`, `PUSHPIN_BUNDLE_ID` and `PUSHPIN_API_BASE` in
+`ios/project.yml`, run `xcodegen`, open `ios/PushPin.xcodeproj`, and run on a phone. The simulator
+can sign in with Apple and show the screens, but only a real phone gets pushes.

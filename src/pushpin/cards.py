@@ -458,7 +458,9 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
             elif (method, what) == ("POST", "open") and store.push(arg) is not None:
                 store.interact(arg, reader_id, "open")
                 print(json.dumps({"event": "open", "push_id": arg, "reader": reader_id, "app": True}))
-                reply(200, {"push": store.push(arg, reader_id), "profile": profile_json(reader_id, self._base())})
+                push = store.push(arg, reader_id)
+                push["read"] = bool(push["read"])  # 0/1 from SQLite
+                reply(200, {"push": push, "profile": profile_json(reader_id, self._base())})
                 return
             elif (method, what) == ("POST", "devices"):
                 ok = store.add_device(reader_id, str(body.get("token") or ""), bool(body.get("sandbox")))
