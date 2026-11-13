@@ -13,7 +13,7 @@ medium or heavy). The first card a phone opens, or the /start page (linked from 
 `pushpin.notifier --welcome`), sets a cookie with a random reader id, and everything the reader
 does is stored under it. Opening the card is the click; what they do on NYT isn't tracked.
 
-/me is the reader's profile: up to three favorite articles on top (its crème de la crème), and below, how many articles
+/me is the reader's profile: up to three favorite articles on top (its Crème), and below, how many articles
 they've read (opened a card for) with the list, which they can make public. /u/<slug> is the
 same page for anyone with the link: favorites always, the count and list only when public.
 """
@@ -198,7 +198,7 @@ document.querySelectorAll("button[data-fav]").forEach(b => b.addEventListener("c
                         {method: "POST", body: on ? "on" : "off"}).catch(() => null);
   if (r && r.ok) { history.replaceState(null, "", "#read"); return location.reload(); }  // reopen the list
   document.querySelector(".note").textContent = r && r.status === 409
-    ? "Your crème de la crème is full (three). Remove one first." : "Couldn't save that, try again.";
+    ? "Your Crème is full (three). Remove one first." : "Couldn't save that, try again.";
 }));
 </script>"""
 
@@ -270,7 +270,7 @@ def profile_page(reader: dict, read: list[dict], favorites: list[str], owner: bo
     def item(a, star):
         on = a["news_id"] in fav_ids
         button = (f'<button class="star" data-fav="{e(a["news_id"])}" aria-pressed="{"true" if on else "false"}" '
-                  f'aria-label="Add to crème de la crème">{"★" if on else "☆"}</button>') if star else ""
+                  f'aria-label="Add to Crème">{"★" if on else "☆"}</button>') if star else ""
         return (f'<li><div><a href="{e(a["url"] or "#")}">{e(a["title"] or "Untitled")}</a>'
                 f'</div>{button}</li>')
 
@@ -280,7 +280,7 @@ def profile_page(reader: dict, read: list[dict], favorites: list[str], owner: bo
                          for i in range(len(favs), MAX_FAVORITES))
     elif not favs:
         slots = '<li class="empty">Nothing picked yet.</li>'
-    top = f'<section><h2>Crème de la crème</h2><ul class="list">{slots}</ul></section>'
+    top = f'<section><h2>Crème</h2><ul class="list">{slots}</ul></section>'
 
     n = len(read)
     first = date.fromisoformat(min(a["read_at"] for a in read)[:10]) if read else None
@@ -302,7 +302,7 @@ def profile_page(reader: dict, read: list[dict], favorites: list[str], owner: bo
         bottom = '<h2>Read</h2><p class="empty">Reading history is private.</p>'
 
     title = f"{e(name)}’s PushPin" if name else ("Your PushPin" if owner else "A reader’s PushPin")
-    sub = '<p class="sub">Only you see this page. Your crème de la crème shows on your public link.</p>' if owner else ""
+    sub = '<p class="sub">Only you see this page. Your Crème shows on your public link.</p>' if owner else ""
     ask_name = ('<form class="who"><input name="name" maxlength="40" placeholder="Your first name (optional)" '
                 'autocomplete="given-name"><button>Save</button></form>') if owner and not name else ""
     scripts = (CARD_SCRIPT.replace("%ID%", "null") + PROFILE_SCRIPT) if owner else ""
