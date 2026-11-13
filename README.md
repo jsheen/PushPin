@@ -2,8 +2,6 @@
 
 [![CI](https://github.com/jsheen/PushPin/actions/workflows/ci.yml/badge.svg)](https://github.com/jsheen/PushPin/actions/workflows/ci.yml)
 
-**[Live demo →](https://undertake-beyond-res-introduce.trycloudflare.com/demo)** a reader's profile with Papier-mâché on: every 5 articles read becomes a dinosaur made of their headlines. (Served from a laptop through a Cloudflare quick tunnel, so the address changes when the tunnel restarts.)
-
 Product to promote engagement with push notifications. Currently pushes New York Times articles. Balances engagement, discovery, and opt-out risk. Built as final project for AC215: MLOps and LLMOps: Production AI Systems at Harvard. Utilized Anthropic's Claude Code Pro.
 
 ## Overview
