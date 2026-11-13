@@ -639,8 +639,11 @@ DEMO_TITLES = [
 
 
 def demo_page() -> str:
+    # some days two, some days none, and the last six days in a row: Read 29, Daily streak 6
+    days = [2, 2, 4, 5, 5, 8, 9, 9, 11, 12, 13, 15, 16, 16, 17, 18, 19, 20, 22,
+            24, 24, 25, 26, 26, 27, 28, 28, 29, 29]
     read = [{"news_id": f"DEMO{i}", "title": t, "url": "https://www.nytimes.com", "section": None,
-             "read_at": f"2026-10-{1 + i:02d}T09:00"} for i, t in enumerate(DEMO_TITLES)]
+             "read_at": f"2026-10-{d:02d}T{9 + i % 2 * 9}:00"} for i, (t, d) in enumerate(zip(DEMO_TITLES, days, strict=True))]
     creme = [{"news_id": "DEMO-CREME", "url": "https://www.nytimes.com",  # made up, like the reads
               "title": "Monarch Butterflies Return to California’s Coast in Their Biggest Numbers in a Decade"}]
     return profile_page({"name": "Justin", "history_public": 1}, read, creme, owner=False, today=date(2026, 10, 29))

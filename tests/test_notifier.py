@@ -564,3 +564,8 @@ def test_demo_page_shows_dinosaurs_and_stores_nothing(setup):
         server.shutdown()
     assert 'id="papier-on"' in page and "5 dinosaurs so far" in page and "Justin’s" in page and "Monarch Butterflies" in page
     assert store.reader_count() == 0 and db("SELECT COUNT(*) AS n FROM interactions")["n"].item() == 0
+
+
+def test_demo_streak_differs_from_the_count():
+    page = cards.demo_page()
+    assert '<h2>Read <span class="n">29</span> <span class="streak">(Daily streak <span class="n">6</span>)</span></h2>' in page
