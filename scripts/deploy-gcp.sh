@@ -14,7 +14,7 @@
 #   scripts/deploy-gcp.sh down     [--apply]   # delete everything this script created (keeps the bucket)
 #
 # Settings (environment variables): PROJECT (default: gcloud's), REGION (us-east1), BUCKET
-# (pushnyt-data), RUN (ablation-with-llm), TAG (git commit). NTFY_TOPIC is read from .env.
+# (pushpin-data), RUN (ablation-with-llm), TAG (git commit). NTFY_TOPIC is read from .env.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -24,7 +24,7 @@ APPLY=0
 
 PROJECT=${PROJECT:-$(gcloud config get-value project 2>/dev/null)}
 REGION=${REGION:-us-east1}
-BUCKET=${BUCKET:-pushnyt-data}  # the bucket predates the pushPin rename
+BUCKET=${BUCKET:-pushpin-data}
 RUN=${RUN:-ablation-with-llm}
 TAG=${TAG:-$(git rev-parse --short HEAD)}
 CLUSTER=pushpin

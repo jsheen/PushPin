@@ -33,7 +33,7 @@ decide what to send and whether to send it. It can also send real pushes to your
 ## Pipeline
 
 ```
-gs://pushnyt-data ──sync-data.sh──▶ data/
+gs://pushpin-data ──sync-data.sh──▶ data/
                                      │
           news.tsv ──pushpin-embed──▶ data/chroma   (MiniLM abstract embeddings)
                                      │
@@ -217,7 +217,7 @@ data/, outputs/         # git-ignored
 ## Getting started
 
 Needs Docker (Compose v2) and the [Google Cloud CLI](https://cloud.google.com/sdk/docs/install)
-with access to `gs://pushnyt-data` (`gcloud auth login`).
+with access to `gs://pushpin-data` (`gcloud auth login`).
 
 ```bash
 ./scripts/sync-data.sh                                            # pull data into ./data

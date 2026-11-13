@@ -42,7 +42,7 @@ scripts/deploy-gcp.sh resume
 scripts/deploy-gcp.sh down      # delete everything it created (keeps the bucket)
 ```
 
-It uses gcloud's current project (`PROJECT`), `us-east1` (`REGION`), the `pushnyt-data` bucket (named before the rename)
+It uses gcloud's current project (`PROJECT`), `us-east1` (`REGION`), the `pushpin-data` bucket
 (`BUCKET`), the `ablation-with-llm` run (`RUN`), and the current commit as the image tag (`TAG`).
 `NTFY_TOPIC` comes from `.env`. The ntfy topic, the database URL and the `/stats` token go into
 Secret Manager and are masked in the printed commands.
