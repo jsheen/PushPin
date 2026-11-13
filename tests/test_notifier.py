@@ -562,5 +562,5 @@ def test_demo_page_shows_dinosaurs_and_stores_nothing(setup):
         page = urllib.request.urlopen(f"http://127.0.0.1:{server.server_address[1]}/demo").read().decode()
     finally:
         server.shutdown()
-    assert 'id="papier-on"' in page and "5 dinosaurs so far" in page and "Demo’s" in page and "Monarch Butterflies" in page
+    assert 'id="papier-on"' in page and "5 dinosaurs so far" in page and "Justin’s" in page and "Monarch Butterflies" in page
     assert store.reader_count() == 0 and db("SELECT COUNT(*) AS n FROM interactions")["n"].item() == 0

@@ -596,11 +596,11 @@ function set(value, animate) {
   box.hidden = hint.hidden = !on; list.hidden = on;
   box.classList.remove('on');
   show(animate);
-  try { localStorage.setItem('papier', on ? '1' : ''); } catch (e) {}
+  try { localStorage.setItem('papier', on ? '1' : '0'); } catch (e) {}
 }
 sw.addEventListener('click', () => set(!on, true));
-let saved = false; try { saved = localStorage.getItem('papier') === '1'; } catch (e) {}
-if (saved) set(true, false);
+let off = false; try { off = localStorage.getItem('papier') === '0'; } catch (e) {}
+if (!off) set(true, false);  // on unless this reader turned it off
 let t; window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout(() => { if (on) build(false); }, 150); });
 })();</script>""".replace("%PER%", str(PAPIER_PER))
 
@@ -643,7 +643,7 @@ def demo_page() -> str:
              "read_at": f"2026-10-{1 + i:02d}T09:00"} for i, t in enumerate(DEMO_TITLES)]
     creme = [{"news_id": "DEMO-CREME", "url": "https://www.nytimes.com",  # made up, like the reads
               "title": "Monarch Butterflies Return to California’s Coast in Their Biggest Numbers in a Decade"}]
-    return profile_page({"name": "Demo", "history_public": 1}, read, creme, owner=False, today=date(2026, 10, 29))
+    return profile_page({"name": "Justin", "history_public": 1}, read, creme, owner=False, today=date(2026, 10, 29))
 
 
 PIN_MARK = '<img class="pinmark" src="/icon.png" alt="PushPin">'
