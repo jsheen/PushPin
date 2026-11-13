@@ -74,7 +74,6 @@ border-radius:8px;background:var(--btn);color:var(--fg)}
 .volume .row button[aria-pressed=true]{background:var(--fg);color:var(--bg)}
 .volume .row button small{display:block;font-weight:400;font-size:13px;opacity:.75}
 .profile header{margin-bottom:40px}.profile h1{margin:0 0 4px}.pinmark{height:1.15em;width:auto;vertical-align:-.22em;margin-left:.05em}
-.profile summary .tools{display:flex;align-items:center;gap:12px}
 .pm{display:inline-flex;align-items:center;gap:7px;font:600 11px/1 -apple-system,system-ui,sans-serif;letter-spacing:.07em;
 text-transform:uppercase;color:var(--muted);background:none;border:0;padding:6px 0;cursor:pointer;transition:color .25s ease}
 .pm .track{position:relative;width:26px;height:15px;border-radius:8px;background:var(--line);transition:background .25s ease}
@@ -112,14 +111,9 @@ animation:splash-in .6s ease both}
 .splash~.profile{opacity:0;transition:opacity .6s ease}.splash.gone~.profile{opacity:1}
 @keyframes splash-in{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){.splash,.splash~.profile{transition:none}.splash>div,.splash .tap{animation:none}}
-.profile summary{display:flex;align-items:center;justify-content:space-between;cursor:pointer;list-style:none;
-margin:0 0 12px}.profile summary::-webkit-details-marker{display:none}.profile summary h2{margin:0}
-.profile summary .n{color:var(--fg);margin-left:6px;letter-spacing:0}
-.plus{font-size:24px;line-height:1;color:var(--muted);transition:transform .2s ease}details[open]:not(.anim) .plus,details.shown .plus{transform:rotate(45deg)}
-details.anim .fold{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows .35s ease,opacity .35s ease}
-details.anim .fold>div{overflow:hidden;min-height:0}details.shown .fold{grid-template-rows:1fr;opacity:1}
-@media (prefers-reduced-motion:reduce){details.anim .fold,.plus{transition:none}}
-.profile details+.toggle{margin-top:4px}
+.profile .readhead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 12px}
+.profile .readhead h2{margin:0}
+.profile .readpanel+.toggle{margin-top:4px}
 .note{font-size:14px;color:var(--on);min-height:1em;margin:0 0 8px}
 .pin{margin:0 0 40px}.pin .headline{font:700 26px/1.2 Georgia,"Times New Roman",serif;margin:6px 0 12px}
 .pin .creme[aria-pressed=true]{color:var(--on)}.profile .volume{margin:24px 0 0}
@@ -180,17 +174,14 @@ document.querySelectorAll("button[data-fav]").forEach(b => b.addEventListener("c
   const on = b.getAttribute("aria-pressed") !== "true";
   const r = await fetch(`/favorite/${encodeURIComponent(b.dataset.fav)}`,
                         {method: "POST", body: on ? "on" : "off"}).catch(() => null);
-  if (r && r.ok) {
-    if (b.closest("details")) history.replaceState(null, "", "#read");  // reopen the list
-    return location.reload();
-  }
+  if (r && r.ok) return location.reload();
   document.querySelector(".note").textContent = "Couldn't save that, try again.";
 }));
 // ×: delete an article from the profile (and the Crème), after a confirm
 document.querySelectorAll("button[data-del]").forEach(b => b.addEventListener("click", async () => {
   if (!confirm(b.dataset.confirm)) return;
   const r = await fetch(`/remove/${encodeURIComponent(b.dataset.del)}`, {method: "POST", body: "on"}).catch(() => null);
-  if (r && r.ok) return location.replace("/me" + (b.closest("details") ? "#read" : ""));
+  if (r && r.ok) return location.replace("/me");
   document.querySelector(".note").textContent = "Couldn't delete that, try again.";
 }));
 // Read: record the tap, then follow the plain nytimes.com link (so iOS can open the NYT app)
@@ -238,28 +229,6 @@ SPLASH_SCRIPT = """<noscript><style>.splash{display:none}.splash~.profile{opacit
   });
   s.focus();
 })();
-</script>"""
-
-
-FOLD_SCRIPT = """<script>
-// "Read n +": the list fades and slides open, and closed. Without JavaScript it opens instantly.
-document.querySelectorAll("details").forEach(d => {
-  d.classList.add("anim");
-  const show = on => d.classList.toggle("shown", on);
-  if (location.hash === "#read") { d.open = true; show(true); }  // kept open after starring
-  d.querySelector("summary").addEventListener("click", ev => {
-    ev.preventDefault();
-    if (!d.open) {
-      d.open = true;
-      requestAnimationFrame(() => requestAnimationFrame(() => show(true)));
-    } else {
-      show(false);
-      const done = () => { if (!d.classList.contains("shown")) d.open = false; };
-      d.querySelector(".fold").addEventListener("transitionend", done, {once: true});
-      setTimeout(done, 450);  // if transitions are off
-    }
-  });
-});
 </script>"""
 
 
@@ -320,14 +289,14 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
     since = f'<p class="since">Started reading on {first:%B} {first.day}, {first.year}</p>' if first else ""
     days = streak(read, today or date.today())
     on_a_roll = f' <span class="streak">(Daily streak <span class="n">{days}</span>)</span>' if days else ""
-    count = since if owner or public else ""  # the number itself is in "Read n +" below
-    # the list is folded under "Read  n  +"; tapping + opens it
+    count = since if owner or public else ""  # the number itself is in the Read header below
+    # Read n (Daily streak d), with the Papier-mâché switch on the right, then the list. A private
+    # list on a public link shows only that header: no titles, so no switch and no dinosaurs.
     shown = owner or public  # Papier-mâché only uses titles the page already shows
     switch, hint, gallery = papier(read) if shown else ("", "", "")
-    articles = (f'<details><summary><h2>Read <span class="n">{n}</span>{on_a_roll}</h2><span class="tools">{switch}'
-                f'<span class="plus" aria-hidden="true">+</span></span></summary><div class="fold"><div>{hint}'
-                f'<ul class="list">{"".join(item(a, owner, owner) for a in read)}</ul>{gallery}</div></div></details>'
-                + FOLD_SCRIPT if read
+    head = f'<div class="readhead"><h2>Read <span class="n">{n}</span>{on_a_roll}</h2>{switch}</div>'
+    articles = (f'<div class="readpanel">{head}{hint}<ul class="list">{"".join(item(a, owner, owner) for a in read)}</ul>'
+                f'{gallery}</div>' if read
                 else '<h2>Read</h2><p class="empty">Nothing yet. Tap Read on a push to start.</p>')
     if owner:
         bottom = (f'{articles}<label class="toggle"><input type="checkbox" id="public"{" checked" if public else ""}> '
@@ -338,7 +307,7 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
     elif public:
         bottom = articles
     else:
-        bottom = '<h2>Read</h2><p class="empty">Reading history is private.</p>'
+        bottom = f'<div class="readpanel">{head}</div>'
 
     whose = f"{e(name)}’s" if name else ("Your" if owner else "A reader’s")
     title = f'{whose} {PIN_MARK}'  # "Justin’s 📌", with our pin standing in for the word PushPin
@@ -364,9 +333,8 @@ PAPIER_PER = 5
 PAPIER_SCRIPT = """<script>(() => {
 const sw = document.getElementById('papier-on'), box = document.getElementById('papier');
 const titles = JSON.parse(document.getElementById('papier-data').textContent), PER = %PER%;
-const panel = sw.closest('details'), list = panel.querySelector('.list'), hint = panel.querySelector('.papier-hint');
+const panel = sw.closest('.readpanel'), list = panel.querySelector('.list'), hint = panel.querySelector('.papier-hint');
 let on = false, built = false;
-// six species, each drawn facing right on a 200 x 130 grid, feet on the ground
 const E = (c, x, y, rx, ry, r = 0) => { c.beginPath(); c.ellipse(x, y, rx, ry, r, 0, 7); c.fill(); };
 const R = (c, x, y, w, h, r) => { c.beginPath(); c.roundRect(x, y, w, h, r); c.fill(); };
 const P = (c, ...p) => { c.beginPath(); c.moveTo(p[0], p[1]); for (let i = 2; i < p.length; i += 2) c.lineTo(p[i], p[i + 1]); c.closePath(); c.fill(); };
@@ -375,44 +343,164 @@ const L = (c, w, ...p) => {  // a thick round stroke: a line, or a curve through
   if (p.length === 6) c.quadraticCurveTo(p[2], p[3], p[4], p[5]); else c.lineTo(p[2], p[3]);
   c.stroke();
 };
-const KINDS = [
-  {name: 'Brontosaurus', eye: [178, 16], draw: c => {
-    E(c, 100, 78, 50, 30);
-    c.beginPath(); c.moveTo(60, 60); c.quadraticCurveTo(18, 66, 2, 106); c.quadraticCurveTo(36, 100, 70, 100); c.closePath(); c.fill();
-    L(c, 24, 128, 72, 148, 42, 166, 24); E(c, 172, 21, 20, 13, -0.2);
-    for (const x of [70, 88, 112, 130]) R(c, x, 92, 14, 32, 6);
-  }},
-  {name: 'T. rex', eye: [174, 23], draw: c => {
-    E(c, 92, 64, 46, 26, -0.3); P(c, 58, 50, 2, 88, 64, 80);              // body, tail
-    L(c, 26, 116, 52, 142, 32); R(c, 128, 10, 62, 30, 12);                // neck, head
-    P(c, 140, 32, 192, 34, 186, 48, 142, 48);                             // jaw
-    R(c, 78, 74, 22, 50, 9); R(c, 100, 80, 18, 44, 8); L(c, 7, 132, 62, 144, 72);  // legs, little arm
-  }},
-  {name: 'Stegosaurus', eye: [184, 94], draw: c => {
-    E(c, 100, 82, 54, 28); L(c, 16, 150, 90, 176, 98); E(c, 180, 98, 13, 9);
+// ---- species ----
+// Six body plans, each drawn facing right on a 200 x 130 grid with its feet on the ground, and
+// knobs for the differences (neck, tail, bulk, horns, frills, plates, crests...). Each plan
+// returns where the eye goes. With no knobs set, a plan is the original hand-drawn animal.
+const PLANS = {
+  sauropod(c, p) {
+    const b = p.bulk ?? 1, n = p.neck ?? 1, t = p.tail ?? 1, hs = p.head ?? 1, up = p.upright ? 1 : 0;
+    const by = 78;
+    E(c, 100, by, 50 * b, 30 * b);
+    const tip = Math.max(3, 60 - 58 * t);
+    c.beginPath(); c.moveTo(62, by - 18); c.quadraticCurveTo(30, by - 12, tip, by + 28);
+    c.quadraticCurveTo(36, by + 22, 70, by + 22); c.closePath(); c.fill();
+    const hx = Math.min(166, 128 + 38 * Math.min(n, 1.1) * (up ? 0.55 : 1)), hy = Math.max(15, by - 54 * n * (up ? 1.15 : 1));
+    L(c, 24 * Math.min(b, 1.05), 128, by - 6, (128 + hx) / 2 + 8 - up * 12, (by + hy) / 2 - 8, hx, hy + 3);
+    E(c, hx + 6 * hs, hy, 20 * hs, 13 * hs, -0.2);
+    if (p.spines) for (let i = 1; i <= 4; i++) {
+      const f = i / 5, x = 128 + (hx - 128) * f, y = by - 6 + (hy + 3 - by + 6) * f;
+      P(c, x - 5, y, x - 1, y - 18, x + 5, y);
+    }
+    if (p.club) E(c, tip + 6, by + 26, 10, 8);
+    for (const x of [70, 88, 112, 130]) R(c, x, by + 14, 14, 32, 6);
+    return [hx + 12 * hs, hy - 4 * hs];
+  },
+  theropod(c, p) {
+    const b = p.bulk ?? 1, hs = p.head ?? 1, n = p.neck ?? 1, a = p.arm ?? 1, w = 0.6 + 0.4 * b;
+    E(c, 92, 64, 46 * b, 26 * b, -0.3);
+    P(c, 92 - 36 * b, 50 + (1 - b) * 8, 2 + (1 - b) * 24, 88, 92 - 28 * b, 80);   // tail
+    if (p.sail) P(c, 92 - 34 * b, 52, 80, 52 - 44 * p.sail, 108, 48 - 42 * p.sail, 120 * b + 4, 50);
+    const nx = 92 + 24 * b + 26 * n - 2, ny = 64 - 12 * b - 20 * n + 20 - 20;
+    L(c, 26 * w, 92 + 24 * b, 64 - 12 * b, nx, ny);
+    const hx = nx - 14 * hs, hy = ny - 22 * hs;
+    if (p.snout) {  // spinosaurids: a long, low, crocodile-like head
+      R(c, hx, hy + 8 * hs, 68 * hs, 18 * hs, 8 * hs);
+    } else {
+      R(c, hx, hy, 62 * hs, 30 * hs, 12 * hs);
+      P(c, hx + 12 * hs, hy + 22 * hs, hx + 64 * hs, hy + 24 * hs, hx + 58 * hs, hy + 38 * hs, hx + 14 * hs, hy + 38 * hs);
+    }
+    if (p.horn) P(c, hx + 18 * hs, hy + 4, hx + 24 * hs, hy - 12 * hs * p.horn, hx + 32 * hs, hy + 4);
+    if (p.crests) P(c, hx + 6 * hs, hy + 4, hx + 18 * hs, hy - 16 * hs * p.crests, hx + 44 * hs, hy + 4);
+    R(c, 92 - 14 * b, 74, 22 * w, 50, 9 * w); R(c, 92 + 8 * b, 80, 18 * w, 44, 8 * w);   // legs
+    const ax = 92 + 38 * b, ay = 64 - 4 * b;
+    if (p.claws) {  // Therizinosaurus: long arms with long claws
+      L(c, 8, ax, ay, ax + 16, ay + 30);
+      for (const d of [-5, 0, 5]) L(c, 3, ax + 16 + d, ay + 30, ax + 24 + d * 1.5, ay + 30 + 16 * p.claws);
+    } else if (a > 0) L(c, 7, ax, ay, ax + 12 * a, ay + 10 * a);
+    return [hx + 46 * hs, hy + (p.snout ? 14 : 13) * hs];
+  },
+  stegosaur(c, p) {
+    const ps = p.plates ?? 1, k = p.count ?? 5, long = p.longneck ? 1 : 0;
+    E(c, 100, 82, 54, 28);
+    const head = long ? [178, 62] : [180, 98];
+    L(c, 16, 150, 86, long ? 168 : 176, long ? 66 : 98); E(c, head[0], head[1], 13, 9);
     L(c, 16, 50, 86, 30, 76, 8, 66); P(c, 2, 56, 14, 52, 16, 72); P(c, 8, 80, 14, 64, 22, 74);  // tail, spikes
-    for (const [x, y] of [[62, 54], [82, 42], [104, 40], [126, 44], [146, 58]]) P(c, x - 12, y + 22, x, y - 12, x + 12, y + 22);  // plates
+    for (let i = 0; i < k; i++) {
+      const x = 58 + (i * 92) / (k - 1), top = 82 - 28 * Math.sqrt(Math.max(0, 1 - ((x - 100) / 54) ** 2));
+      const spike = p.spiky && i >= k / 2, half = spike ? 4 : 12 * Math.min(ps, 1.1);
+      P(c, x - half, top + 10, x, top - 26 * ps * (spike ? 1.2 : 1), x + half, top + 10);
+    }
+    if (p.shoulder) P(c, 128, 84, 150, 62, 142, 92);
     for (const x of [66, 84, 116, 134]) R(c, x, 96, 15, 28, 6);
-  }},
-  {name: 'Triceratops', eye: [164, 64], draw: c => {
-    E(c, 86, 80, 52, 32); P(c, 42, 68, 2, 92, 46, 96);                    // body, tail
-    E(c, 144, 56, 26, 32, 0.35);                                          // frill
-    P(c, 144, 60, 196, 86, 182, 100, 138, 94);                            // face and beak
-    P(c, 158, 50, 198, 34, 168, 62); P(c, 180, 80, 194, 64, 190, 88);     // horns
-    for (const x of [52, 70, 102, 120]) R(c, x, 98, 16, 26, 7);
-  }},
-  {name: 'Parasaurolophus', eye: [167, 27], draw: c => {
-    E(c, 96, 74, 46, 28, -0.15); P(c, 56, 62, 2, 90, 62, 90);
-    L(c, 18, 126, 62, 150, 36); E(c, 160, 31, 19, 11, 0.15);              // neck, head
-    L(c, 11, 154, 24, 112, 6);                                            // the crest
-    R(c, 82, 86, 18, 38, 8); R(c, 102, 88, 16, 36, 8); L(c, 7, 134, 76, 146, 88);
-  }},
-  {name: 'Ankylosaurus', eye: [184, 92], draw: c => {
-    E(c, 98, 88, 62, 26); for (const x of [56, 76, 96, 116, 136]) E(c, x, 64, 10, 8);  // body, armor
-    E(c, 172, 96, 19, 13); L(c, 10, 40, 94, 16, 92); E(c, 12, 92, 13, 11);  // head, tail and its club
+    return [head[0] + 4, head[1] - 4];
+  },
+  ankylosaur(c, p) {
+    const bump = p.bumps ?? 1, club = p.club ?? 1;
+    E(c, 98, 88, 62, 26); for (const x of [56, 76, 96, 116, 136]) E(c, x, 64, 10 * bump, 8 * bump);
+    E(c, 172, 96, 19, 13); L(c, 10, 40, 94, 16, 92);
+    if (club) E(c, 12, 92, 13, 11); else P(c, 2, 94, 20, 86, 20, 100);
+    if (p.shoulder) { P(c, 142, 76, 166, 66 - 8 * p.shoulder, 156, 88); P(c, 124, 72, 140, 56 - 6 * p.shoulder, 140, 74); }
     for (const x of [58, 76, 112, 130]) R(c, x, 100, 15, 24, 6);
-  }},
-];
+    return [184, 92];
+  },
+  ceratopsian(c, p) {
+    const f = p.frill ?? 1, hb = p.brow ?? 1, hn = p.nose ?? 1, b = p.bulk ?? 1;
+    E(c, 86, 80, 52 * b, 32 * b); P(c, 86 - 44 * b, 68, 2 + (1 - b) * 30, 92, 46, 96);
+    E(c, 144, 60 - 4 * f, 26 * f, 32 * f, 0.35);
+    if (p.spikes) for (const a of [3.5, 3.95, 4.4, 4.85]) {
+      const x = 144 + 26 * f * Math.cos(a), y = 60 - 4 * f + 32 * f * Math.sin(a), ox = Math.cos(a), oy = Math.sin(a);
+      P(c, x - oy * 5, y + ox * 5, x + ox * 18 * p.spikes, y + oy * 18 * p.spikes, x + oy * 5, y - ox * 5);
+    }
+    E(c, 128, 84, 20, 18);                                                // neck, so a small frill stays attached
+    P(c, 144, 60, 196, 86, 182, 100, 138, 94);
+    if (hb > 0) P(c, 158, 50, 163 + 35 * hb, 56 - 22 * hb, 168, 62);
+    if (hn > 0) P(c, 180, 80, 185 + 9 * hn, 84 - 20 * hn, 190, 88);
+    for (const x of [52, 70, 102, 120]) R(c, x, 98, 16, 26, 7);
+    return [164, 64];
+  },
+  hadrosaur(c, p) {
+    const b = p.bulk ?? 1, crest = p.crest ?? 'tube';
+    E(c, 96, 74, 46 * b, 28 * b, -0.15); P(c, 96 - 40 * b, 62, 2 + (1 - b) * 24, 90, 62, 88 + (1 - b) * 4);
+    if (p.sail) P(c, 70, 56, 84, 56 - 30 * p.sail, 118, 52 - 30 * p.sail, 126, 56);
+    L(c, 18, 126, 62, 150, 36); E(c, 160, 31, 19, 11, 0.15);
+    if (crest === 'tube') L(c, 11, 154, 24, 112, 6);
+    if (crest === 'helmet') E(c, 156, 20, 13, 11);
+    if (crest === 'hatchet') P(c, 148, 26, 136, 4, 160, 10, 164, 24);
+    if (crest === 'spike') L(c, 7, 154, 24, 138, 10);
+    if (crest === 'unicorn') L(c, 7, 162, 24, 168, 4);
+    if (crest === 'bump') E(c, 162, 22, 9, 6);
+    if (crest === 'dome') E(c, 158, 24, 17, 14);
+    if (crest === 'spikes') { E(c, 158, 25, 15, 11); for (const x of [146, 156, 166]) P(c, x - 3, 18, x, 4, x + 3, 18); }
+    R(c, 82, 86, 18, 38, 8); R(c, 102, 88, 16, 36, 8); L(c, 7, 134, 76, 146, 88);
+    if (p.thumb) L(c, 4, 146, 88, 154, 80);
+    return [167, 27];
+  },
+};
+const SPECIES = {  // name: [plan, knobs], by family; the first of the first six families open the order
+  sauropod: [['Brontosaurus', {}], ['Apatosaurus', {bulk: 1.05, neck: 0.95}], ['Diplodocus', {bulk: 0.9, neck: 1.1, head: 0.85}],
+    ['Brachiosaurus', {upright: 1, neck: 1.2, tail: 0.6}], ['Camarasaurus', {neck: 0.8, tail: 0.7, head: 1.1}],
+    ['Argentinosaurus', {bulk: 1.1, neck: 1.05}], ['Mamenchisaurus', {neck: 1.3, head: 0.8}], ['Supersaurus', {neck: 1.2, bulk: 0.95}],
+    ['Giraffatitan', {upright: 1, neck: 1.3, tail: 0.55, head: 0.9}], ['Patagotitan', {bulk: 1.1, neck: 1.1}],
+    ['Dreadnoughtus', {bulk: 1.12, neck: 0.9}], ['Saltasaurus', {bulk: 0.9, neck: 0.75, tail: 0.8}],
+    ['Amargasaurus', {neck: 0.85, spines: 1}], ['Nigersaurus', {neck: 0.7, head: 1.15, tail: 0.8}],
+    ['Barosaurus', {neck: 1.3, tail: 0.9}], ['Shunosaurus', {neck: 0.8, club: 1}], ['Plateosaurus', {neck: 0.75, tail: 0.9, bulk: 0.8, head: 0.9}]],
+  theropod: [['T. rex', {}], ['Allosaurus', {head: 0.85, horn: 0.7, arm: 1.1}], ['Giganotosaurus', {head: 0.95, bulk: 1.05, arm: 0.8}],
+    ['Carcharodontosaurus', {head: 0.95, arm: 0.8}], ['Albertosaurus', {head: 0.85, bulk: 0.9}], ['Gorgosaurus', {head: 0.85, bulk: 0.88}],
+    ['Daspletosaurus', {head: 0.95}], ['Tarbosaurus', {head: 0.92}], ['Ceratosaurus', {head: 0.85, horn: 1, arm: 1}],
+    ['Carnotaurus', {head: 0.7, horn: 1.2, arm: 0}], ['Majungasaurus', {head: 0.75, horn: 0.6, arm: 0}],
+    ['Torvosaurus', {head: 0.9, arm: 1}], ['Megalosaurus', {head: 0.85, arm: 1.1}], ['Acrocanthosaurus', {head: 0.85, sail: 0.35, arm: 1}],
+    ['Yutyrannus', {head: 0.8, arm: 1.1, bulk: 0.95}], ['Spinosaurus', {snout: 1, sail: 1, arm: 1.2}],
+    ['Baryonyx', {snout: 1, head: 0.9, arm: 1.3}], ['Suchomimus', {snout: 1, sail: 0.3, arm: 1.2}],
+    ['Irritator', {snout: 1, head: 0.8, bulk: 0.85, arm: 1}], ['Velociraptor', {bulk: 0.7, head: 0.6, neck: 1.2, arm: 1.4}],
+    ['Deinonychus', {bulk: 0.75, head: 0.65, neck: 1.15, arm: 1.4}], ['Utahraptor', {bulk: 0.85, head: 0.7, neck: 1.1, arm: 1.3}],
+    ['Microraptor', {bulk: 0.6, head: 0.5, neck: 1.2, arm: 1.8}], ['Troodon', {bulk: 0.65, head: 0.55, neck: 1.3, arm: 1.3}],
+    ['Compsognathus', {bulk: 0.55, head: 0.5, neck: 1.3, arm: 1}], ['Coelophysis', {bulk: 0.6, head: 0.55, neck: 1.45, arm: 1.2}],
+    ['Dilophosaurus', {head: 0.75, crests: 1, arm: 1.1, bulk: 0.85}], ['Oviraptor', {bulk: 0.7, head: 0.6, neck: 1.35, crests: 0.8, arm: 1.4}],
+    ['Gallimimus', {bulk: 0.75, head: 0.45, neck: 1.6, arm: 1.2}], ['Struthiomimus', {bulk: 0.72, head: 0.45, neck: 1.55, arm: 1.3}],
+    ['Ornithomimus', {bulk: 0.7, head: 0.45, neck: 1.5, arm: 1.2}], ['Therizinosaurus', {bulk: 1, head: 0.45, neck: 1.5, claws: 1}],
+    ['Deinocheirus', {bulk: 1.05, head: 0.55, neck: 1.4, claws: 0.7, sail: 0.3}]],
+  stegosaur: [['Stegosaurus', {}], ['Kentrosaurus', {plates: 0.75, spiky: 1}], ['Tuojiangosaurus', {plates: 0.85, count: 7}],
+    ['Miragaia', {longneck: 1, plates: 0.7}], ['Huayangosaurus', {plates: 0.6, spiky: 1, count: 6}],
+    ['Gigantspinosaurus', {plates: 0.5, shoulder: 1}]],
+  ceratopsian: [['Triceratops', {}], ['Styracosaurus', {brow: 0, nose: 1.6, spikes: 1}], ['Centrosaurus', {brow: 0.3, nose: 1.3, frill: 0.85}],
+    ['Chasmosaurus', {frill: 1.3, brow: 0.7, nose: 0.6}], ['Pentaceratops', {frill: 1.25, brow: 1.1}], ['Torosaurus', {frill: 1.3}],
+    ['Protoceratops', {frill: 0.8, brow: 0, nose: 0, bulk: 0.85}], ['Psittacosaurus', {frill: 0.45, brow: 0, nose: 0, bulk: 0.8}],
+    ['Pachyrhinosaurus', {brow: 0, nose: 0.4, frill: 0.9, spikes: 0.6}], ['Einiosaurus', {brow: 0, nose: 1.2, spikes: 0.7}],
+    ['Kosmoceratops', {brow: 0.9, nose: 0.6, spikes: 1, frill: 1.05}], ['Zuniceratops', {brow: 1.1, nose: 0, frill: 0.75}],
+    ['Diabloceratops', {brow: 0.6, nose: 0.8, spikes: 0.8}]],
+  hadrosaur: [['Parasaurolophus', {}], ['Corythosaurus', {crest: 'helmet'}], ['Lambeosaurus', {crest: 'hatchet'}],
+    ['Edmontosaurus', {crest: 'none'}], ['Maiasaura', {crest: 'bump'}], ['Hadrosaurus', {crest: 'none', bulk: 0.95}],
+    ['Saurolophus', {crest: 'spike'}], ['Olorotitan', {crest: 'hatchet', bulk: 1.05}], ['Shantungosaurus', {crest: 'none', bulk: 1.1}],
+    ['Tsintaosaurus', {crest: 'unicorn'}], ['Hypacrosaurus', {crest: 'helmet', sail: 0.3}], ['Iguanodon', {crest: 'none', thumb: 1}],
+    ['Hypsilophodon', {crest: 'none', bulk: 0.75}], ['Tenontosaurus', {crest: 'none', bulk: 0.9}],
+    ['Ouranosaurus', {crest: 'none', sail: 1, thumb: 1}], ['Muttaburrasaurus', {crest: 'bump', thumb: 1}],
+    ['Heterodontosaurus', {crest: 'none', bulk: 0.7}], ['Leaellynasaura', {crest: 'none', bulk: 0.7}],
+    ['Pachycephalosaurus', {crest: 'dome'}], ['Stegoceras', {crest: 'dome', bulk: 0.8}], ['Dracorex', {crest: 'spikes'}],
+    ['Stygimoloch', {crest: 'spikes', bulk: 0.85}], ['Prenocephale', {crest: 'dome', bulk: 0.85}]],
+  ankylosaur: [['Ankylosaurus', {}], ['Euoplocephalus', {bumps: 1.1}], ['Nodosaurus', {club: 0, bumps: 0.8}],
+    ['Sauropelta', {club: 0, shoulder: 1}], ['Edmontonia', {club: 0, shoulder: 1.2}], ['Borealopelta', {club: 0, bumps: 1.2, shoulder: 0.8}],
+    ['Scelidosaurus', {club: 0, bumps: 0.7}], ['Pinacosaurus', {bumps: 0.9}]],
+};
+// the order they're made in: the original six first, then the families take turns
+const KINDS = (() => {
+  const fams = ['sauropod', 'theropod', 'stegosaur', 'ceratopsian', 'hadrosaur', 'ankylosaur'];
+  const queues = fams.map(f => SPECIES[f].map(([name, knobs]) => ({name, plan: f, knobs})));
+  const out = [];
+  while (queues.some(q => q.length)) for (const q of queues) if (q.length) out.push(q.shift());
+  return out;
+})();
+// ---- end species ----
 function dino(c, w, h, flip, kind) {
   c.save();
   const s = Math.min(w / 200, h / 130);
@@ -420,9 +508,9 @@ function dino(c, w, h, flip, kind) {
   if (flip) { c.translate(200 * s, 0); c.scale(-1, 1); }
   c.scale(s, s);
   c.fillStyle = c.strokeStyle = '#000';
-  kind.draw(c);
+  const eye = PLANS[kind.plan](c, kind.knobs);
   c.globalCompositeOperation = 'destination-out';
-  c.beginPath(); c.arc(kind.eye[0], kind.eye[1], 2.8, 0, 7); c.fill();
+  c.beginPath(); c.arc(eye[0], eye[1], 2.8, 0, 7); c.fill();
   c.restore();
 }
 function draw(canvas, words, built, flip, animate, kind) {
@@ -496,28 +584,24 @@ function build(animate) {
     draw(canvas, group, built, k % 2 === 1, animate, kind);
   }
 }
-function show(animate) {  // draw once the panel is open: a closed one has no width to draw into
-  if (!on || !panel.open || built) return;
+function show(animate) {
+  if (!on || built) return;
   built = true; build(animate);
-  requestAnimationFrame(() => box.classList.add('on'));
+  if (animate) requestAnimationFrame(() => box.classList.add('on'));  // fade in
+  else box.classList.add('on');  // restored on load: just there
 }
 function set(value, animate) {
   on = value; built = false;
   sw.setAttribute('aria-pressed', on);
   box.hidden = hint.hidden = !on; list.hidden = on;
   box.classList.remove('on');
-  if (on && !panel.open) {
-    if (animate) panel.querySelector('summary').click();  // opens with the usual slide
-    else { panel.open = true; panel.classList.add('shown'); }  // restored on load: already open
-  }
   show(animate);
   try { localStorage.setItem('papier', on ? '1' : ''); } catch (e) {}
 }
-sw.addEventListener('click', ev => { ev.preventDefault(); ev.stopPropagation(); set(!on, true); });  // not the summary's fold
-panel.addEventListener('toggle', () => show(true));
+sw.addEventListener('click', () => set(!on, true));
 let saved = false; try { saved = localStorage.getItem('papier') === '1'; } catch (e) {}
-if (saved) document.addEventListener('DOMContentLoaded', () => set(true, false));  // after the fold's script
-let t; window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout(() => { if (on && panel.open) build(false); }, 150); });
+if (saved) set(true, false);
+let t; window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout(() => { if (on) build(false); }, 150); });
 })();</script>""".replace("%PER%", str(PAPIER_PER))
 
 
@@ -557,7 +641,9 @@ DEMO_TITLES = [
 def demo_page() -> str:
     read = [{"news_id": f"DEMO{i}", "title": t, "url": "https://www.nytimes.com", "section": None,
              "read_at": f"2026-10-{1 + i:02d}T09:00"} for i, t in enumerate(DEMO_TITLES)]
-    return profile_page({"name": "Demo", "history_public": 1}, read, [], owner=False, today=date(2026, 10, 29))
+    creme = [{"news_id": "DEMO-CREME", "url": "https://www.nytimes.com",  # made up, like the reads
+              "title": "Monarch Butterflies Return to California’s Coast in Their Biggest Numbers in a Decade"}]
+    return profile_page({"name": "Demo", "history_public": 1}, read, creme, owner=False, today=date(2026, 10, 29))
 
 
 PIN_MARK = '<img class="pinmark" src="/icon.png" alt="PushPin">'

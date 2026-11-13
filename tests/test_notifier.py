@@ -276,7 +276,7 @@ def test_profile_favorites_and_public_history(setup):
 
         link = re.search(r'href="(http://[^"]+/u/([^"]+))"', me)
         public = stranger_get(f"/u/{link.group(2)}")
-        assert 'Justin’s <img class="pinmark"' in public and "Reading history is private" in public and "on PushPin" not in public
+        assert 'Justin’s <img class="pinmark"' in public and 'class="readhead"><h2>Read <span class="n">' in public and public.count('class="list"') == 1 and 'id="papier-on"' not in public and "on PushPin" not in public
         assert public.count("<li>") == 1 and "articles read" not in public and "Started reading" not in public and 'class="star"' not in public
         assert "Put your favorite article here" not in public  # the hint is only for the owner
         assert "/p/" not in public  # links go to NYT: a visitor isn't counted as opening the push
@@ -288,7 +288,8 @@ def test_profile_favorites_and_public_history(setup):
         public = stranger_get(f"/u/{link.group(2)}")
         assert "Started reading on " in public and '<div class="stat">Read <span class="n">4</span></div>' in public and 'Read <span class="n">4</span>' in public and public.count("<li>") == 1 + 4
         post("/public", b"off")
-        assert "Reading history is private" in stranger_get(f"/u/{link.group(2)}")
+        private = stranger_get(f"/u/{link.group(2)}")  # just "Read 4": no titles, no dinosaurs
+        assert 'Read <span class="n">4</span>' in private and private.count('class="list"') == 1 and 'id="papier-on"' not in private
         with pytest.raises(urllib.error.HTTPError) as e:
             stranger_get("/u/nobody")
         assert e.value.code == 404
@@ -318,7 +319,9 @@ def test_public_profile_opens_with_a_summary():
     assert 's.classList.remove("gone")' in html  # a tap on the page brings the card back
     assert "day streak" not in html and 'Daily streak <span class="n">1</span>' in html  # box, then the header
     private = cards.profile_page({**reader, "history_public": 0}, read, [], owner=False, today=date(2026, 11, 13))
-    assert 'class="splash"' in private and 'class="stat"' not in private and "day streak" not in private and "Daily streak <span" not in private
+    assert 'class="splash"' in private and 'class="stat"' not in private  # the box keeps a private list's numbers out
+    assert '<h2>Read <span class="n">2</span> <span class="streak">(Daily streak <span class="n">1</span>)</span></h2>' in private
+    assert ">A</a>" not in private and 'id="papier-on"' not in private  # the header only: no titles, no dinosaurs
     own = cards.profile_page(reader, read, [], owner=True, today=date(2026, 11, 13))
     assert 'class="splash"' not in own and own.count("Daily streak <span") == 1
     assert '<h2>Read <span class="n">2</span> <span class="streak">(Daily streak <span class="n">1</span>)</span></h2>' in own
@@ -539,10 +542,11 @@ def test_papier_mache_only_with_a_visible_read_list():
     reader = {"name": "Jo", "history_public": 0}
     own = cards.profile_page(reader, read, [], owner=True)
     assert 'id="papier-on"' in own and "Every 5 articles you read makes a new dinosaur · 1 dinosaur so far" in own
-    summary = re.search(r"<summary>.*?</summary>", own).group(0)
-    assert 'id="papier-on"' in summary and 'class="papier-hint" hidden' in own  # switch in the Read header; hint until on
-    fold = own[own.index('<div class="fold">'):]
-    assert fold.index('class="list"') < fold.index('id="papier"') < fold.index("</details>")  # one panel
+    head = re.search(r'<div class="readhead">.*?</div>', own).group(0)
+    assert 'id="papier-on"' in head and 'class="papier-hint" hidden' in own  # switch in the Read header; hint until on
+    panel = own[own.index('<div class="readpanel">'):]
+    assert panel.index('class="list"') < panel.index('id="papier"')  # one panel, no fold
+    assert "<details" not in own and 'class="plus"' not in own
     data = re.search(r'id="papier-data">(.*?)</script>', own).group(1)
     assert data.startswith('["T0<\\/script>"') and "</script>\"" not in data  # oldest first, can't close the tag
     assert 'id="papier-on"' not in cards.profile_page(reader, read, [], owner=False)  # private list: no dinosaurs
@@ -558,5 +562,5 @@ def test_demo_page_shows_dinosaurs_and_stores_nothing(setup):
         page = urllib.request.urlopen(f"http://127.0.0.1:{server.server_address[1]}/demo").read().decode()
     finally:
         server.shutdown()
-    assert 'id="papier-on"' in page and "5 dinosaurs so far" in page and "Demo’s" in page
+    assert 'id="papier-on"' in page and "5 dinosaurs so far" in page and "Demo’s" in page and "Monarch Butterflies" in page
     assert store.reader_count() == 0 and db("SELECT COUNT(*) AS n FROM interactions")["n"].item() == 0
