@@ -17,7 +17,7 @@ Tables:
                 scores plus reader_id, reader_name, label (1 = opened, 0 = not opened within
                 `click_window_hours`, NULL = pending), read, hearted, saved
   articles      every article read from the feeds, with its mapped MIND subcategory
-  meta          persona user_id and the time anchor
+  meta          the user_id pushes are scored for, and the time anchor
 """
 
 import secrets
@@ -145,7 +145,7 @@ class Store:
     def sent_on(self, day: str) -> int:
         if not self._has_scores():
             return 0
-        return self._rows("SELECT COUNT(*) AS n FROM scores WHERE sent AND substr(sent_at, 1, 10) = :day",
+        return self._rows("SELECT COUNT(*) AS n FROM scores WHERE sent AND substr(slot_time, 1, 10) = :day",
                           day=day)[0]["n"]
 
     def add_scores(self, scores: pd.DataFrame) -> None:

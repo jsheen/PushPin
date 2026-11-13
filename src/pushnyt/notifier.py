@@ -2,9 +2,9 @@
 
 At each slot hour (configs/notifier.yml) it:
   1. reads the NYT RSS feeds and adds articles it hasn't seen to the scorer's catalog
-  2. scores the last `lookback_hours` of unpushed articles for one MIND user (the persona whose
-     reading history stands in for the readers) through the scorer service, with every model
-     feature
+  2. scores the last `lookback_hours` of unpushed articles through the scorer service, with every
+     model feature, for one user: a brand-new one by default (no reading history, no impressions;
+     `user_id` in the config picks a MIND persona instead)
   3. picks the top article with the push objective, gates it with the send policy
      (configs/objective.yml) and, if it passes, sends it through ntfy (https://ntfy.sh) to
      everyone subscribed to NTFY_TOPIC
@@ -31,6 +31,7 @@ import argparse
 import hashlib
 import json
 import os
+import secrets
 import time
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -47,6 +48,8 @@ from pushnyt.cards import open_store
 from pushnyt.objective import push_scores, send_decisions
 from pushnyt.push_job import HttpScorer
 from pushnyt.store import ARTICLE_COLUMNS, Store
+
+NEW_USER_PREFIX = "new-"  # MIND ids look like U12345, so these never collide
 
 # --- feeds ---------------------------------------------------------------------------------------
 
@@ -110,6 +113,15 @@ def tunnel_url(metrics_url: str) -> str | None:
         return None
 
 
+def new_user_id(stored: str | None) -> str:
+    """The id of the brand-new user the pushes are picked for: the stored one if it is already a
+    new user, else a fresh one (the scorer has never seen it, so it starts cold). A stored MIND
+    persona from an older setup is replaced."""
+    if stored and stored.startswith(NEW_USER_PREFIX):
+        return stored
+    return NEW_USER_PREFIX + secrets.token_hex(4)
+
+
 # --- the slot ------------------------------------------------------------------------------------
 
 class Notifier:
@@ -125,7 +137,7 @@ class Notifier:
             store.put("log_end", info["log_end"])
         log_end = pd.Timestamp(store.get("log_end"))
         self.shift = log_end.normalize() + pd.Timedelta(days=1) - pd.Timestamp(store.get("anchor"))
-        self.user_id = config.get("user_id") or store.get("user_id") or scorer.users(1, config["seed"])[0]
+        self.user_id = config.get("user_id") or new_user_id(store.get("user_id"))
         store.put("user_id", self.user_id)
 
     def now(self) -> pd.Timestamp:
@@ -263,7 +275,7 @@ def main() -> None:
     wait_for(scorer)
     notifier = Notifier(scorer, store, config, objective, topic, os.environ.get("CLICK_BASE_URL"), args.dry_run,
                         tunnel_metrics=os.environ.get("TUNNEL_METRICS_URL"))
-    print(f"persona {notifier.user_id}, scorer time shift {notifier.shift}")
+    print(f"user {notifier.user_id}, scorer time shift {notifier.shift}")
     if args.once:
         notifier.run_slot()
         return

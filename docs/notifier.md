@@ -81,8 +81,8 @@ docker compose up -d notifier cards tunnel   # the schedule, the card server, it
 docker compose logs -f notifier cards        # one JSON line per slot, and per open / read / ♥ / save
 ```
 
-The first run picks the MIND persona and fixes the time shift, and both are stored in the
-database. To see the pushes on your Mac, open ntfy's web app (ntfy.sh/app, subscribe to the same
+The first run creates the new user's id (`new-` plus random hex) and fixes the time shift, and
+both are stored in the database. To see the pushes on your Mac, open ntfy's web app (ntfy.sh/app, subscribe to the same
 topic) or use iPhone Mirroring.
 
 Stop it with `docker compose stop notifier cards tunnel scorer`.
@@ -125,7 +125,7 @@ the Mac is awake and Docker is running:
 | `interactions` | push × reader × kind | `kind` (`open`, `read`, `heart`, `save`), `created_at`, `minutes_after_push`; unloving or unsaving deletes the row |
 | `labeled` (view) | sent push × reader | the push's `scores` row plus `reader_id`, `reader_name`, `label` (1 = opened, 0 = not opened within 24 h, NULL = pending), `read`, `hearted`, `saved` |
 | `articles` | article read from the feeds | text, URL, publish time, mapped MIND subcategory |
-| `meta` | setting | persona `user_id`, time anchor |
+| `meta` | setting | `user_id` the pushes are scored for, time anchor |
 
 A reader is first seen when they open a card. So `labeled` pairs each reader only with pushes
 sent from their first opened push onward; before that, there's no way to know whether they were
@@ -151,14 +151,19 @@ off-policy data later. In pandas: `pd.read_sql("SELECT * FROM labeled", sqlite3.
 
 ## Settings and limitations
 
-`configs/notifier.yml` holds the slot hours, time zone, lookback, daily cap, persona `user_id`,
+`configs/notifier.yml` holds the slot hours, time zone, lookback, daily cap, `user_id`,
 feeds, ntfy server and click window. The threshold, risk penalty and friction come from
 `configs/objective.yml`.
 
-- **Pushes are picked for a stand-in, not you.** The scorer only knows MIND users, so one MIND
-  reader (sampled, or set with `user_id`) stands in for you. Scoring you directly would mean
-  adding your own user state, e.g. built from a seed list of articles you've read, then updated
-  from your opens, reads, ♥ and saves.
+- **Pushes are picked for a brand-new user.** By default the scorer sees a user it has never
+  met: no click history and no impressions, like a MIND user on their first visit. The
+  personal features (similarity to history, subcategory affinity, LLM themes) are missing, so
+  the pick rests on the article (age, its subcategory's overall click rate) and the time of
+  day. Every subscriber gets the same pushes. Setting `user_id` to a MIND id (e.g. `U12345`)
+  scores for that reader's history instead.
+- **The new user stays new.** The scorer doesn't record the notifier's slots or taps, so every
+  slot is scored as that user's first impression. Getting past the cold start means feeding
+  opens, reads, ♥ and saves back as the user's history (one user per reader cookie).
 - **Interactions aren't fed back yet.** They're stored, but they don't update any profile in the
   scorer. They're signals of different strength: an open means "curious", a read means "read
   it", ♥ means "more like this", and a save means "interested, not now".

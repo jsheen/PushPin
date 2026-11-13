@@ -77,3 +77,21 @@ def test_added_articles_can_be_scored(run_dir, train_config):
     with pytest.raises(ValueError):
         scorer.add_articles(new.assign(subcategory="not-a-subcategory"), np.zeros((2, dim)),
                             np.array(["2019-11-15T08:00"] * 2, "datetime64[ns]"))
+
+
+def test_new_user_is_scored_as_a_cold_start(run_dir, train_config):
+    scorer = _scorer(run_dir, train_config)
+    known, news = next(iter(scorer.log)), list(scorer.g.news_ids[:5])
+    before = scorer.score(known, "2019-11-15 09:00", news)
+    rows = scorer.score_many([{"user_id": "new-a", "time": "2019-11-15 09:00", "news_ids": news},
+                              {"user_id": "new-b", "time": "2019-11-15 09:00", "news_ids": news}])
+    assert len(rows) == 10 and rows["p_click"].between(0, 1).all() and rows["p_return"].between(0, 1).all()
+    assert (rows["user_history_len"] == 0).all() and (rows["user_prior_impr"] == 0).all()
+    assert rows[["sim_text", "subcat_affinity", "complement_score"]].isna().all().all()
+    assert (rows["novelty"] == 1).all()  # never shown anything
+    a, b = (rows[rows["request"] == i]["p_click"].tolist() for i in (0, 1))
+    assert a == b  # two new users look the same
+    again = scorer.score("new-a", "2019-11-15 09:00", news)  # registered once, scored the same
+    assert again["p_click"].tolist() == a
+    after = scorer.score(known, "2019-11-15 09:00", news)  # adding users leaves known ones alone
+    assert after["p_click"].tolist() == before["p_click"].tolist()

@@ -323,8 +323,9 @@ docker compose run --rm notifier "python -m pushnyt.notifier --once --dry-run"  
 docker compose up -d notifier cards tunnel   # the schedule, the card server, its public address
 ```
 
-The scorer only knows MIND users, so one MIND reader stands in for you, and interactions are
-stored but not yet fed back. Setup, the database tables and example queries are in
+Pushes are scored for a brand-new user (no history, a cold start; `user_id` in
+`configs/notifier.yml` picks a MIND persona instead), and interactions are stored but not yet
+fed back. Setup, the database tables and example queries are in
 [docs/notifier.md](docs/notifier.md).
 
 The same services deploy to GCP, each where it fits:

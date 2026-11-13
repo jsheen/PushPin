@@ -5,8 +5,7 @@ timezone: America/New_York
 slot_hours: [8, 12, 17, 21]     # local push times
 lookback_hours: 12              # candidates: unpushed articles published in this window
 daily_cap: 3                    # overrides objective.yml's send.daily_cap (2) for you
-user_id: null                   # MIND persona whose history stands in for yours; null = sample one (seed)
-seed: 42
+user_id: null                   # null = a brand-new user (no history: cold start); or a MIND id, e.g. U12345, as a persona
 objective: configs/objective.yml  # friction, threshold, risk_penalty
 ntfy_server: https://ntfy.sh
 click_port: 8090

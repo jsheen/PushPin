@@ -61,6 +61,24 @@ class LiveScorer:
         self.log.setdefault(impression["user_id"], []).append(tuple(impression[c] for c in LOG_COLUMNS))
         self._seen([item[:-2] for item in impression["impressions"].split()], impression["time"])
 
+    def add_user(self, user_id: str) -> None:
+        """Register a user the log has never seen: a cold start, with no click history and no
+        impressions, like a MIND user on their first impression with an empty history. No-op for
+        known users. Each new user gets their own (empty) row, since features group by user row."""
+        g = self.g
+        if user_id in g.user_idx:
+            return
+        g.user_idx = {**g.user_idx, user_id: g.H.shape[0]}
+        g.H = sparse.vstack([g.H, sparse.csr_matrix((1, g.H.shape[1]), dtype=g.H.dtype)], format="csr")
+
+        def blank(m):
+            return np.vstack([m, np.zeros((1, m.shape[1]), m.dtype)])
+        g.profile_text, g.profile_ent = blank(g.profile_text), blank(g.profile_ent)
+        if g.profile_abs is not None:
+            g.profile_abs = blank(g.profile_abs)
+        g.subcat_weights, g.complement_by_user = blank(g.subcat_weights), blank(g.complement_by_user)
+        g.has_history = np.append(g.has_history, False)
+
     def _seen(self, news_ids: list[str], when) -> None:
         pos = [self.g.news_idx[n] for n in news_ids if n in self.g.news_idx]
         t = np.datetime64(pd.Timestamp(when).to_datetime64(), "ns")
@@ -85,6 +103,8 @@ class LiveScorer:
         users = [r["user_id"] for r in requests]
         if len(set(users)) != len(users):
             raise ValueError("score_many takes at most one request per user")
+        for u in users:
+            self.add_user(u)
         events, request_rows, history_len = [], [], []
         for r in requests:
             past = self.log.get(r["user_id"], [])

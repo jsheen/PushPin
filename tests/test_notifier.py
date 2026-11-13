@@ -256,3 +256,20 @@ def test_stats_needs_token(setup, monkeypatch):
                 assert e.value.code == 404
         finally:
             server.shutdown()
+
+
+def test_scores_for_a_new_user_kept_across_restarts(setup, tmp_path):
+    n, store, _, _ = setup
+    assert n.user_id.startswith(nt.NEW_USER_PREFIX)
+    again = nt.Notifier(FeatureScorer(), store, n.cfg, OBJECTIVE, "topic", None)
+    assert again.user_id == n.user_id
+    n.run_slot(pd.Timestamp("2026-11-12 12:00"))
+    assert set(DB(store)("SELECT DISTINCT user_id FROM scores")["user_id"]) == {n.user_id}
+
+
+def test_new_user_replaces_a_stored_mind_persona_unless_configured(setup):
+    n, store, _, _ = setup
+    store.put("user_id", "U123")
+    assert nt.Notifier(FeatureScorer(), store, n.cfg, OBJECTIVE, "topic", None).user_id.startswith("new-")
+    persona = nt.Notifier(FeatureScorer(), store, {**n.cfg, "user_id": "U9"}, OBJECTIVE, "topic", None)
+    assert persona.user_id == "U9"
