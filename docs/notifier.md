@@ -31,7 +31,9 @@ Each slot:
 
 1. Reads the NYT RSS feeds and adds new articles to the scorer, which embeds them and maps them
    to MIND subcategories as in the simulation.
-2. Scores every article from the last 12 hours that hasn't already been pushed.
+2. Scores every article from the last 12 hours that hasn't already been pushed. Every earlier
+   push goes along with the request as an impression of one article, labeled 1 if it was opened
+   (see below).
 3. Picks the top article with the push objective (friction from `configs/objective.yml`).
 4. Sends it through [ntfy](https://ntfy.sh) if it passes the send policy, up to 3 a day.
 5. Writes every candidate to the database.
@@ -161,12 +163,24 @@ feeds, ntfy server and click window. The threshold, risk penalty and friction co
   the pick rests on the article (age, its subcategory's overall click rate) and the time of
   day. Every subscriber gets the same pushes. Setting `user_id` to a MIND id (e.g. `U12345`)
   scores for that reader's history instead.
-- **The new user stays new.** The scorer doesn't record the notifier's slots or taps, so every
-  slot is scored as that user's first impression. Getting past the cold start means feeding
-  opens, reads, ♥ and saves back as the user's history (one user per reader cookie).
-- **Interactions aren't fed back yet.** They're stored, but they don't update any profile in the
-  scorer. They're signals of different strength: an open means "curious", a read means "read
-  it", ♥ means "more like this", and a save means "interested, not now".
+- **Pushes feed back as impressions.** Each slot sends the user's earlier pushes to the scorer
+  as one-article impressions, labeled 1 if any reader opened the card (a push still inside the
+  24 h window counts as 0 until it's opened). The scorer uses them exactly as training used a
+  MIND user's earlier impressions, so the per-user features move: slot and subcategory
+  engagement, skips, the click/skip embedding contrast, and exposure (`impr_last_24h`,
+  `hours_since_last_impr`, which now count pushes). The scorer keeps no state for this; the
+  database is the record, so a restarted or second scorer replica gives the same scores.
+- **The pre-period history doesn't grow.** In MIND that history is fixed before the log starts,
+  and the model learned in-log clicks only through the features above. So taps don't enter it:
+  `user_history_len` stays 0 and the history-similarity features (`sim_text`,
+  `subcat_affinity`, embedding retrieval, LLM themes) stay missing for the new user.
+- **Only opens are fed back.** Reads, ♥ and saves are stored but not used. They're signals of
+  different strength: an open means "curious", a read means "read it", ♥ means "more like
+  this", and a save means "interested, not now". MIND has only clicks, so the model can't use
+  the others until it's retrained on push data.
+- **Exposure features learned from feed visits.** MIND impressions are visits users chose to
+  make; pushes aren't. The model's exposure effect is small (about 2–3% lower engagement after
+  5+ impressions a day; see analysis.md), so it won't do much to stop over-pushing on its own.
 - **Cookies are per browser.** A reader who clears cookies, or opens a card in another browser,
   becomes a new reader. ♥ and saves live in this database, not in the reader's NYT account; NYT
   has no public API for writing to its saved list.

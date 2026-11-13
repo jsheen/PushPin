@@ -7,8 +7,11 @@ reaches it by service name at http://scorer:8000; no host port needs publishing.
   GET  /health             liveness, end of the user-state log, catalog size
   GET  /users?n=&seed=     a sample of users to push to
   POST /articles           {"articles": [{news_id, title, abstract, published}, ...]}
-  POST /score              {"requests": [{user_id, time, news_ids, impression_id}, ...], "features": false,
-                            "articles": [...]}   (optional: candidates to add first if missing)
+  POST /score              {"requests": [{user_id, time, news_ids, impression_id, events}, ...],
+                            "features": false, "articles": [...]}
+                            articles: optional, candidates to add first if missing
+                            events: optional, the user's earlier impressions (e.g. past pushes with
+                            tap labels), used for this request only; see LiveScorer.score_many
 
 Responses are JSON with NaN allowed (features can be missing), which Python's json reads back
 exactly. Startup loads the MIND state and takes a minute or two; /health answers once it's ready.
@@ -33,7 +36,7 @@ class Articles(BaseModel):
 
 
 class Requests(BaseModel):
-    requests: list[dict]  # user_id, time (ISO), news_ids, impression_id
+    requests: list[dict]  # user_id, time (ISO), news_ids, impression_id, events (optional)
     features: bool = False  # also return every model input, not just the scores
     articles: list[dict] | None = None  # add these first if missing (so any replica can score)
 

@@ -95,3 +95,26 @@ def test_new_user_is_scored_as_a_cold_start(run_dir, train_config):
     assert again["p_click"].tolist() == a
     after = scorer.score(known, "2019-11-15 09:00", news)  # adding users leaves known ones alone
     assert after["p_click"].tolist() == before["p_click"].tolist()
+
+
+def test_events_sent_with_a_request_count_as_earlier_impressions(run_dir, train_config):
+    scorer = _scorer(run_dir, train_config)
+    news = list(scorer.g.news_ids[:5])
+    pushed = list(scorer.g.news_ids[5:8])
+    events = [{"impression_id": 1, "time": "2019-11-15 08:00", "impressions": f"{pushed[0]}-1"},
+              {"impression_id": 2, "time": "2019-11-15 12:00", "impressions": f"{pushed[1]}-0"},
+              {"impression_id": 3, "time": "2019-11-15 17:00", "impressions": f"{pushed[2]}-0"}]
+    cold = scorer.score_many([{"user_id": "new-x", "time": "2019-11-15 21:00", "news_ids": news}])
+    warm = scorer.score_many([{"user_id": "new-x", "time": "2019-11-15 21:00", "news_ids": news,
+                               "events": events[::-1]}])  # any order: sorted by time
+    assert (cold["user_prior_impr"] == 0).all() and (warm["user_prior_impr"] == 3).all()
+    assert (warm["impr_last_24h"] == 3).all() and (warm["hours_since_last_impr"] == 4).all()
+    assert warm["p_click"].tolist() != cold["p_click"].tolist()
+    assert "new-x" not in scorer.log  # events count for that request only: the scorer stays stateless
+    again = scorer.score_many([{"user_id": "new-x", "time": "2019-11-15 21:00", "news_ids": news}])
+    assert again["p_click"].tolist() == cold["p_click"].tolist()
+    tapped = scorer.score_many([{"user_id": "new-x", "time": "2019-11-15 21:00", "news_ids": news,
+                                 "events": [{**e, "impressions": e["impressions"][:-1] + "1"} for e in events]}])
+    assert (tapped["slot_engaged_rate"] >= warm["slot_engaged_rate"]).all()  # taps raise engagement
+    with pytest.raises(ValueError):
+        scorer.score_many([{"user_id": "new-x", "time": "2019-11-15 12:00", "news_ids": news, "events": events}])

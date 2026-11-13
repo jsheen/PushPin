@@ -29,9 +29,15 @@ ITEMS = [(f"Story {i}", sec, f"Thu, 12 Nov 2026 {9 + i:02d}:00:00 +0000") for i,
 
 
 class FeatureScorer(FakeScorer):
+    def __init__(self):
+        super().__init__()
+        self.requests = []
+
     def score(self, requests, features=False, articles=None):
-        if articles is not None:  # inline candidates must cover every requested article
-            assert set(articles["news_id"]) >= {n for r in requests for n in r["news_ids"]}
+        self.requests += requests
+        if articles is not None:  # inline candidates and past pushes must cover every article
+            pushed = {e["impressions"][:-2] for r in requests for e in r.get("events", [])}
+            assert set(articles["news_id"]) >= {n for r in requests for n in r["news_ids"]} | pushed
         rows = super().score(requests)
         return rows.assign(sim_text=0.5, user_history_len=7) if features else rows
 
@@ -103,6 +109,23 @@ def test_slot_logs_covariates_and_respects_cap(setup):
     assert n.run_slot(noon + pd.Timedelta(hours=5))["sent"]
     third = n.run_slot(noon + pd.Timedelta(hours=9))
     assert not third["sent"] and not third["under_cap"] and len(sent) == 2
+
+
+def test_past_pushes_go_to_the_scorer_with_tap_labels(setup):
+    n, store, sent, _db = setup
+    noon = pd.Timestamp("2026-11-12 12:00")
+    n.run_slot(noon)
+    assert n.scorer.requests[-1]["events"] == []  # nothing pushed yet
+    first = sent[0][4].rsplit("/", 1)[1]
+    store.interact(first, store.new_reader(store.push(first)["sent_ts"]), "open")
+    n.run_slot(noon + pd.Timedelta(hours=5))
+    n.run_slot(noon + pd.Timedelta(hours=9))  # over the cap: scored, not sent
+    events = n.scorer.requests[-1]["events"]
+    pushed = store.push_events(n.user_id)
+    assert len(events) == 2 and pushed["tapped"].tolist() == [1, 0]
+    assert [e["impressions"] for e in events] == [f"{pushed['news_id'][0]}-1", f"{pushed['news_id'][1]}-0"]
+    assert events[0]["time"] == (noon + n.shift).isoformat()  # in the scorer's (shifted) time
+    assert events[0]["impression_id"] == int(noon.timestamp())
 
 
 def test_dry_run_sends_nothing(setup):

@@ -174,11 +174,21 @@ class Notifier:
             return {"candidates": 0, "sent": False}
 
         slot_id = int(now.timestamp())
+        # Close the loop: every earlier push goes along as an impression of one article, labeled
+        # 1 if it was tapped. The scorer's per-user features (engagement, skips, click/skip
+        # contrast, exposure) then reflect what this reader did, as they would for a MIND user.
+        past = self.store.push_events(self.user_id)
+        past = past[pd.to_datetime(past["slot_time"]) < now]
+        events = [{"impression_id": int(p.slot_id), "time": (pd.Timestamp(p.slot_time) + self.shift).isoformat(),
+                   "impressions": f"{p.news_id}-{int(p.tapped)}"} for p in past.itertuples()]
         request = {"user_id": self.user_id, "time": (now + self.shift).isoformat(),
-                   "news_ids": cand["news_id"].tolist(), "impression_id": slot_id}
-        # the candidates go along with the request, so any scorer replica can score them (one that
-        # restarted, or one behind a load balancer that never saw the earlier /articles call)
-        inline = cand[["news_id", "title", "abstract", "published"]].assign(published=cand["published"] + self.shift)
+                   "news_ids": cand["news_id"].tolist(), "impression_id": slot_id, "events": events}
+        # the candidates (and pushed articles) go along with the request, so any scorer replica can
+        # score them (one that restarted, or one behind a load balancer that never saw /articles)
+        articles = pd.concat([cand[["news_id", "title", "abstract", "published"]],
+                              past[["news_id", "title", "abstract", "published"]]
+                              .assign(published=pd.to_datetime(past["published"]))])
+        inline = articles.assign(published=articles["published"] + self.shift)
         scores = self.scorer.score([request], features=True, articles=inline)
         scores["push_score"] = push_scores(scores, scores["p_click"].to_numpy(), self.objective["friction"])
         top = scores["push_score"].idxmax()

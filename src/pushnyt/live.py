@@ -97,8 +97,15 @@ class LiveScorer:
     def score_many(self, requests: list[dict]) -> pd.DataFrame:
         """Score several requests (one per user) in a single pass of the feature code.
 
-        Each request: user_id, time, news_ids, and optionally history and impression_id. Features
-        are per-user, so this equals scoring each request alone; it is just faster.
+        Each request: user_id, time, news_ids, and optionally history, impression_id and events.
+        Features are per-user, so this equals scoring each request alone; it is just faster.
+
+        `events` are the user's impressions since the logged state, sent by the caller instead of
+        recorded here: [{impression_id, time, impressions}], oldest first, `impressions` in MIND
+        form ("N123-1 N456-0"). The notifier sends each past push this way, labeled with whether
+        it was tapped, so the per-user features (engagement, skips, click/skip contrast, exposure)
+        see them exactly as training saw earlier impressions. They count for this request only, so
+        the scorer stays stateless and any replica gives the same answer.
         """
         users = [r["user_id"] for r in requests]
         if len(set(users)) != len(users):
@@ -112,6 +119,15 @@ class LiveScorer:
             if history is None:
                 history = past[0][3] if past else []
             when = pd.Timestamp(r["time"])
+            sent = []
+            for e in r.get("events") or []:
+                t = pd.Timestamp(e["time"])
+                if t >= when:
+                    raise ValueError("events must come before the request time")
+                self._seen([item[:-2] for item in e["impressions"].split()], t)
+                sent.append((e.get("impression_id", -1), r["user_id"], t, history, e["impressions"],
+                             int(time_slot(pd.Series([t.hour]))[0])))
+            past = past + sorted(sent, key=lambda ev: ev[2])
             # articles in this impression are being shown now (batch first-seen includes the current one)
             self._seen(r["news_ids"], when)
             events += past

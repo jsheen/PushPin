@@ -148,6 +148,19 @@ class Store:
         return self._rows("SELECT COUNT(*) AS n FROM scores WHERE sent AND substr(slot_time, 1, 10) = :day",
                           day=day)[0]["n"]
 
+    def push_events(self, user_id: str) -> pd.DataFrame:
+        """Every push sent for `user_id`, oldest first, with its article and whether anyone opened
+        it so far: slot_id, slot_time, news_id, title, abstract, published, tapped (0/1). A push
+        still inside the click window counts as not tapped until it is."""
+        if not self._has_scores():
+            return pd.DataFrame(columns=["slot_id", "slot_time", "news_id", "title", "abstract", "published", "tapped"])
+        with self.lock, self.engine.connect() as con:
+            return pd.read_sql(text("""SELECT s.slot_id, s.slot_time, s.news_id, a.title, a.abstract, a.published,
+                    CASE WHEN EXISTS (SELECT 1 FROM interactions i WHERE i.push_id = s.push_id AND i.kind = 'open')
+                         THEN 1 ELSE 0 END AS tapped
+                FROM scores s JOIN articles a ON a.news_id = s.news_id
+                WHERE s.sent AND s.user_id = :u ORDER BY s.slot_time"""), con, params={"u": user_id})
+
     def add_scores(self, scores: pd.DataFrame) -> None:
         new = not self._has_scores()
         with self.lock:
