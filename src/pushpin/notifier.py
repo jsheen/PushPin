@@ -288,7 +288,7 @@ def main() -> None:
     if not topic and not args.dry_run:
         raise SystemExit("set NTFY_TOPIC (in .env) to the topic your phone subscribes to, or use --dry-run")
     if args.test:
-        send_ntfy(config["ntfy_server"], topic, "pushPin test", "If you can read this, delivery works.",
+        send_ntfy(config["ntfy_server"], topic, "PushPin test", "If you can read this, delivery works.",
                   "https://www.nytimes.com", tags=["white_check_mark"])
         print("sent")
         return
@@ -297,7 +297,7 @@ def main() -> None:
             tunnel_url(os.environ["TUNNEL_METRICS_URL"]) if os.environ.get("TUNNEL_METRICS_URL") else None)
         if not base:
             raise SystemExit("no card address: set CLICK_BASE_URL or run the tunnel")
-        send_ntfy(config["ntfy_server"], topic, "Welcome to pushPin",
+        send_ntfy(config["ntfy_server"], topic, "Welcome to PushPin",
                   "Tap to choose how many stories a day: light, medium or heavy.", f"{base}/start",
                   tags=["wave"])
         print(f"sent; it opens {base}/start")

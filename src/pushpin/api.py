@@ -1,4 +1,4 @@
-"""pushPin serving API: click scores and push decisions for one training run.
+"""PushPin serving API: click scores and push decisions for one training run.
 
 Serves the run's precomputed test-set predictions (predictions.parquet), so it covers the
 impressions of that run's test day. Scoring arbitrary live requests would need the per-user
@@ -94,7 +94,7 @@ def create_app(run_dir: str | Path, send_cfg: dict | None = None) -> FastAPI:
         user_id=("user_id", "first"), time=("time", "first"), slot=("slot", "first"),
         n_candidates=("news_id", "size")).reset_index()
 
-    app = FastAPI(title="pushPin", description="Push notification scoring and selection")
+    app = FastAPI(title="PushPin", description="Push notification scoring and selection")
     stats = Metrics(run_dir.name, metrics.get("auc"))
 
     @app.middleware("http")

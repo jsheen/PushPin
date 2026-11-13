@@ -1,7 +1,7 @@
 [project]
 name = "pushpin"
 version = "0.1.0"
-description = "Training pipeline and push objective for the pushPin model"
+description = "Training pipeline and push objective for the PushPin model"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 # Core deps are all the objective image needs; the training image adds the `train` extra.

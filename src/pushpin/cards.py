@@ -35,7 +35,7 @@ import yaml
 from pushpin.store import MAX_FAVORITES, REACTIONS, VOLUMES, Store
 
 PAGE = """<!doctype html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1"><title>pushPin</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>PushPin</title>
 <style>
 :root{--bg:#fff;--fg:#121212;--muted:#666;--line:#e2e2e2;--btn:#f1f1f1;--on:#d0021b;--link:#326891}
 @media (prefers-color-scheme:dark){:root{--bg:#121212;--fg:#eee;--muted:#999;--line:#333;--btn:#262626;
@@ -148,7 +148,7 @@ def card_page(push: dict, reader: dict | None = None, caps: dict | None = None) 
 
 def start_page(reader: dict | None, caps: dict | None = None) -> str:
     """The welcome push's page: pick how many pushes a day, before the first real one."""
-    return page(f"""<h1>pushPin</h1><p class="abstract">A few NYT stories a day, picked for you. Tap a
+    return page(f"""<h1>PushPin</h1><p class="abstract">A few NYT stories a day, picked for you. Tap a
 push to open its card; that's how it learns what you like.</p>{volume_picker((reader or {}).get("volume"), caps)}
 {CARD_SCRIPT.replace("%ID%", "null")}""")
 
@@ -223,7 +223,7 @@ def profile_page(reader: dict, read: list[dict], favorites: list[str], owner: bo
     else:
         bottom = '<p class="empty">Reading history is private.</p>'
 
-    title = f"{e(name)}’s pushPin" if name else ("Your pushPin" if owner else "A reader’s pushPin")
+    title = f"{e(name)}’s PushPin" if name else ("Your PushPin" if owner else "A reader’s PushPin")
     sub = '<p class="sub">Only you see this page. Favorites show on your public link.</p>' if owner else ""
     ask_name = ('<form class="who"><input name="name" maxlength="40" placeholder="Your first name (optional)" '
                 'autocomplete="given-name"><button>Save</button></form>') if owner and not name else ""
@@ -367,7 +367,7 @@ def open_store(config: dict) -> Store:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Serve pushPin push cards")
+    parser = argparse.ArgumentParser(description="Serve PushPin push cards")
     parser.add_argument("--config", type=Path, default=Path("configs/notifier.yml"))
     args = parser.parse_args()
     config = yaml.safe_load(args.config.read_text())

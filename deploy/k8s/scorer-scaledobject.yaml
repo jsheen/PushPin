@@ -2,7 +2,7 @@
 # The reader count comes from the card service's /stats endpoint on Cloud Run, which needs the
 # X-Api-Key header (the pushpin-stats-token secret). KEDA is installed by scripts/deploy-gcp.sh.
 #
-# Load doesn't need this at pushPin's size (scoring is ~4 ms per reader per slot, so one replica
+# Load doesn't need this at PushPin's size (scoring is ~4 ms per reader per slot, so one replica
 # handles thousands); it shows the mechanism. Each replica costs ~3 GB of memory, hence max 3.
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject

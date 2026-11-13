@@ -169,7 +169,7 @@ def train(config: dict) -> None:
     check_quality(metrics, config.get("evaluation", {}))  # after saving, so a failed run can be inspected
     plot_importance(importance, output_dir / "feature_importance.png")
     plot_importance(return_importance, output_dir / "return_feature_importance.png",
-                    title="pushPin XGBoost return model: feature importance")
+                    title="PushPin XGBoost return model: feature importance")
     plot_calibration(y, raw, scores, output_dir / "calibration.png")
 
 

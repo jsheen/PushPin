@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy pushPin's push pipeline to Google Cloud, mixed: the scorer on GKE, the card server on
+# Deploy PushPin's push pipeline to Google Cloud, mixed: the scorer on GKE, the card server on
 # Cloud Run, each notifier slot as a Cloud Run job started by Cloud Scheduler, data in Cloud SQL.
 #
 # DRY RUN BY DEFAULT: without --apply it only prints the commands, so nothing is created and
@@ -89,7 +89,7 @@ setup)
     artifactregistry.googleapis.com cloudbuild.googleapis.com cloudscheduler.googleapis.com \
     secretmanager.googleapis.com
   run gcloud artifacts repositories create pushpin --repository-format=docker --location=$REGION
-  run gcloud iam service-accounts create pushpin-run --display-name "'pushPin Cloud Run'"
+  run gcloud iam service-accounts create pushpin-run --display-name "'PushPin Cloud Run'"
   for role in roles/cloudsql.client roles/secretmanager.secretAccessor roles/run.invoker; do
     run gcloud projects add-iam-policy-binding $PROJECT --member serviceAccount:$RUN_SA --role $role --condition=None
   done

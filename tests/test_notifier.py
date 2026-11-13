@@ -260,7 +260,7 @@ def test_profile_favorites_and_public_history(setup):
         get(f"/p/{pushes[0]}")  # reopening doesn't count twice
         post("/name", b"Justin")
         me = get("/me")
-        assert "<strong>4</strong> articles read" in me and "Justin’s pushPin" in me and me.count('class="star"') == 4
+        assert "<strong>4</strong> articles read" in me and "Justin’s PushPin" in me and me.count('class="star"') == 4
         ids = re.findall(r'data-fav="([^"]+)"', me)
         for i in ids[:3]:
             post(f"/favorite/{i}")
@@ -277,7 +277,7 @@ def test_profile_favorites_and_public_history(setup):
 
         link = re.search(r'href="(http://[^"]+/u/([^"]+))"', me)
         public = stranger_get(f"/u/{link.group(2)}")
-        assert "Justin’s pushPin" in public and "Reading history is private" in public and "on pushPin" not in public
+        assert "Justin’s PushPin" in public and "Reading history is private" in public and "on PushPin" not in public
         assert public.count("<li>") == 3 and "articles read" not in public and 'class="star"' not in public
         assert "/p/" not in public  # links go to NYT: a visitor isn't counted as opening the push
         with pytest.raises(urllib.error.HTTPError) as e:

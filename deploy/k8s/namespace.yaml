@@ -1,4 +1,4 @@
-# Everything pushPin runs on GKE lives in this namespace.
+# Everything PushPin runs on GKE lives in this namespace.
 apiVersion: v1
 kind: Namespace
 metadata:

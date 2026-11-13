@@ -48,7 +48,7 @@ def _json(payload) -> Response:
 
 def create_app(scorer) -> FastAPI:
     """`scorer` is anything with the push-job scorer interface (normally nyt.LocalScorer)."""
-    app = FastAPI(title="pushPin scorer", description="Live scoring for the push job")
+    app = FastAPI(title="PushPin scorer", description="Live scoring for the push job")
 
     @app.get("/health")
     def health() -> Response:

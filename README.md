@@ -1,4 +1,4 @@
-# pushPin
+# PushPin
 
 [![CI](https://github.com/jsheen/pushPin/actions/workflows/ci.yml/badge.svg)](https://github.com/jsheen/pushPin/actions/workflows/ci.yml)
 
@@ -6,7 +6,7 @@ Push notification engine that could be utilized by The New York Times product. B
 
 ## Overview
 
-pushPin predicts whether a reader will click on a given article if it is pushed to them in a
+PushPin predicts whether a reader will click on a given article if it is pushed to them in a
 given time slot, `P(click | user, article, time slot)`. Slots are:
 
 | Slot      | Hours (local) |

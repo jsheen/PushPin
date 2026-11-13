@@ -1,4 +1,4 @@
-# Running pushPin in production: goals and design
+# Running PushPin in production: goals and design
 
 Status: **design notes, not built.** Written 2026-11-03 for later review. Companion to
 [live-scoring.md](live-scoring.md) (how one request is scored from stored state), which this
