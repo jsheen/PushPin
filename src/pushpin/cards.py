@@ -74,6 +74,9 @@ border-radius:8px;background:var(--btn);color:var(--fg)}
 .volume .row button[aria-pressed=true]{background:var(--fg);color:var(--bg)}
 .volume .row button small{display:block;font-weight:400;font-size:13px;opacity:.75}
 .profile header{margin-bottom:40px}.profile h1{margin:0 0 4px}.pinmark{height:1.15em;width:auto;vertical-align:-.22em;margin-left:.05em}
+.papier-sec{margin-top:36px;padding-top:18px;border-top:1px solid var(--line)}.papier-sec .hint{font-size:13px;color:var(--muted);margin:4px 0 0}
+.papier{opacity:0;transition:opacity .5s ease;margin-top:18px}.papier.on{opacity:1}.papier figure{width:80%;margin:0 0 26px}.papier figure.right{margin-left:auto}
+.papier canvas{display:block;width:100%}.papier figcaption{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:center;margin-top:6px}
 .profile .sub{color:var(--muted);font-size:15px;margin:0}
 .profile section{border-top:1px solid var(--line);padding:24px 0 8px}
 .profile h2{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:0 0 12px}
@@ -340,9 +343,130 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
     if owner:  # the pinned push first; until they choose, the pushes-a-day question next
         intro = ((pin_panel(pinned, fav_ids) if pinned else "")
                  + ("" if reader.get("volume") else volume_picker(None, caps)))
+    shown = owner or public  # Papier-mâché only uses titles the page already shows
     body = (f'{intro}<div class="profile"><header><h1>{title}</h1>{count}{sub}{ask_name}</header>{top}'
-            f'<section>{bottom}</section></div>{scripts}')
+            f'<section>{bottom}</section>{papier(read) if shown else ""}</div>{scripts}')
     return page(body).replace("<main>", '<main style="max-width:540px">', 1)
+
+
+# Papier-mâché: the read titles as concrete poetry. Every PAPIER_PER articles read makes a dinosaur
+# out of their titles; the one still being made is filled tail-first, the rest pencilled in.
+PAPIER_PER = 5
+PAPIER_SCRIPT = """<script>(() => {
+const sw = document.getElementById('papier-on'), box = document.getElementById('papier');
+const titles = JSON.parse(document.getElementById('papier-data').textContent), PER = %PER%;
+const list = document.querySelector('.profile details');
+function dino(c, w, h, flip) {  // a little sauropod, designed on a 200 x 130 grid
+  c.save();
+  const s = Math.min(w / 200, h / 130);
+  c.translate((w - 200 * s) / 2, (h - 130 * s) / 2);
+  if (flip) { c.translate(200 * s, 0); c.scale(-1, 1); }
+  c.scale(s, s);
+  c.fillStyle = c.strokeStyle = '#000';
+  c.beginPath(); c.ellipse(100, 78, 50, 30, 0, 0, 7); c.fill();                       // body
+  c.beginPath(); c.moveTo(60, 60); c.quadraticCurveTo(18, 66, 2, 106);
+  c.quadraticCurveTo(36, 100, 70, 100); c.closePath(); c.fill();                     // tail
+  c.lineCap = 'round'; c.lineWidth = 24;
+  c.beginPath(); c.moveTo(128, 72); c.quadraticCurveTo(148, 42, 166, 24); c.stroke(); // neck
+  c.beginPath(); c.ellipse(172, 21, 20, 13, -0.2, 0, 7); c.fill();                   // head
+  for (const x of [70, 88, 112, 130]) { c.beginPath(); c.roundRect(x, 92, 14, 32, 6); c.fill(); }  // legs
+  c.globalCompositeOperation = 'destination-out';
+  c.beginPath(); c.arc(178, 16, 2.8, 0, 7); c.fill();                                // eye
+  c.restore();
+}
+function draw(canvas, words, built, flip, animate) {
+  const dpr = window.devicePixelRatio || 1, w = Math.round(canvas.clientWidth), h = Math.round(w * 0.64);
+  canvas.style.height = h + 'px'; canvas.width = w * dpr; canvas.height = h * dpr;
+  const c = canvas.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const m = document.createElement('canvas'); m.width = w; m.height = h;
+  const mc = m.getContext('2d'); dino(mc, w, h, flip);
+  const mask = mc.getImageData(0, 0, w, h).data, inside = (x, y) => mask[(y * w + x) * 4 + 3] > 127;
+  const fs = Math.max(7, Math.round(w / 50)), lh = Math.round(fs * 1.08);
+  c.font = fs + 'px Georgia, "Times New Roman", serif'; c.textBaseline = 'middle';
+  const text = words.join(' · ') + ' · ', widths = {};
+  const width = ch => widths[ch] ??= c.measureText(ch).width;
+  const glyphs = []; let i = 0;
+  for (let y = Math.round(lh / 2); y < h; y += lh) {
+    let x = 0;
+    while (x < w) {
+      while (x < w && !inside(x, y)) x++;
+      let end = x; while (end < w && inside(end, y)) end++;
+      let cx = x, guard = 0;
+      while (guard++ < 400) {
+        const ch = text[i % text.length];
+        if (cx === x && ch === ' ') { i++; continue; }
+        if (cx + width(ch) > end) break;
+        glyphs.push([ch, cx, y]); cx += width(ch); i++;
+      }
+      x = end + 1;
+    }
+  }
+  const css = getComputedStyle(document.documentElement);
+  const ink = css.getPropertyValue('--fg').trim() || '#121212', pencil = css.getPropertyValue('--line').trim() || '#e2e2e2';
+  const reach = w * built;  // built from the tail: left to right, or right to left when flipped
+  const isBuilt = ([, x]) => built >= 1 || (flip ? x >= w - reach : x <= reach);
+  const start = performance.now(), sweep = animate ? 900 : 0, fade = animate ? 280 : 0;
+  const frame = now => {
+    c.clearRect(0, 0, w, h);
+    let busy = false;
+    for (const g of glyphs) {
+      const along = flip ? 1 - g[1] / w : g[1] / w;
+      const t = fade ? Math.min(1, Math.max(0, (now - start - along * sweep - (g[2] / h) * 120) / fade)) : 1;
+      if (t < 1) busy = true;
+      if (t <= 0) continue;
+      c.globalAlpha = t * t * (3 - 2 * t);  // smoothstep
+      c.fillStyle = isBuilt(g) ? ink : pencil;
+      c.fillText(g[0], g[1], g[2]);
+    }
+    c.globalAlpha = 1;
+    if (busy) requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+}
+function build(animate) {
+  box.innerHTML = '';
+  const n = titles.length, count = Math.max(1, Math.ceil(n / PER));
+  for (let k = 0; k < count; k++) {
+    const group = titles.slice(k * PER, k * PER + PER), built = group.length / PER;
+    const fig = document.createElement('figure'), canvas = document.createElement('canvas');
+    const cap = document.createElement('figcaption');
+    canvas.setAttribute('role', 'img');
+    canvas.setAttribute('aria-label', 'A dinosaur made of the titles: ' + group.join('; '));
+    cap.textContent = built >= 1 ? 'Dinosaur ' + (k + 1) : 'Dinosaur ' + (k + 1) + ' · ' + group.length + ' of ' + PER + ' read';
+    fig.className = k % 2 ? 'right' : 'left';  // a zig-zag down the page, each facing the middle
+    fig.append(canvas, cap); box.append(fig);
+    draw(canvas, group, built, k % 2 === 1, animate);
+  }
+}
+function set(on, animate) {
+  box.hidden = !on;
+  if (list) list.hidden = on;
+  if (on) {
+    build(animate);
+    requestAnimationFrame(() => box.classList.add('on'));
+    if (animate) box.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+  } else box.classList.remove('on');
+  try { localStorage.setItem('papier', on ? '1' : ''); } catch (e) {}
+}
+sw.addEventListener('change', () => set(sw.checked, true));
+let saved = false; try { saved = localStorage.getItem('papier') === '1'; } catch (e) {}
+if (saved) { sw.checked = true; set(true, false); }
+let t; window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout(() => sw.checked && build(false), 150); });
+})();</script>""".replace("%PER%", str(PAPIER_PER))
+
+
+def papier(read: list[dict]) -> str:
+    """The Papier-mâché switch and its dinosaurs, for a Read list the page shows."""
+    if not read:
+        return ""
+    titles = [a["title"] or "Untitled" for a in sorted(read, key=lambda a: a["read_at"] or "")]  # oldest first
+    data = json.dumps(titles).replace("</", "<\\/")
+    made = len(read) // PAPIER_PER
+    note = f"{made} dinosaur{'s' if made != 1 else ''} so far" if made else f"{PAPIER_PER - len(read)} more to your first dinosaur"
+    return (f'<section class="papier-sec"><label class="toggle"><input type="checkbox" id="papier-on"> '
+            f'Papier-mâché</label><p class="hint">Every {PAPIER_PER} articles you read makes a new dinosaur · {note}</p>'
+            f'<div class="papier" id="papier" hidden></div>'
+            f'<script type="application/json" id="papier-data">{data}</script>{PAPIER_SCRIPT}</section>')
 
 
 PIN_MARK = '<img class="pinmark" src="/icon.png" alt="PushPin">'

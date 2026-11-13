@@ -531,3 +531,17 @@ def test_pushes_carry_the_pushpin_and_pages_serve_its_icons(setup):
         assert 'rel="icon" type="image/png" href="/favicon.png"' in page and 'rel="apple-touch-icon"' in page
     finally:
         server.shutdown()
+
+
+def test_papier_mache_only_with_a_visible_read_list():
+    read = [{"news_id": f"N{i}", "title": f"T{i}</script>", "url": "https://x", "read_at": f"2026-11-1{i}T09:00"}
+            for i in range(7)]
+    reader = {"name": "Jo", "history_public": 0}
+    own = cards.profile_page(reader, read, [], owner=True)
+    assert 'id="papier-on"' in own and "Every 5 articles you read makes a new dinosaur · 1 dinosaur so far" in own
+    data = re.search(r'id="papier-data">(.*?)</script>', own).group(1)
+    assert data.startswith('["T0<\\/script>"') and "</script>\"" not in data  # oldest first, can't close the tag
+    assert 'id="papier-on"' not in cards.profile_page(reader, read, [], owner=False)  # private list: no dinosaurs
+    assert 'id="papier-on"' in cards.profile_page({**reader, "history_public": 1}, read, [], owner=False)
+    assert "5 more to your first dinosaur" not in own and 'id="papier-on"' not in cards.profile_page(reader, [], [], owner=True)
+    assert "4 more to your first dinosaur" in cards.profile_page(reader, read[:1], [], owner=True)
