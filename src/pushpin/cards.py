@@ -69,9 +69,10 @@ border-radius:8px;background:var(--btn);color:var(--fg)}
 .profile .list li{display:flex;gap:12px;align-items:flex-start}.profile .list li>div{flex:1;min-width:0}
 .profile .list a{color:var(--fg)}.profile .list a:hover{color:var(--link)}
 .profile .empty{color:var(--muted)}
+.profile section>.list>li:last-child{border-bottom:0}
 .star{font:inherit;font-size:20px;line-height:1;padding:2px 4px;border:0;background:none;color:var(--muted);cursor:pointer}
 .star[aria-pressed=true]{color:var(--on)}
-.total{font-size:17px;margin:2px 0 2px}.since{font-size:15px;color:var(--muted);margin:0 0 6px}.total strong{font-weight:700}
+.since{font-size:15px;color:var(--muted);margin:2px 0 6px}
 .toggle{display:flex;align-items:center;gap:8px;font-size:15px;margin:0 0 6px;cursor:pointer}
 .toggle input{width:18px;height:18px;margin:0}
 .share{font-size:14px;color:var(--muted);margin:0 0 12px;word-break:break-all}.share a{color:var(--link)}
@@ -89,7 +90,10 @@ animation:splash-in .6s ease both}
 .profile summary{display:flex;align-items:center;justify-content:space-between;cursor:pointer;list-style:none;
 margin:0 0 12px}.profile summary::-webkit-details-marker{display:none}.profile summary h2{margin:0}
 .profile summary .n{color:var(--fg);margin-left:6px;letter-spacing:0}
-.plus{font-size:24px;line-height:1;color:var(--muted);transition:transform .2s ease}details[open] .plus{transform:rotate(45deg)}
+.plus{font-size:24px;line-height:1;color:var(--muted);transition:transform .2s ease}details[open]:not(.anim) .plus,details.shown .plus{transform:rotate(45deg)}
+details.anim .fold{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows .35s ease,opacity .35s ease}
+details.anim .fold>ul{overflow:hidden;min-height:0}details.shown .fold{grid-template-rows:1fr;opacity:1}
+@media (prefers-reduced-motion:reduce){details.anim .fold,.plus{transition:none}}
 .profile details+.toggle{margin-top:4px}
 .note{font-size:14px;color:var(--on);min-height:1em;margin:0 0 8px}
 </style></head><body><main>%BODY%</main></body></html>"""
@@ -182,8 +186,6 @@ def reading_list_page(items: list[dict]) -> str:
 
 
 PROFILE_SCRIPT = """<script>
-const folded = document.querySelector("details");
-if (folded && location.hash === "#read") folded.open = true;
 const pub = document.querySelector("#public");
 if (pub) pub.addEventListener("change", async () => {
   const r = await fetch("/public", {method: "POST", body: pub.checked ? "on" : "off"}).catch(() => null);
@@ -231,6 +233,28 @@ SPLASH_SCRIPT = """<noscript><style>.splash{display:none}.splash~.profile{opacit
 </script>"""
 
 
+FOLD_SCRIPT = """<script>
+// "Read n +": the list fades and slides open, and closed. Without JavaScript it opens instantly.
+document.querySelectorAll("details").forEach(d => {
+  d.classList.add("anim");
+  const show = on => d.classList.toggle("shown", on);
+  if (location.hash === "#read") { d.open = true; show(true); }  // kept open after starring
+  d.querySelector("summary").addEventListener("click", ev => {
+    ev.preventDefault();
+    if (!d.open) {
+      d.open = true;
+      requestAnimationFrame(() => requestAnimationFrame(() => show(true)));
+    } else {
+      show(false);
+      const done = () => { if (!d.classList.contains("shown")) d.open = false; };
+      d.querySelector(".fold").addEventListener("transitionend", done, {once: true});
+      setTimeout(done, 450);  // if transitions are off
+    }
+  });
+});
+</script>"""
+
+
 def profile_page(reader: dict, read: list[dict], favorites: list[str], owner: bool, share_url: str = "",
                  today: date | None = None) -> str:
     """A reader's profile. `owner`: their own view (/me), with the star buttons, the public toggle
@@ -261,11 +285,11 @@ def profile_page(reader: dict, read: list[dict], favorites: list[str], owner: bo
     n = len(read)
     first = date.fromisoformat(min(a["read_at"] for a in read)[:10]) if read else None
     since = f'<p class="since">Started reading on {first:%B} {first.day}, {first.year}</p>' if first else ""
-    count = (f'<p class="total"><strong>{n}</strong> article{"" if n == 1 else "s"} read</p>{since}'
-             if owner or public else "")
+    count = since if owner or public else ""  # the number itself is in "Read n +" below
     # the list is folded under "Read  n  +"; tapping + opens it
     articles = (f'<details><summary><h2>Read <span class="n">{n}</span></h2><span class="plus" aria-hidden="true">+</span>'
-                f'</summary><ul class="list">{"".join(item(a, owner) for a in read)}</ul></details>' if read
+                f'</summary><div class="fold"><ul class="list">{"".join(item(a, owner) for a in read)}</ul></div></details>'
+                + FOLD_SCRIPT if read
                 else '<h2>Read</h2><p class="empty">Nothing yet. Open a push to start.</p>')
     if owner:
         bottom = (f'{articles}<label class="toggle"><input type="checkbox" id="public"{" checked" if public else ""}> '

@@ -260,7 +260,7 @@ def test_profile_favorites_and_public_history(setup):
         get(f"/p/{pushes[0]}")  # reopening doesn't count twice
         post("/name", b"Justin")
         me = get("/me")
-        assert "<strong>4</strong> articles read" in me and "Justin’s PushPin" in me and me.count('class="star"') == 4
+        assert 'Read <span class="n">4</span>' in me and "articles read" not in me and "Justin’s PushPin" in me and me.count('class="star"') == 4
         ids = re.findall(r'data-fav="([^"]+)"', me)
         for i in ids[:3]:
             post(f"/favorite/{i}")
@@ -286,7 +286,7 @@ def test_profile_favorites_and_public_history(setup):
 
         post("/public", b"on")
         public = stranger_get(f"/u/{link.group(2)}")
-        assert "Started reading on " in public and "<strong>4</strong> articles read" in public and public.count("<li>") == 3 + 4
+        assert "Started reading on " in public and "<div>4 articles read</div>" in public and 'Read <span class="n">4</span>' in public and public.count("<li>") == 3 + 4
         post("/public", b"off")
         assert "Reading history is private" in stranger_get(f"/u/{link.group(2)}")
         with pytest.raises(urllib.error.HTTPError) as e:
