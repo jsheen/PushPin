@@ -40,8 +40,14 @@ import yaml
 from pushpin import apple
 from pushpin.store import MAX_FAVORITES, VOLUMES, Store
 
+# the red pushpin (scripts/make_icons.py): browser tab, home screen, ntfy's notification icon
+ASSETS = Path(__file__).parent / "assets"
+ICONS = {"favicon.ico": "favicon.png", "favicon.png": "favicon.png", "apple-touch-icon.png": "apple-touch-icon.png",
+         "icon.png": "icon.png"}
+
 PAGE = """<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>PushPin</title>
+<link rel="icon" type="image/png" href="/favicon.png"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>
 :root{--bg:#fff;--fg:#121212;--muted:#666;--line:#e2e2e2;--btn:#f1f1f1;--on:#d0021b;--link:#326891}
 @media (prefers-color-scheme:dark){:root{--bg:#121212;--fg:#eee;--muted:#999;--line:#333;--btn:#262626;
@@ -67,7 +73,7 @@ border-radius:8px;background:var(--btn);color:var(--fg)}
 .volume p{margin:0 0 4px;font-weight:600}.volume .hint{font-weight:400;font-size:14px;color:var(--muted)}
 .volume .row button[aria-pressed=true]{background:var(--fg);color:var(--bg)}
 .volume .row button small{display:block;font-weight:400;font-size:13px;opacity:.75}
-.profile header{margin-bottom:40px}.profile h1{margin:0 0 4px}
+.profile header{margin-bottom:40px}.profile h1{margin:0 0 4px}.pinmark{height:1.15em;width:auto;vertical-align:-.22em;margin-left:.05em}
 .profile .sub{color:var(--muted);font-size:15px;margin:0}
 .profile section{border-top:1px solid var(--line);padding:24px 0 8px}
 .profile h2{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:0 0 12px}
@@ -321,7 +327,8 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
     else:
         bottom = '<h2>Read</h2><p class="empty">Reading history is private.</p>'
 
-    title = f"{e(name)}’s PushPin" if name else ("Your PushPin" if owner else "A reader’s PushPin")
+    whose = f"{e(name)}’s" if name else ("Your" if owner else "A reader’s")
+    title = f'{whose} {PIN_MARK}'  # "Justin’s 📌", with our pin standing in for the word PushPin
     sub = '<p class="sub">Only you see this page. Your Crème shows on your public link.</p>' if owner else ""
     ask_name = ('<form class="who"><input name="name" maxlength="40" placeholder="Your first name (optional)" '
                 'autocomplete="given-name"><button>Save</button></form>') if owner and not name else ""
@@ -337,6 +344,8 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
             f'<section>{bottom}</section></div>{scripts}')
     return page(body).replace("<main>", '<main style="max-width:540px">', 1)
 
+
+PIN_MARK = '<img class="pinmark" src="/icon.png" alt="PushPin">'
 
 COOKIE = "pushpin_reader"
 
@@ -538,7 +547,15 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
 
         def do_GET(self):
             route, push_id = self._route()
-            if route == "health":
+            if route in ICONS and not push_id:
+                data = (ASSETS / ICONS[route]).read_bytes()
+                self.send_response(200)
+                self.send_header("content-type", "image/png")
+                self.send_header("content-length", str(len(data)))
+                self.send_header("cache-control", "public, max-age=604800")
+                self.end_headers()
+                self.wfile.write(data)
+            elif route == "health":
                 self._send(200, "ok", "text/plain")
             elif route == "api":
                 self._api("GET", push_id)

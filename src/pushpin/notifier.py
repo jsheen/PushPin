@@ -91,14 +91,17 @@ def fetch_feeds(urls: list[str], tz: ZoneInfo) -> pd.DataFrame:
 # --- delivery ------------------------------------------------------------------------------------
 
 def send_ntfy(server: str, topic: str, title: str, message: str, click: str, tags: list[str] | None = None,
-              actions: list[dict] | None = None) -> None:
+              actions: list[dict] | None = None, icon: str | None = None) -> None:
     """Publish through ntfy's JSON API (body JSON, so non-ASCII titles are fine).
 
     `actions` are ntfy action buttons. The notifier doesn't use them: an `http` action does run in
     the background (tested on iOS), but its request can't say which subscriber tapped it, so Read
-    and the Crème live on the profile page the tap opens, where the reader cookie identifies them."""
+    and the Crème live on the profile page the tap opens, where the reader cookie identifies them.
+
+    `tags` that are emoji names show before the title ("pushpin" → 📌, on iOS too); `icon` is an
+    image URL, which only ntfy's Android app shows."""
     body = {"topic": topic, "title": title, "message": message, "click": click, "tags": tags or [],
-            **({"actions": actions} if actions else {})}
+            **({"actions": actions} if actions else {}), **({"icon": icon} if icon else {})}
     req = urllib.request.Request(server.rstrip("/"), data=json.dumps(body).encode(),
                                  headers={"content-type": "application/json"})
     with urllib.request.urlopen(req, timeout=30) as resp:
@@ -245,7 +248,7 @@ class Notifier:
                 click = f"{base}/p/{push_id}" if base else article["url"]
                 if self.topic:
                     send_ntfy(self.cfg["ntfy_server"], self.topic, article["title"], article["abstract"], click,
-                              tags=["newspaper"])
+                              tags=["pushpin"], icon=f"{base}/icon.png" if base else None)
             else:
                 self.send_apns(article["title"], article["abstract"], data, reader_id)
 
@@ -356,7 +359,7 @@ def main() -> None:
             raise SystemExit("no card address: set CLICK_BASE_URL or run the tunnel")
         send_ntfy(config["ntfy_server"], topic, "Welcome to PushPin",
                   "Tap to choose how many stories a day: light, medium or heavy.", f"{base}/start",
-                  tags=["wave"])
+                  tags=["pushpin"], icon=f"{base}/icon.png")
         print(f"sent; it opens {base}/start")
         return
 

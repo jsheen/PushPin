@@ -167,7 +167,7 @@ def test_readers_tracked_separately(setup):
         assert e.value.code == 403
 
         pin = me_get(f"/p/{first}")  # my first tap pins it and creates my reader id
-        assert 'class="pin"' in pin and "About Story" in pin and "Your PushPin" in pin and "Your first name" in pin
+        assert 'class="pin"' in pin and "About Story" in pin and 'Your <img class="pinmark"' in pin and "Your first name" in pin
         assert 'href="https://www.nytimes.com/' in pin and f'data-read="{first}"' in pin and "☆ Put in Crème" in pin
         assert "🔖" not in pin and "data-kind" not in pin and "/saved" not in pin  # no Save any more
         assert "Nothing yet. Tap Read" in pin  # pinning isn't reading
@@ -262,7 +262,7 @@ def test_profile_favorites_and_public_history(setup):
         post(f"/read/{pushes[0]}")
         post("/name", b"Justin")
         me = get("/me")
-        assert 'Read <span class="n">4</span>' in me and "articles read" not in me and "Justin’s PushPin" in me and me.count('class="star"') == 4
+        assert 'Read <span class="n">4</span>' in me and "articles read" not in me and 'Justin’s <img class="pinmark" src="/icon.png" alt="PushPin">' in me and me.count('class="star"') == 4
         ids = re.findall(r'data-fav="([^"]+)"', me)
         post(f"/favorite/{ids[0]}")
         post(f"/favorite/{ids[1]}")  # a second pick replaces the first
@@ -276,7 +276,7 @@ def test_profile_favorites_and_public_history(setup):
 
         link = re.search(r'href="(http://[^"]+/u/([^"]+))"', me)
         public = stranger_get(f"/u/{link.group(2)}")
-        assert "Justin’s PushPin" in public and "Reading history is private" in public and "on PushPin" not in public
+        assert 'Justin’s <img class="pinmark"' in public and "Reading history is private" in public and "on PushPin" not in public
         assert public.count("<li>") == 1 and "articles read" not in public and "Started reading" not in public and 'class="star"' not in public
         assert "Put your favorite article here" not in public  # the hint is only for the owner
         assert "/p/" not in public  # links go to NYT: a visitor isn't counted as opening the push
@@ -515,3 +515,19 @@ def test_new_user_replaces_a_stored_mind_persona_unless_configured(setup):
     assert nt.Notifier(FeatureScorer(), store, n.cfg, OBJECTIVE, "topic", None).user_id.startswith("new-")
     persona = nt.Notifier(FeatureScorer(), store, {**n.cfg, "user_id": "U9"}, OBJECTIVE, "topic", None)
     assert persona.user_id == "U9"
+
+
+def test_pushes_carry_the_pushpin_and_pages_serve_its_icons(setup):
+    n, store, sent, _db = setup
+    n.run_slot(pd.Timestamp("2026-11-12 12:00"))
+    assert sent[0][5]["tags"] == ["pushpin"] and sent[0][5]["icon"] == "http://mac:8090/icon.png"
+    server = cards.serve_cards(store, 0)
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        for path in ("/favicon.ico", "/favicon.png", "/apple-touch-icon.png", "/icon.png"):
+            with urllib.request.urlopen(base + path) as resp:
+                assert resp.headers["content-type"] == "image/png" and resp.read(8) == b"\x89PNG\r\n\x1a\n"
+        page = urllib.request.urlopen(base + "/start").read().decode()
+        assert 'rel="icon" type="image/png" href="/favicon.png"' in page and 'rel="apple-touch-icon"' in page
+    finally:
+        server.shutdown()
