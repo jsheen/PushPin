@@ -277,7 +277,9 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
     n = len(read)
     first = date.fromisoformat(min(a["read_at"] for a in read)[:10]) if read else None
     since = f'<p class="since">Started reading on {first:%B} {first.day}, {first.year}</p>' if first else ""
-    count = since if owner or public else ""  # the number itself is in "Read n +" below
+    days = streak(read, today or date.today())
+    on_a_roll = f'<p class="since">{days} day streak!</p>' if days else ""
+    count = since + on_a_roll if owner or public else ""  # the number itself is in "Read n +" below
     # the list is folded under "Read  n  +"; tapping + opens it
     articles = (f'<details><summary><h2>Read <span class="n">{n}</span></h2><span class="plus" aria-hidden="true">+</span>'
                 f'</summary><div class="fold"><ul class="list">{"".join(item(a, owner) for a in read)}</ul></div></details>'
@@ -301,8 +303,7 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
     scripts = (OWNER_SCRIPT + PROFILE_SCRIPT) if owner else ""
     intro = ""
     if not owner:  # the public link opens with a short summary
-        days = streak(read, today or date.today())
-        lines = [f'{n} article{"" if n == 1 else "s"} read', *([f"{days} day streak"] if days else [])] if public else []
+        lines = [f'{n} article{"" if n == 1 else "s"} read', *([f"{days} day streak!"] if days else [])] if public else []
         intro = splash(title, lines)
     if owner:  # the pinned push first; until they choose, the pushes-a-day question next
         intro = ((pin_panel(pinned, fav_ids) if pinned else "")
@@ -360,7 +361,7 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
             proto = self.headers.get("x-forwarded-proto") or "http"
             share = f"{proto}://{self.headers.get('host') or 'localhost'}/u/{store.slug(reader_id)}"
             return profile_page(store.reader(reader_id), store.articles_read(reader_id), store.favorites(reader_id),
-                                owner=True, share_url=share, pinned=pinned, caps=caps,
+                                owner=True, share_url=share, pinned=pinned, caps=caps, today=date.fromisoformat(store.now()[:10]),
                                 unread=store.pinned_unread(reader_id))
 
         def _route(self) -> tuple[str, str]:
