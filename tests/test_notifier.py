@@ -286,7 +286,7 @@ def test_profile_favorites_and_public_history(setup):
 
         post("/public", b"on")
         public = stranger_get(f"/u/{link.group(2)}")
-        assert "Started reading on " in public and "<div>4 articles read</div>" in public and 'Read <span class="n">4</span>' in public and public.count("<li>") == 1 + 4
+        assert "Started reading on " in public and '<div class="stat">Read <span class="n">4</span></div>' in public and 'Read <span class="n">4</span>' in public and public.count("<li>") == 1 + 4
         post("/public", b"off")
         assert "Reading history is private" in stranger_get(f"/u/{link.group(2)}")
         with pytest.raises(urllib.error.HTTPError) as e:
@@ -313,14 +313,15 @@ def test_public_profile_opens_with_a_summary():
             {"news_id": "b", "title": "B", "url": "u", "read_at": "2026-11-13T10:00:00"}]
     reader = {"name": "Justin", "history_public": 1}
     html = cards.profile_page(reader, read, [], owner=False, today=date(2026, 11, 13))
-    assert 'class="splash"' in html and "<div>2 articles read</div><div><u>1 day streak</u></div>" in html
-    assert "streak!" not in html and 'Streak <span class="n">1</span>' in html  # box, then the header
+    assert 'class="splash"' in html and ('<div class="stat">Read <span class="n">2</span></div>'
+                                    '<div class="stat">Streak <span class="n">1</span></div></div>') in html
+    assert "day streak" not in html and 'Streak <span class="n">1</span>' in html  # box, then the header
     private = cards.profile_page({**reader, "history_public": 0}, read, [], owner=False, today=date(2026, 11, 13))
-    assert 'class="splash"' in private and "articles read" not in private and "day streak" not in private and "Streak <span" not in private
+    assert 'class="splash"' in private and 'class="stat"' not in private and "day streak" not in private and "Streak <span" not in private
     own = cards.profile_page(reader, read, [], owner=True, today=date(2026, 11, 13))
     assert 'class="splash"' not in own and '<h2 class="streak">Streak <span class="n">1</span></h2>' in own
     lapsed = cards.profile_page(reader, read, [], owner=False, today=date(2026, 11, 20))
-    assert "<div>2 articles read</div></div>" in lapsed and "day streak" not in lapsed and "Streak <span" not in lapsed  # a 0 streak isn't shown
+    assert '<div class="stat">Read <span class="n">2</span></div></div>' in lapsed and "day streak" not in lapsed and "Streak <span" not in lapsed  # a 0 streak isn't shown
 
 
 def test_pinned_push_can_go_in_the_creme_unread(setup):

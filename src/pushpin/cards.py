@@ -86,6 +86,8 @@ padding:16px;background:var(--bg);z-index:10;cursor:pointer;outline:none;transit
 width:min(100%,460px);box-sizing:border-box;box-shadow:0 16px 60px rgba(0,0,0,.3);font-size:24px;line-height:1.5;
 animation:splash-in .6s ease both}
 .splash strong{display:block;font:700 36px/1.2 Georgia,"Times New Roman",serif;margin-bottom:16px}
+.splash .stat{font-size:20px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#666}
+.splash .stat .n{color:#121212;margin-left:6px;letter-spacing:0}
 .splash .tap{margin-top:20px;font-size:14px;color:var(--muted);animation:splash-in .6s ease 1.2s both}
 .splash~.profile{opacity:0;transition:opacity .6s ease}.splash.gone~.profile{opacity:1}
 @keyframes splash-in{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:none}}
@@ -185,11 +187,13 @@ def streak(read: list[dict], today: date) -> int:
     return n
 
 
-def splash(title: str, lines: list[str], underline: tuple[str, ...] = ()) -> str:
+def splash(title: str, stats: list[tuple[str, int]]) -> str:
     """A large white window in place of the page: fades in and stays until a tap, click or key,
-    then fades out as the page fades in. Lines in `underline` are underlined. Without JavaScript it's skipped."""
+    then fades out as the page fades in. Each stat is a line like the page's headers: READ 4.
+    Without JavaScript it's skipped."""
+    lines = "".join(f'<div class="stat">{html.escape(label)} <span class="n">{value}</span></div>' for label, value in stats)
     return (f'<div class="splash" role="button" tabindex="0" aria-label="Continue"><div><strong>{title}</strong>'
-            f'{"".join(f"<div><u>{html.escape(x)}</u></div>" if x in underline else f"<div>{html.escape(x)}</div>" for x in lines)}</div><p class="tap">Tap to continue</p></div>'
+            f'{lines}</div><p class="tap">Tap to continue</p></div>'
             + SPLASH_SCRIPT)
 
 
@@ -303,8 +307,8 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
     scripts = (OWNER_SCRIPT + PROFILE_SCRIPT) if owner else ""
     intro = ""
     if not owner:  # the public link opens with a short summary
-        lines = [f'{n} article{"" if n == 1 else "s"} read', *([f"{days} day streak"] if days else [])] if public else []
-        intro = splash(title, lines, underline=(f"{days} day streak",))
+        stats = [("Read", n), *([("Streak", days)] if days else [])] if public else []
+        intro = splash(title, stats)
     if owner:  # the pinned push first; until they choose, the pushes-a-day question next
         intro = ((pin_panel(pinned, fav_ids) if pinned else "")
                  + ("" if reader.get("volume") else volume_picker(None, caps)))
