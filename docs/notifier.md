@@ -8,10 +8,10 @@ and so is what you did with the push. That gives you labeled push data, which MI
 NYT RSS feeds ──▶ notifier ──HTTP──▶ scorer  (model + MIND user state, from the NYT sim)
                    │
    ntfy.sh ◀───────┤          cards :8090 ◀── tunnel (https://….trycloudflare.com) ◀── a reader taps
-   (push to phones)│            │                                                    Read / ♥ / Save
+   (push to phones)│            │                                                    Save / pushes a day
                    ▼            ▼
         outputs/notifier/pushes.db, or Postgres via DATABASE_URL
-        (candidates, covariates, sends, and per reader: opens, reads, ♥, saves)
+        (candidates, covariates, sends, and per reader: opens, saves, push volume)
 ```
 
 ## The schedule
@@ -35,23 +35,44 @@ Each slot:
    push goes along with the request as an impression of one article, labeled 1 if it was opened
    (see below).
 3. Picks the top article with the push objective (friction from `configs/objective.yml`).
-4. Sends it through [ntfy](https://ntfy.sh) if it passes the send policy, up to 3 a day.
+4. Sends it through [ntfy](https://ntfy.sh) if it passes the send policy and the reader's daily
+   cap (see [Push volume](#push-volume)): 1, 2 or 4 a day for light, medium or heavy, and 3
+   until they choose.
 5. Writes every candidate to the database.
 
 ## The card
 
 Tapping a notification opens that push's **card**, a small page served by the `cards` service
-(`src/pushnyt/cards.py`) and made public by the `tunnel` service. It shows the headline, the abstract and three buttons:
+(`src/pushnyt/cards.py`) and made public by the `tunnel` service. It shows the headline, the abstract and:
 
 - **Read on NYT** is a plain nytimes.com link, so iOS opens the NYT app if it's installed and
-  Safari otherwise. Reading needs the reader's own NYT login there, as usual.
-- **♡ Love** marks the article as a favorite. Tap again to undo.
+  Safari otherwise. Reading needs the reader's own NYT login there, as usual. Tapping it isn't
+  tracked.
 - **🔖 Save** adds it to your reading list at `/saved`. Tap again to unsave.
+- **Pushes a day**: Light, Medium or Heavy (see below).
 
 The first card a phone opens sets a cookie with a random reader ID, and offers an optional
-first-name box. From then on, each open, read, ♥ and save is stored under that reader. ntfy's
+first-name box. Only two things are stored per push under that reader: whether they opened it
+(the click) and whether they saved it. ntfy's
 own notification buttons aren't used: their requests carry no reader identity, and the card
 keeps the buttons, the reading list and the tracking in one place.
+
+## Push volume
+
+Each reader picks how many pushes a day they want: **Light** (1), **Medium** (up to 2) or
+**Heavy** (up to 4, every slot), set by `volume_caps` in `configs/notifier.yml`. Until they
+choose, the cap is `daily_cap` (3). The cap is a ceiling: a slot only sends if its top article
+clears the send policy, so a quiet news day sends fewer.
+
+- **At the start:** `python -m pushnyt.notifier --welcome` sends a welcome push that opens
+  `/start`, a page with the three buttons. Opening it creates the reader, so pushes from then on
+  count for them.
+- **On any card:** until the reader has chosen, the buttons sit above the headline with the
+  question "How many pushes a day?"; afterwards they move to the bottom, to change any time.
+
+The choice is stored on the reader (`readers.volume`, `volume_at`) and each slot reads it. All
+subscribers to the ntfy topic get the same pushes, so with several readers the most recent
+choice wins; per-reader volume would need a topic per reader.
 
 ## Setup (once)
 
@@ -80,7 +101,8 @@ docker compose run --rm notifier "python -m pushnyt.notifier --test"            
 docker compose run --rm notifier "python -m pushnyt.notifier --once --dry-run"  # score one slot now, log it, send nothing
 
 docker compose up -d notifier cards tunnel   # the schedule, the card server, its public address
-docker compose logs -f notifier cards        # one JSON line per slot, and per open / read / ♥ / save
+docker compose run --rm notifier "python -m pushnyt.notifier --welcome"   # pick light / medium / heavy
+docker compose logs -f notifier cards        # one JSON line per slot, and per open / save / volume
 ```
 
 The first run creates the new user's id (`new-` plus random hex) and fixes the time shift, and
@@ -123,25 +145,25 @@ the Mac is awake and Docker is running:
 | Table | One row per | Columns |
 |-------|-------------|---------|
 | `scores` | slot × candidate article | `slot_time`, article (`title`, `section`, `subcategory`, `url`, `published`), every model feature, `p_click`, `p_return`, `novelty`, `push_score`, `is_top`, `passes_policy`, `sent`, `push_id`, `sent_at`, `sent_ts` (Unix seconds) |
-| `readers` | phone that opened a card | `reader_id` (the cookie), `name` (optional), `created_at`, `first_push_ts` |
-| `interactions` | push × reader × kind | `kind` (`open`, `read`, `heart`, `save`), `created_at`, `minutes_after_push`; unloving or unsaving deletes the row |
-| `labeled` (view) | sent push × reader | the push's `scores` row plus `reader_id`, `reader_name`, `label` (1 = opened, 0 = not opened within 24 h, NULL = pending), `read`, `hearted`, `saved` |
+| `readers` | phone that opened a card or `/start` | `reader_id` (the cookie), `name` (optional), `created_at`, `first_push_ts`, `volume` (`light` / `medium` / `heavy`, NULL = not chosen), `volume_at` |
+| `interactions` | push × reader × kind | `kind` (`open` = the click, or `save`), `created_at`, `minutes_after_push`; unsaving deletes the row |
+| `labeled` (view) | sent push × reader | the push's `scores` row plus `reader_id`, `reader_name`, `reader_volume`, `label` (1 = opened, 0 = not opened within 24 h, NULL = pending), `saved` |
 | `articles` | article read from the feeds | text, URL, publish time, mapped MIND subcategory |
 | `meta` | setting | `user_id` the pushes are scored for, time anchor |
 
-A reader is first seen when they open a card. So `labeled` pairs each reader only with pushes
-sent from their first opened push onward; before that, there's no way to know whether they were
+A reader is first seen when they open a card or the start page. So `labeled` pairs each reader
+only with pushes sent from then on; before that, there's no way to know whether they were
 subscribed. Subscribers who never open a card don't appear at all.
 
 Example queries:
 
 ```bash
 sqlite3 -header -column outputs/notifier/pushes.db \
-  "SELECT slot_time, reader_name, round(p_click, 3) AS p_click, label, read, hearted, saved, title FROM labeled ORDER BY slot_time DESC LIMIT 20"
+  "SELECT slot_time, reader_name, round(p_click, 3) AS p_click, label, saved, title FROM labeled ORDER BY slot_time DESC LIMIT 20"
 
-# per reader: pushes, opens, reads, hearts, saves
+# per reader: pushes, opens, open rate, saves
 sqlite3 -header -column outputs/notifier/pushes.db \
-  "SELECT coalesce(reader_name, reader_id) AS reader, count(*) AS pushes, sum(label = 1) AS opens, sum(read) AS reads, sum(hearted) AS hearts, sum(saved) AS saves FROM labeled GROUP BY reader_id"
+  "SELECT coalesce(reader_name, reader_id) AS reader, count(*) AS pushes, sum(label = 1) AS opens, round(avg(label), 3) AS open_rate, sum(saved) AS saves FROM labeled GROUP BY reader_id"
 
 # open rate by predicted P(click) bucket
 sqlite3 outputs/notifier/pushes.db \
@@ -174,15 +196,14 @@ feeds, ntfy server and click window. The threshold, risk penalty and friction co
   and the model learned in-log clicks only through the features above. So taps don't enter it:
   `user_history_len` stays 0 and the history-similarity features (`sim_text`,
   `subcat_affinity`, embedding retrieval, LLM themes) stay missing for the new user.
-- **Only opens are fed back.** Reads, ♥ and saves are stored but not used. They're signals of
-  different strength: an open means "curious", a read means "read it", ♥ means "more like
-  this", and a save means "interested, not now". MIND has only clicks, so the model can't use
-  the others until it's retrained on push data.
+- **Only opens are fed back.** Saves are stored but not used: an open means "curious", a save
+  means "interested, not now". MIND has only clicks, so the model can't use saves until it's
+  retrained on push data.
 - **Exposure features learned from feed visits.** MIND impressions are visits users chose to
   make; pushes aren't. The model's exposure effect is small (about 2–3% lower engagement after
   5+ impressions a day; see analysis.md), so it won't do much to stop over-pushing on its own.
 - **Cookies are per browser.** A reader who clears cookies, or opens a card in another browser,
-  becomes a new reader. ♥ and saves live in this database, not in the reader's NYT account; NYT
+  becomes a new reader. Saves live in this database, not in the reader's NYT account; NYT
   has no public API for writing to its saved list.
 - **The feeds are RSS.** RSS needs no API key, but it only lists what editors put in each
   section's feed. The NYT Times Wire API would cover every article in one call.

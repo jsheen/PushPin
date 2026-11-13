@@ -162,28 +162,27 @@ def test_readers_tracked_separately(setup):
     friend_get, friend_post = phone(base)
     try:
         with pytest.raises(urllib.error.HTTPError) as e:
-            me_post(f"/heart/{first}")  # no reader cookie until a card is opened
+            me_post(f"/save/{first}")  # no reader cookie until a card is opened
         assert e.value.code == 403
 
         card = me_get(f"/p/{first}")  # my first tap creates my reader id
         assert "Read on NYT" in card and 'href="https://www.nytimes.com/' in card and "About Story" in card
-        assert 'aria-pressed="false">♡ Love' in card and "Your first name" in card
+        assert 'aria-pressed="false">🔖 Save' in card and "Your first name" in card
+        assert "Love" not in card and "/read/" not in card  # only opens and saves are recorded
         me_post("/name", b"Justin")
-        me_post(f"/read/{first}")
-        me_post(f"/heart/{first}"), me_post(f"/heart/{first}")  # double tap: still one
-        me_post(f"/save/{first}")
-        assert 'aria-pressed="true">♥ Loved' in me_get(f"/p/{first}") and "Reading as Justin" in me_get(f"/p/{first}")
+        me_post(f"/save/{first}"), me_post(f"/save/{first}")  # double tap: still one
+        assert 'aria-pressed="true">🔖 Saved' in me_get(f"/p/{first}") and "Reading as Justin" in me_get(f"/p/{first}")
 
         friend_get(f"/p/{second}")  # the friend only opens the second push
-        assert 'aria-pressed="false">♡ Love' in friend_get(f"/p/{first}")  # my ♥ isn't theirs
+        assert 'aria-pressed="false">🔖 Save' in friend_get(f"/p/{first}")  # my save isn't theirs
         friend_post(f"/save/{second}"), friend_post(f"/save/{second}", b"off")  # save, then unsave
 
-        for bad in ("/heart/nope", "/bogus/" + first):
+        for bad in ("/save/nope", "/heart/" + first, "/read/" + first):
             with pytest.raises(urllib.error.HTTPError) as e:
                 me_post(bad)
             assert e.value.code == 404
         mine = me_get("/saved")
-        assert mine.count("<li") == 1 and f'href="/p/{first}"' in mine and "· read" in mine
+        assert mine.count("<li") == 1 and f'href="/p/{first}"' in mine
         assert "Nothing saved" in friend_get("/saved")
     finally:
         server.shutdown()
@@ -192,12 +191,65 @@ def test_readers_tracked_separately(setup):
     assert len(readers) == 2 and sorted(readers["name"].fillna("")) == ["", "Justin"]
     me = readers.loc[readers["name"] == "Justin", "reader_id"].item()
     friend = readers.loc[readers["name"].isna(), "reader_id"].item()
-    labeled = db("SELECT push_id, reader_id, label, read, hearted, saved FROM labeled")
-    rows = {(r.push_id, r.reader_id): (r.label, r.read, r.hearted, r.saved) for r in labeled.itertuples()}
-    assert rows[(first, me)] == (1, 1, 1, 1)
-    assert rows[(first, friend)] == (1, 0, 0, 0)  # the friend's check of the first card opened it
-    assert rows[(second, friend)][1:] == (0, 0, 0) and rows[(second, friend)][0] == 1
+    assert set(db("SELECT DISTINCT kind FROM interactions")["kind"]) == {"open", "save"}
+    labeled = db("SELECT push_id, reader_id, label, saved FROM labeled")
+    rows = {(r.push_id, r.reader_id): (r.label, r.saved) for r in labeled.itertuples()}
+    assert rows[(first, me)] == (1, 1)
+    assert rows[(first, friend)] == (1, 0)  # the friend's check of the first card opened it
+    assert rows[(second, friend)] == (1, 0)
     assert pd.isna(rows[(second, me)][0])  # I haven't opened it, still inside the 24h window
+
+
+def test_volume_choice_sets_the_daily_cap(setup):
+    n, store, _sent, db = setup
+    n.cfg["volume_caps"] = {"light": 1, "medium": 2, "heavy": 4}
+    assert n.daily_cap() == 2  # nobody has chosen: the config's daily_cap
+    server = cards.serve_cards(store, 0, caps=n.cfg["volume_caps"])
+    get, post = phone(f"http://127.0.0.1:{server.server_address[1]}")
+    try:
+        start = get("/start")  # the welcome push's page creates the reader
+        assert "How many pushes a day?" in start and 'data-volume="light"' in start and "up to 4" in start
+        with pytest.raises(urllib.error.HTTPError) as e:
+            post("/volume", b"lots")
+        assert e.value.code == 404
+        post("/volume", b"light")
+        assert 'data-volume="light" aria-pressed="true"' in get("/start")
+    finally:
+        server.shutdown()
+    assert store.volume() == "light" and n.daily_cap() == 1
+    noon = pd.Timestamp("2026-11-12 12:00")
+    assert n.run_slot(noon)["sent"]
+    assert not n.run_slot(noon + pd.Timedelta(hours=5))["under_cap"]  # light: one a day
+    reader = db("SELECT reader_id, first_push_ts FROM readers")
+    assert len(reader) == 1 and reader["first_push_ts"].notna().all()  # pushes after /start count for them
+    assert db("SELECT reader_volume FROM labeled")["reader_volume"].tolist() == ["light"]
+    store.set_volume(reader["reader_id"].item(), "heavy")
+    assert n.daily_cap() == 4
+
+
+def test_store_adds_volume_columns_to_an_older_database(tmp_path):
+    from sqlalchemy import create_engine
+    path = tmp_path / "old.db"
+    engine = create_engine(f"sqlite:///{path}")
+    with engine.begin() as con:
+        con.execute(text("CREATE TABLE readers (reader_id TEXT PRIMARY KEY, name TEXT, created_at TEXT, "
+                         "first_push_ts BIGINT)"))
+        con.execute(text("INSERT INTO readers VALUES ('r1', NULL, '2026-11-12T12:00:00', 0)"))
+    engine.dispose()
+    store = Store(path, click_window_hours=24, tz=TZ)
+    assert store.reader("r1")["volume"] is None and store.set_volume("r1", "heavy") and store.volume() == "heavy"
+
+
+def test_card_asks_for_volume_until_chosen(setup):
+    n, store, sent, _db = setup
+    n.run_slot(pd.Timestamp("2026-11-12 12:00"))
+    push_id = sent[0][4].rsplit("/", 1)[1]
+    reader = store.new_reader(store.push(push_id)["sent_ts"])
+    ask = cards.card_page(store.push(push_id, reader), store.reader(reader))
+    assert "How many pushes a day?" in ask
+    store.set_volume(reader, "medium")
+    chosen = cards.card_page(store.push(push_id, reader), store.reader(reader))
+    assert "How many pushes a day?" not in chosen and 'data-volume="medium" aria-pressed="true"' in chosen
 
 
 def test_reader_not_labeled_for_pushes_before_they_joined(setup):

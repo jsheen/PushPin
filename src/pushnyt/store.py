@@ -10,12 +10,14 @@ Tables:
   scores        one row per (slot, candidate article): article fields, every model feature,
                 p_click / p_return / push_score, is_top, sent, push_id, sent_at (local time in
                 the configured zone) and sent_ts (Unix seconds)
-  readers       one row per phone that opened a card: reader_id, name, created_at, first_push_ts
-  interactions  one row per (push, reader, kind), kind = open, read, heart or save:
-                created_at, minutes_after_push. Unloving or unsaving deletes the row.
+  readers       one row per phone that opened a card or the start page: reader_id, name,
+                created_at, first_push_ts, volume (light / medium / heavy: how many pushes a day
+                they asked for, NULL = not chosen) and volume_at (when they chose it)
+  interactions  one row per (push, reader, kind), kind = open (the card was opened: the click)
+                or save: created_at, minutes_after_push. Unsaving deletes the row.
   labeled       view, one row per (sent push, reader who could have received it): the push's
-                scores plus reader_id, reader_name, label (1 = opened, 0 = not opened within
-                `click_window_hours`, NULL = pending), read, hearted, saved
+                scores plus reader_id, reader_name, reader_volume, label (1 = opened, 0 = not
+                opened within `click_window_hours`, NULL = pending), saved
   articles      every article read from the feeds, with its mapped MIND subcategory
   meta          the user_id pushes are scored for, and the time anchor
 """
@@ -31,8 +33,9 @@ import pandas as pd
 from sqlalchemy import BigInteger, Boolean, Text, create_engine, inspect, text
 
 ARTICLE_COLUMNS = ["news_id", "title", "abstract", "section", "url", "published"]
-REACTIONS = ("heart", "save")      # toggles on the card
-KINDS = ("open", "read", *REACTIONS)  # everything recorded per reader
+REACTIONS = ("save",)              # toggles on the card
+KINDS = ("open", *REACTIONS)  # everything recorded per reader
+VOLUMES = ("light", "medium", "heavy")  # push volume a reader can ask for (caps in configs/notifier.yml)
 
 # columns whose type pandas can't infer from a batch where they're all empty
 SCORE_TYPES = {"slot_id": BigInteger(), "sent_ts": BigInteger(), "push_id": Text(), "sent_at": Text(),
@@ -42,7 +45,8 @@ SCHEMA = [
     "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)",
     """CREATE TABLE IF NOT EXISTS articles (news_id TEXT PRIMARY KEY, title TEXT, abstract TEXT, section TEXT,
         url TEXT, published TEXT, subcategory TEXT, subcat_sim DOUBLE PRECISION)""",
-    "CREATE TABLE IF NOT EXISTS readers (reader_id TEXT PRIMARY KEY, name TEXT, created_at TEXT, first_push_ts BIGINT)",
+    """CREATE TABLE IF NOT EXISTS readers (reader_id TEXT PRIMARY KEY, name TEXT, created_at TEXT, first_push_ts BIGINT,
+        volume TEXT, volume_at TEXT)""",
     """CREATE TABLE IF NOT EXISTS interactions (push_id TEXT, reader_id TEXT, kind TEXT, created_at TEXT,
         minutes_after_push DOUBLE PRECISION, PRIMARY KEY (push_id, reader_id, kind))""",
 ]
@@ -70,6 +74,11 @@ class Store:
         self.click_window_hours, self.tz = click_window_hours, tz
         for statement in SCHEMA:
             self._exec(statement)
+        with self.lock:
+            reader_cols = {c["name"] for c in inspect(self.engine).get_columns("readers")}
+        for col in ("volume", "volume_at"):  # databases made before the volume preference
+            if col not in reader_cols:
+                self._exec(f"ALTER TABLE readers ADD COLUMN {col} TEXT")
         self._labeled_view()
 
     # --- plumbing
@@ -101,8 +110,9 @@ class Store:
         # opened are left out: we can't tell whether they were subscribed yet.
         self._exec("DROP VIEW IF EXISTS labeled")
         self._exec(f"""CREATE VIEW labeled AS SELECT s.*, r.reader_id, r.name AS reader_name,
+            r.volume AS reader_volume,
             CASE WHEN {did("open")} THEN 1 WHEN s.sent_ts <= {self._now_epoch()} - {window} THEN 0 END AS label,
-            {did("read")} AS read, {did("heart")} AS hearted, {did("save")} AS saved
+            {did("save")} AS saved
             FROM scores s JOIN readers r ON s.sent_ts >= r.first_push_ts
             WHERE s.sent""")
 
@@ -181,13 +191,13 @@ class Store:
     # --- readers and interactions (written by the card server)
 
     def push(self, push_id: str, reader_id: str | None = None) -> dict | None:
-        """A sent push with its article, plus this reader's ♥ / save state (None if unknown)."""
+        """A sent push with its article, plus whether this reader saved it (None if unknown)."""
         if not self._has_scores():
             return None
         mark = lambda kind: (f"EXISTS (SELECT 1 FROM interactions i WHERE i.push_id = s.push_id "
                              f"AND i.reader_id = :reader AND i.kind = '{kind}')")
         rows = self._rows(f"""SELECT s.push_id, s.news_id, s.title, s.section, s.url, s.sent_ts, a.abstract,
-                {mark("heart")} AS hearted, {mark("save")} AS saved
+                {mark("save")} AS saved
             FROM scores s LEFT JOIN articles a ON a.news_id = s.news_id
             WHERE s.push_id = :push AND s.sent""", push=push_id, reader=reader_id)
         return rows[0] if rows else None
@@ -195,12 +205,12 @@ class Store:
     def reader(self, reader_id: str | None) -> dict | None:
         if not reader_id:
             return None
-        rows = self._rows("SELECT reader_id, name FROM readers WHERE reader_id = :r", r=reader_id)
+        rows = self._rows("SELECT reader_id, name, volume FROM readers WHERE reader_id = :r", r=reader_id)
         return rows[0] if rows else None
 
     def new_reader(self, first_push_ts: int | None) -> str:
         reader_id = secrets.token_hex(8)
-        self._exec("INSERT INTO readers VALUES (:r, NULL, :at, :ts)",
+        self._exec("INSERT INTO readers (reader_id, name, created_at, first_push_ts) VALUES (:r, NULL, :at, :ts)",
                    {"r": reader_id, "at": self.now(), "ts": first_push_ts})
         return reader_id
 
@@ -208,9 +218,21 @@ class Store:
         name = " ".join(name.split())[:40] or None
         return self._exec("UPDATE readers SET name = :n WHERE reader_id = :r", {"n": name, "r": reader_id}).rowcount > 0
 
+    def set_volume(self, reader_id: str, volume: str) -> bool:
+        if volume not in VOLUMES:
+            return False
+        return self._exec("UPDATE readers SET volume = :v, volume_at = :at WHERE reader_id = :r",
+                          {"v": volume, "at": self.now(), "r": reader_id}).rowcount > 0
+
+    def volume(self) -> str | None:
+        """The most recently chosen push volume across readers (the demo has one reader; with one
+        ntfy topic, everyone subscribed gets the same pushes), or None if nobody has chosen."""
+        rows = self._rows("SELECT volume FROM readers WHERE volume IS NOT NULL ORDER BY volume_at DESC LIMIT 1")
+        return rows[0]["volume"] if rows else None
+
     def interact(self, push_id: str, reader_id: str, kind: str, on: bool = True) -> bool:
-        """Record (or, for ♥ / save with on=False, clear) one reader's interaction with a sent push.
-        Only the first open and first read are kept. False if the push, reader or kind is unknown."""
+        """Record (or, for save with on=False, clear) one reader's interaction with a sent push.
+        Only the first open is kept. False if the push, reader or kind is unknown."""
         push = self.push(push_id)
         if push is None or kind not in KINDS or self.reader(reader_id) is None:
             return False
@@ -227,12 +249,10 @@ class Store:
         return self._rows("SELECT COUNT(*) AS n FROM readers")[0]["n"]
 
     def reading_list(self, reader_id: str | None) -> list[dict]:
-        """This reader's saved pushes, newest first, with whether they've read each on NYT since."""
+        """This reader's saved pushes, newest first."""
         if not reader_id or not self._has_scores():
             return []
-        return self._rows("""SELECT i.push_id, s.title, s.section, i.created_at AS saved_at,
-                EXISTS (SELECT 1 FROM interactions x WHERE x.push_id = i.push_id
-                        AND x.reader_id = i.reader_id AND x.kind = 'read') AS read
+        return self._rows("""SELECT i.push_id, s.title, s.section, i.created_at AS saved_at
             FROM interactions i JOIN scores s ON s.push_id = i.push_id AND s.sent
             WHERE i.kind = 'save' AND i.reader_id = :r ORDER BY i.created_at DESC""", r=reader_id)
 

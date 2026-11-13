@@ -6,7 +6,8 @@ At each slot hour (configs/notifier.yml) it:
      model feature, for one user: a brand-new one by default (no reading history, no impressions;
      `user_id` in the config picks a MIND persona instead)
   3. picks the top article with the push objective, gates it with the send policy
-     (configs/objective.yml) and, if it passes, sends it through ntfy (https://ntfy.sh) to
+     (configs/objective.yml) and the reader's daily cap (light / medium / heavy, chosen on the
+     card or the welcome push's start page) and, if it passes, sends it through ntfy (https://ntfy.sh) to
      everyone subscribed to NTFY_TOPIC
   4. writes every candidate and its covariates to the database (see store.py)
 
@@ -25,6 +26,7 @@ Modes:
   python -m pushnyt.notifier --once             # run one slot now and exit (a Cloud Run job / CronJob)
   python -m pushnyt.notifier --once --dry-run   # score and log, send nothing
   python -m pushnyt.notifier --test             # send a test notification
+  python -m pushnyt.notifier --welcome          # send the welcome push: pick light / medium / heavy
 """
 
 import argparse
@@ -92,8 +94,8 @@ def send_ntfy(server: str, topic: str, title: str, message: str, click: str, tag
     """Publish through ntfy's JSON API (body JSON, so non-ASCII titles are fine).
 
     `actions` are ntfy action buttons. The notifier doesn't use them: an `http` action does run in
-    the background (tested on iOS), but its request can't say which subscriber tapped it, so ♥ and
-    Save live on the card, where the reader cookie identifies them."""
+    the background (tested on iOS), but its request can't say which subscriber tapped it, so Save
+    lives on the card, where the reader cookie identifies them."""
     body = {"topic": topic, "title": title, "message": message, "click": click, "tags": tags or [],
             **({"actions": actions} if actions else {})}
     req = urllib.request.Request(server.rstrip("/"), data=json.dumps(body).encode(),
@@ -194,7 +196,7 @@ class Notifier:
         top = scores["push_score"].idxmax()
 
         send = self.objective["send"]
-        cap = self.cfg.get("daily_cap", send["daily_cap"])
+        cap = self.daily_cap()
         pick = scores.loc[[top]].assign(time=now)
         passes = bool(send_decisions(pick, send["threshold"], send["risk_penalty"], cap)[0])
         under_cap = self.store.sent_on(now.strftime("%Y-%m-%d")) < cap
@@ -203,7 +205,7 @@ class Notifier:
 
         sent = passes and under_cap and not self.dry_run
         if sent:
-            # the tap opens the push's card (Read on NYT, ♥, Save); without a tracker, the article itself
+            # the tap opens the push's card (Read on NYT, Save); without a tracker, the article itself
             base = self.base_url()
             click = f"{base}/p/{push_id}" if base else article["url"]
             send_ntfy(self.cfg["ntfy_server"], self.topic, article["title"], article["abstract"], click,
@@ -228,6 +230,15 @@ class Notifier:
                   "sent": sent}
         print(json.dumps(result))
         return result
+
+    def daily_cap(self) -> int:
+        """Pushes a day: the reader's choice (light / medium / heavy, from the card or the start
+        page) mapped through `volume_caps`; before they choose, `daily_cap`."""
+        volume = self.store.volume()
+        caps = self.cfg.get("volume_caps") or {}
+        if volume in caps:
+            return int(caps[volume])
+        return int(self.cfg.get("daily_cap", self.objective["send"]["daily_cap"]))
 
     def next_slot(self, now: pd.Timestamp) -> pd.Timestamp:
         hours = sorted(self.cfg["slot_hours"])
@@ -267,6 +278,8 @@ def main() -> None:
     parser.add_argument("--once", action="store_true", help="run one slot now and exit")
     parser.add_argument("--dry-run", action="store_true", help="score and log, but don't send")
     parser.add_argument("--test", action="store_true", help="send a test notification and exit")
+    parser.add_argument("--welcome", action="store_true",
+                        help="send the welcome push (opens /start: pick light, medium or heavy) and exit")
     args = parser.parse_args()
 
     config = yaml.safe_load(args.config.read_text())
@@ -278,6 +291,16 @@ def main() -> None:
         send_ntfy(config["ntfy_server"], topic, "pushNYT test", "If you can read this, delivery works.",
                   "https://www.nytimes.com", tags=["white_check_mark"])
         print("sent")
+        return
+    if args.welcome:
+        base = (os.environ.get("CLICK_BASE_URL") or "").rstrip("/") or (
+            tunnel_url(os.environ["TUNNEL_METRICS_URL"]) if os.environ.get("TUNNEL_METRICS_URL") else None)
+        if not base:
+            raise SystemExit("no card address: set CLICK_BASE_URL or run the tunnel")
+        send_ntfy(config["ntfy_server"], topic, "Welcome to pushNYT",
+                  "Tap to choose how many stories a day: light, medium or heavy.", f"{base}/start",
+                  tags=["wave"])
+        print(f"sent; it opens {base}/start")
         return
 
     store = open_store(config)

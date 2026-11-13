@@ -302,14 +302,14 @@ outputs in `outputs/nyt-sim/`. See [docs/live-scoring.md](docs/live-scoring.md) 
 
 The `notifier` service scores today's NYT RSS news with the model and pushes the top pick to your
 phone through [ntfy](https://ntfy.sh) at 8, 12, 17 and 21 New York time. Tapping opens a card
-(Read on NYT / ♥ / Save) served through a Cloudflare quick tunnel, and every candidate and reader
+(Read on NYT / Save / pushes a day) served through a Cloudflare quick tunnel, and every candidate and reader
 interaction is logged, which yields the labeled push data MIND lacks.
 
 ```
 NYT RSS feeds ──▶ notifier ──HTTP──▶ scorer  (model + MIND user state, from the NYT sim)
                    │
    ntfy.sh ◀───────┤          cards :8090 ◀── tunnel (https://….trycloudflare.com) ◀── a reader taps
-   (push to phones)│            │                                                    Read / ♥ / Save
+   (push to phones)│            │                                                    Save / pushes a day
                    ▼            ▼
         outputs/notifier/pushes.db, or Postgres via DATABASE_URL
 ```

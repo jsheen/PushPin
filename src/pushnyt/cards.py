@@ -8,8 +8,10 @@ including to zero) while each slot is a Cloud Run job. Both share the database i
 (Cloud SQL), or the SQLite file from configs/notifier.yml when it isn't set.
 
 Each card shows the headline and abstract, Read on NYT (a plain nytimes.com link, so iOS opens the
-NYT app if it's installed), ♥ and 🔖 Save. The first card a phone opens sets a cookie with a random
-reader id, and everything the reader does is stored under it.
+NYT app if it's installed), 🔖 Save, and how many pushes a day the reader wants (light,
+medium or heavy). The first card a phone opens, or the /start page (linked from the welcome push,
+`pushnyt.notifier --welcome`), sets a cookie with a random reader id, and everything the reader
+does is stored under it. Opening the card is the click; what they do on NYT isn't tracked.
 """
 
 import argparse
@@ -18,6 +20,7 @@ import json
 import os
 import secrets
 import threading
+import time
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -25,7 +28,7 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
-from pushnyt.store import REACTIONS, Store
+from pushnyt.store import REACTIONS, VOLUMES, Store
 
 PAGE = """<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>pushNYT</title>
@@ -49,7 +52,11 @@ background:var(--btn);color:var(--fg)}
 border-radius:8px;background:var(--bg);color:var(--fg)}.who button{font:inherit;padding:8px 12px;border:0;
 border-radius:8px;background:var(--btn);color:var(--fg)}
 .list{padding:0;margin:0}.list li{list-style:none;padding:12px 0;border-bottom:1px solid var(--line)}
-.list .meta{font-size:13px;color:var(--muted);margin-top:2px}.list .done a{color:var(--muted)}
+.list .meta{font-size:13px;color:var(--muted);margin-top:2px}
+.volume{margin:0 0 20px;padding:14px;border:1px solid var(--line);border-radius:12px}
+.volume p{margin:0 0 4px;font-weight:600}.volume .hint{font-weight:400;font-size:14px;color:var(--muted)}
+.volume .row button[aria-pressed=true]{background:var(--fg);color:var(--bg)}
+.volume .row button small{display:block;font-weight:400;font-size:13px;opacity:.75}
 </style></head><body><main>%BODY%</main></body></html>"""
 
 CARD_SCRIPT = """<script>
@@ -61,7 +68,13 @@ document.querySelectorAll("button[data-kind]").forEach(b => b.addEventListener("
   const r = await fetch(`/${b.dataset.kind}/${id}`, {method: "POST", body: on ? "on" : "off"}).catch(() => null);
   if (!r || !r.ok) { b.setAttribute("aria-pressed", !on); b.textContent = b.dataset[on ? "off" : "on"]; }
 }));
-document.querySelector(".read").addEventListener("click", () => navigator.sendBeacon(`/read/${id}`));
+document.querySelectorAll("button[data-volume]").forEach(b => b.addEventListener("click", async () => {
+  const r = await fetch("/volume", {method: "POST", body: b.dataset.volume}).catch(() => null);
+  if (!r || !r.ok) return;
+  document.querySelectorAll("button[data-volume]").forEach(x => x.setAttribute("aria-pressed", x === b));
+  const hint = document.querySelector(".volume .hint");
+  if (hint) hint.textContent = "Saved. You can change it on any push.";
+}));
 const who = document.querySelector(".who");
 if (who) who.addEventListener("submit", async ev => {
   ev.preventDefault();
@@ -76,8 +89,23 @@ def page(body: str) -> str:
     return PAGE.replace("%BODY%", body)
 
 
-def card_page(push: dict, reader: dict | None = None) -> str:
-    """The landing card a notification tap opens: Read on NYT, ♥, Save, and who's reading."""
+VOLUME_LABELS = {"light": ("Light", "1 a day"), "medium": ("Medium", "up to 2"), "heavy": ("Heavy", "up to 4")}
+
+
+def volume_picker(current: str | None, caps: dict | None = None) -> str:
+    """Light / medium / heavy buttons. Before the reader has chosen, with a prompt."""
+    e = html.escape
+    buttons = "".join(
+        f'<button data-volume="{v}" aria-pressed="{"true" if v == current else "false"}">{e(VOLUME_LABELS[v][0])}'
+        f'<small>{e(f"up to {caps[v]}" if caps else VOLUME_LABELS[v][1])}</small></button>' for v in VOLUMES)
+    if current:
+        return f'<div class="volume"><p>Pushes a day</p><div class="row">{buttons}</div></div>'
+    return (f'<div class="volume"><p>How many pushes a day?</p><div class="hint">Only sent when there\'s '
+            f'a story worth it, so some days get fewer.</div><div class="row">{buttons}</div></div>')
+
+
+def card_page(push: dict, reader: dict | None = None, caps: dict | None = None) -> str:
+    """The landing card a notification tap opens: Read on NYT, Save, push volume, and who's reading."""
     e = html.escape
 
     def toggle(kind, on, off, pressed):
@@ -89,14 +117,22 @@ def card_page(push: dict, reader: dict | None = None) -> str:
     else:
         who = ('<a href="/saved">Reading list →</a><form class="who"><input name="name" maxlength="40" '
                'placeholder="Your first name (optional)" autocomplete="given-name"><button>Save</button></form>')
+    volume = (reader or {}).get("volume")
     # a plain link to nytimes.com (not a redirect) lets iOS open it in the NYT app when installed
-    return page(f"""<div class="kicker">{e(push["section"] or "")}</div>
+    return page(f"""{"" if volume else volume_picker(None, caps)}<div class="kicker">{e(push["section"] or "")}</div>
 <h1>{e(push["title"])}</h1>
 <p class="abstract">{e(push["abstract"] or "")}</p>
 <a class="read" href="{e(push["url"])}">Read on NYT</a>
-<div class="row">{toggle("heart", "♥ Loved", "♡ Love", push["hearted"])}{toggle("save", "🔖 Saved", "🔖 Save", push["saved"])}</div>
-<div class="foot">{who}</div>
+<div class="row">{toggle("save", "🔖 Saved", "🔖 Save", push["saved"])}</div>
+<div class="foot">{volume_picker(volume, caps) if volume else ""}{who}</div>
 {CARD_SCRIPT.replace("%ID%", json.dumps(push["push_id"]).replace("<", "\\u003c"))}""")
+
+
+def start_page(reader: dict | None, caps: dict | None = None) -> str:
+    """The welcome push's page: pick how many pushes a day, before the first real one."""
+    return page(f"""<h1>pushNYT</h1><p class="abstract">A few NYT stories a day, picked for you. Tap a
+push to open its card; that's how it learns what you like.</p>{volume_picker((reader or {}).get("volume"), caps)}
+{CARD_SCRIPT.replace("%ID%", "null")}""")
 
 
 def reading_list_page(items: list[dict]) -> str:
@@ -104,21 +140,22 @@ def reading_list_page(items: list[dict]) -> str:
         return page("<h1>Reading list</h1><p>Nothing saved yet. Tap 🔖 Save on a push.</p>")
     e = html.escape
     rows = "".join(
-        f'<li class="{"done" if it["read"] else ""}"><a href="/p/{e(it["push_id"])}">{e(it["title"])}</a>'
+        f'<li><a href="/p/{e(it["push_id"])}">{e(it["title"])}</a>'
         f'<div class="meta">{e(it["section"] or "")} · saved {e(it["saved_at"][:16].replace("T", " "))}'
-        f'{" · read" if it["read"] else ""}</div></li>' for it in items)
+        f'</div></li>' for it in items)
     return page(f'<h1>Reading list</h1><ul class="list">{rows}</ul>')
 
 
 COOKIE = "pushnyt_reader"
 
 
-def serve_cards(store: Store, port: int, block: bool = False) -> ThreadingHTTPServer:
+def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None = None) -> ThreadingHTTPServer:
     """The phone-facing endpoints. The reader is identified by the `pushnyt_reader` cookie.
+    `caps` maps each volume to its daily cap (configs/notifier.yml), shown on the buttons.
 
       GET  /p/<push_id>        the push's card; records the open (and creates the reader on first visit)
-      POST /read/<push_id>     'Read on NYT' was tapped (sent by the card as a beacon)
-      POST /heart/<push_id>    body "on" or "off": set or clear the ♥
+      GET  /start              the welcome page: choose light / medium / heavy (creates the reader)
+      POST /volume             body "light", "medium" or "heavy": pushes a day
       POST /save/<push_id>     body "on" or "off": save for later, or unsave
       POST /name               body: the reader's first name
       GET  /saved              this reader's reading list; its links open the cards
@@ -162,7 +199,9 @@ def serve_cards(store: Store, port: int, block: bool = False) -> ThreadingHTTPSe
                 return
             if route == "name":
                 ok = store.set_name(reader_id, body)
-            elif route == "read" or route in REACTIONS:
+            elif route == "volume":
+                ok = store.set_volume(reader_id, body.strip())
+            elif route in REACTIONS:
                 ok = store.interact(push_id, reader_id, route, on=body.strip() != "off")
             else:
                 ok = False
@@ -170,7 +209,8 @@ def serve_cards(store: Store, port: int, block: bool = False) -> ThreadingHTTPSe
                 self._send(404, "unknown push", "text/plain")
                 return
             print(json.dumps({"event": route, "push_id": push_id or None, "reader": reader_id,
-                              **({"on": body.strip() != "off"} if route in REACTIONS else {})}))
+                              **({"on": body.strip() != "off"} if route in REACTIONS else {}),
+                              **({"volume": body.strip()} if route == "volume" else {})}))
             self._send(200, "ok", "text/plain")
 
         def do_GET(self):
@@ -180,6 +220,11 @@ def serve_cards(store: Store, port: int, block: bool = False) -> ThreadingHTTPSe
             elif route == "stats" and stats_token and secrets.compare_digest(
                     self.headers.get("x-api-key") or "", stats_token):
                 self._send(200, json.dumps({"readers": store.reader_count()}), "application/json")
+            elif route == "start":
+                reader_id, new = self._reader_id(), None
+                if reader_id is None:  # subscribed now: pushes from here on count for them
+                    reader_id = new = store.new_reader(int(time.time()))
+                self._send(200, start_page(store.reader(reader_id), caps), set_reader=new)
             elif route == "saved":
                 self._send(200, reading_list_page(store.reading_list(self._reader_id())))
             elif route == "p" and (push := store.push(push_id)) is not None:
@@ -188,7 +233,8 @@ def serve_cards(store: Store, port: int, block: bool = False) -> ThreadingHTTPSe
                     reader_id = new = store.new_reader(push["sent_ts"])
                 store.interact(push_id, reader_id, "open")
                 print(json.dumps({"event": "open", "push_id": push_id, "reader": reader_id, "new_reader": bool(new)}))
-                self._send(200, card_page(store.push(push_id, reader_id), store.reader(reader_id)), set_reader=new)
+                self._send(200, card_page(store.push(push_id, reader_id), store.reader(reader_id), caps),
+                           set_reader=new)
             else:
                 self._send(404, page("<p>Unknown push.</p>"))
 
@@ -216,7 +262,7 @@ def main() -> None:
     config = yaml.safe_load(args.config.read_text())
     port = int(os.environ.get("PORT", config["click_port"]))
     print(f"serving cards on :{port}", flush=True)
-    serve_cards(open_store(config), port, block=True)
+    serve_cards(open_store(config), port, block=True, caps=config.get("volume_caps"))
 
 
 if __name__ == "__main__":

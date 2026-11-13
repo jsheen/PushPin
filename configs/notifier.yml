@@ -4,7 +4,8 @@
 timezone: America/New_York
 slot_hours: [8, 12, 17, 21]     # local push times
 lookback_hours: 12              # candidates: unpushed articles published in this window
-daily_cap: 3                    # overrides objective.yml's send.daily_cap (2) for you
+daily_cap: 3                    # until the reader picks a volume; overrides objective.yml's send.daily_cap (2)
+volume_caps: {light: 1, medium: 2, heavy: 4}  # pushes a day for each choice on the card (4 slots a day)
 user_id: null                   # null = a brand-new user (no history: cold start); or a MIND id, e.g. U12345, as a persona
 objective: configs/objective.yml  # friction, threshold, risk_penalty
 ntfy_server: https://ntfy.sh
