@@ -70,8 +70,7 @@ border-radius:8px;background:var(--btn);color:var(--fg)}
 .profile .empty{color:var(--muted)}
 .star{font:inherit;font-size:20px;line-height:1;padding:2px 4px;border:0;background:none;color:var(--muted);cursor:pointer}
 .star[aria-pressed=true]{color:var(--on)}
-.count{font-size:15px;color:var(--muted);margin:0 0 12px}.count strong{font:700 34px/1 Georgia,serif;color:var(--fg);
-display:block;margin-bottom:4px}
+.total{font-size:17px;margin:2px 0 6px}.total strong{font-weight:700}
 .toggle{display:flex;align-items:center;gap:8px;font-size:15px;margin:0 0 6px;cursor:pointer}
 .toggle input{width:18px;height:18px;margin:0}
 .share{font-size:14px;color:var(--muted);margin:0 0 12px;word-break:break-all}.share a{color:var(--link)}
@@ -211,16 +210,16 @@ def profile_page(reader: dict, read: list[dict], favorites: list[str], owner: bo
     top = f'<section><h2>Favorites</h2><ul class="list">{slots}</ul></section>'
 
     n = len(read)
-    count = f'<p class="count"><strong>{n}</strong>article{"" if n == 1 else "s"} read</p>'
+    count = f'<p class="total"><strong>{n}</strong> article{"" if n == 1 else "s"} read</p>' if owner or public else ""
     articles = (f'<ul class="list">{"".join(item(a, owner) for a in read)}</ul>' if read
                 else '<p class="empty">Nothing yet. Open a push to start.</p>')
     if owner:
-        bottom = (f'{count}<label class="toggle"><input type="checkbox" id="public"{" checked" if public else ""}> '
+        bottom = (f'<label class="toggle"><input type="checkbox" id="public"{" checked" if public else ""}> '
                   f'Make my reading public</label><p class="share"{"" if public else " hidden"}>Anyone with this link '
                   f'can see what you’ve read: <a href="{e(share_url)}">{e(share_url)}</a></p>'
                   f'<p class="note" aria-live="polite"></p>{articles}')
     elif public:
-        bottom = count + articles
+        bottom = articles
     else:
         bottom = '<p class="empty">Reading history is private.</p>'
 
@@ -229,7 +228,7 @@ def profile_page(reader: dict, read: list[dict], favorites: list[str], owner: bo
     ask_name = ('<form class="who"><input name="name" maxlength="40" placeholder="Your first name (optional)" '
                 'autocomplete="given-name"><button>Save</button></form>') if owner and not name else ""
     scripts = (CARD_SCRIPT.replace("%ID%", "null") + PROFILE_SCRIPT) if owner else ""
-    body = (f'<div class="profile"><header><h1>{title}</h1><p class="sub">{sub}</p>{ask_name}</header>{top}'
+    body = (f'<div class="profile"><header><h1>{title}</h1>{count}<p class="sub">{sub}</p>{ask_name}</header>{top}'
             f'<section><h2>Read</h2>{bottom}</section></div>{scripts}')
     return page(body).replace("<main>", '<main style="max-width:540px">', 1)
 
