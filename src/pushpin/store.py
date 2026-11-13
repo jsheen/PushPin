@@ -46,7 +46,8 @@ KINDS = ("open", "read")  # recorded per reader: the push tapped (pinned), then 
 VOLUMES = ("light", "medium", "heavy")  # push volume a reader can ask for (caps in configs/notifier.yml)
 MAX_FAVORITES = 1  # the Crème: a reader's one top article
 # reader columns added after the first release, created on older databases
-READER_COLUMNS = {"volume": "TEXT", "volume_at": "TEXT", "slug": "TEXT", "history_public": "INTEGER DEFAULT 0"}
+READER_COLUMNS = {"volume": "TEXT", "volume_at": "TEXT", "slug": "TEXT", "history_public": "INTEGER DEFAULT 0",
+                  "apple_sub": "TEXT"}
 
 # columns whose type pandas can't infer from a batch where they're all empty
 SCORE_TYPES = {"slot_id": BigInteger(), "sent_ts": BigInteger(), "push_id": Text(), "sent_at": Text(),
@@ -57,13 +58,16 @@ SCHEMA = [
     """CREATE TABLE IF NOT EXISTS articles (news_id TEXT PRIMARY KEY, title TEXT, abstract TEXT, section TEXT,
         url TEXT, published TEXT, subcategory TEXT, subcat_sim DOUBLE PRECISION)""",
     """CREATE TABLE IF NOT EXISTS readers (reader_id TEXT PRIMARY KEY, name TEXT, created_at TEXT, first_push_ts BIGINT,
-        volume TEXT, volume_at TEXT, slug TEXT, history_public INTEGER DEFAULT 0)""",
+        volume TEXT, volume_at TEXT, slug TEXT, history_public INTEGER DEFAULT 0, apple_sub TEXT)""",
     """CREATE TABLE IF NOT EXISTS interactions (push_id TEXT, reader_id TEXT, kind TEXT, created_at TEXT,
         minutes_after_push DOUBLE PRECISION, PRIMARY KEY (push_id, reader_id, kind))""",
     """CREATE TABLE IF NOT EXISTS favorites (reader_id TEXT, news_id TEXT, created_at TEXT,
         PRIMARY KEY (reader_id, news_id))""",
     """CREATE TABLE IF NOT EXISTS removed (reader_id TEXT, news_id TEXT, created_at TEXT,
         PRIMARY KEY (reader_id, news_id))""",
+    # the iOS app's push addresses (APNs device tokens); one reader can have several devices
+    """CREATE TABLE IF NOT EXISTS devices (token TEXT PRIMARY KEY, reader_id TEXT, sandbox INTEGER DEFAULT 0,
+        created_at TEXT)""",
 ]
 # profile lists leave out what the reader deleted (s = the scores row, :r = the reader)
 KEPT = "NOT EXISTS (SELECT 1 FROM removed x WHERE x.reader_id = :r AND x.news_id = s.news_id)"
@@ -97,6 +101,7 @@ class Store:
             if col not in reader_cols:
                 self._exec(f"ALTER TABLE readers ADD COLUMN {col} {sql_type}")
         self._exec("CREATE UNIQUE INDEX IF NOT EXISTS readers_slug ON readers (slug)")
+        self._exec("CREATE UNIQUE INDEX IF NOT EXISTS readers_apple ON readers (apple_sub)")
         self._labeled_view()
 
     # --- plumbing
@@ -232,6 +237,44 @@ class Store:
         self._exec("INSERT INTO readers (reader_id, name, created_at, first_push_ts) VALUES (:r, NULL, :at, :ts)",
                    {"r": reader_id, "at": self.now(), "ts": first_push_ts})
         return reader_id
+
+    def reader_for_apple(self, apple_sub: str, first_push_ts: int | None) -> tuple[str, bool]:
+        """The reader signed in with this Apple id, made on first sign-in: (reader_id, new)."""
+        rows = self._rows("SELECT reader_id FROM readers WHERE apple_sub = :a", a=apple_sub)
+        if rows:
+            return rows[0]["reader_id"], False
+        reader_id = self.new_reader(first_push_ts)
+        self._exec("UPDATE readers SET apple_sub = :a WHERE reader_id = :r", {"a": apple_sub, "r": reader_id})
+        return reader_id, True
+
+    def add_device(self, reader_id: str, token: str, sandbox: bool = False) -> bool:
+        """Register (or move to this reader) an APNs device token."""
+        token = token.strip().lower()
+        if not token or len(token) > 200 or any(c not in "0123456789abcdef" for c in token):
+            return False
+        self._exec("DELETE FROM devices WHERE token = :t", {"t": token})
+        self._exec("INSERT INTO devices VALUES (:t, :r, :s, :at)",
+                   {"t": token, "r": reader_id, "s": int(sandbox), "at": self.now()})
+        return True
+
+    def remove_device(self, token: str, reader_id: str | None = None) -> bool:
+        """Drop a device token (signed out, or APNs says it's dead). With a reader, only theirs."""
+        where, params = "token = :t", {"t": token.strip().lower()}
+        if reader_id is not None:
+            where, params = where + " AND reader_id = :r", {**params, "r": reader_id}
+        return self._exec(f"DELETE FROM devices WHERE {where}", params).rowcount > 0
+
+    def devices(self) -> list[dict]:
+        return self._rows("SELECT token, reader_id, sandbox FROM devices ORDER BY created_at")
+
+    def delete_reader(self, reader_id: str) -> bool:
+        """Delete an account and everything stored under it (App Store rule for apps with
+        accounts). The pushes themselves stay: they were sent to everyone, not to this reader."""
+        if self.reader(reader_id) is None:
+            return False
+        for table in ("devices", "favorites", "removed", "interactions", "readers"):
+            self._exec(f"DELETE FROM {table} WHERE reader_id = :r", {"r": reader_id})
+        return True
 
     def set_name(self, reader_id: str, name: str) -> bool:
         name = " ".join(name.split())[:40] or None

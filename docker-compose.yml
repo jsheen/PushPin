@@ -128,6 +128,7 @@ services:
       - ./src:/app/src
       - ./configs:/app/configs:ro
       - ./outputs:/app/outputs
+      - ./secrets:/app/secrets:ro   # the APNs key for the iOS app (APNS_KEY_FILE=secrets/AuthKey_<id>.p8)
     depends_on:
       scorer:
         condition: service_healthy

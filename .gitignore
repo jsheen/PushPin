@@ -9,3 +9,7 @@ data/*
 outputs/*
 !outputs/.gitkeep
 .DS_Store
+
+# Apple keys (APNs .p8) for the iOS app
+secrets/
+*.p8

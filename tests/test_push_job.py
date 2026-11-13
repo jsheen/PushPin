@@ -109,6 +109,7 @@ def test_local_scorer_implements_the_scorer_interface():
 def test_http_scorer_sends_a_cached_gcp_id_token(monkeypatch):
     """auth="gcp": a private Cloud Run scorer gets a Bearer token from the metadata server, fetched once."""
     import io
+
     from pushpin import push_job
 
     calls = []
@@ -130,6 +131,7 @@ def test_http_scorer_sends_a_cached_gcp_id_token(monkeypatch):
 
 def test_http_scorer_without_auth_sends_no_token(monkeypatch):
     import io
+
     from pushpin import push_job
 
     calls = []

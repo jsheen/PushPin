@@ -27,6 +27,7 @@ decide what to send and whether to send it. It can also send real pushes to your
 | [docs/analysis.md](docs/analysis.md) | Push objective trade-off, calibration, return model, send policy, exploration and fatigue analyses, LLM profile ablation |
 | [docs/notifier.md](docs/notifier.md) | Real pushes from live NYT RSS via ntfy, the card server, the labeled push database |
 | [docs/deploy-gcp.md](docs/deploy-gcp.md) | Cloud Run + Neon deployment, `scripts/deploy-gcp.sh`, cost |
+| [docs/ios-app.md](docs/ios-app.md) | The iOS app's backend: Sign in with Apple, the JSON API, APNs, Apple setup |
 | [docs/live-scoring.md](docs/live-scoring.md) | What request-time scoring would still need |
 | [docs/production.md](docs/production.md) | How this would run in production end to end |
 

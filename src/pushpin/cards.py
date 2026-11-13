@@ -34,8 +34,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import jwt
 import yaml
 
+from pushpin import apple
 from pushpin.store import MAX_FAVORITES, VOLUMES, Store
 
 PAGE = """<!doctype html><html><head><meta charset="utf-8">
@@ -339,7 +341,8 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
 COOKIE = "pushpin_reader"
 
 
-def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None = None) -> ThreadingHTTPServer:
+def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None = None,
+                verify_apple=None) -> ThreadingHTTPServer:
     """The phone-facing endpoints. The reader is identified by the `pushpin_reader` cookie.
     `caps` maps each volume to its daily cap (configs/notifier.yml), shown on the buttons.
 
@@ -357,9 +360,34 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
       GET  /stats              {"readers": n} for autoscaling (KEDA), only with header
                                X-Api-Key = $CARDS_STATS_TOKEN; 404 when that isn't set
       GET  /health             liveness
+
+    The iOS app's JSON API, on when PUSHPIN_SESSION_SECRET and PUSHPIN_APPLE_BUNDLE_ID are set.
+    Every call but sign-in sends `Authorization: Bearer <session>`:
+      POST   /api/auth/apple       {"identity_token", "name"?} -> {"session", "new", "profile"}
+      GET    /api/me               the profile (same data as /me)
+      POST   /api/devices          {"token", "sandbox"?}: where to push (APNs device token)
+      DELETE /api/devices/<token>  stop pushing to a device (signing out)
+      POST   /api/open/<push_id>   a push was tapped: pins it -> {"push", "profile"}
+      POST   /api/read/<push_id>   Read was tapped
+      POST   /api/volume           {"volume": "light" | "medium" | "heavy"}
+      POST   /api/name             {"name"}
+      POST   /api/public           {"public": true | false}
+      POST   /api/favorite/<news_id>  {"on": true | false}: the Crème
+      DELETE /api/articles/<news_id>  delete from Pinned / Read (and the Crème)
+      DELETE /api/account          delete the account and its data
     """
 
     stats_token = os.environ.get("CARDS_STATS_TOKEN")
+    session_secret = os.environ.get("PUSHPIN_SESSION_SECRET")
+    bundle_id = os.environ.get("PUSHPIN_APPLE_BUNDLE_ID")
+    verify_apple = verify_apple or (lambda token: apple.verify_identity_token(token, bundle_id))
+
+    def profile_json(reader_id: str, base: str) -> dict:
+        reader, read = store.reader(reader_id), store.articles_read(reader_id)
+        return {"reader": {"name": reader["name"], "volume": reader["volume"], "public": bool(reader["history_public"])},
+                "share_url": f"{base}/u/{store.slug(reader_id)}", "caps": caps or {},
+                "creme": store.favorites(reader_id), "pinned": store.pinned_unread(reader_id), "read": read,
+                "streak": streak(read, date.fromisoformat(store.now()[:10]))}
 
     class Handler(BaseHTTPRequestHandler):
         def _reader_id(self) -> str | None:
@@ -388,12 +416,97 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
                                 owner=True, share_url=share, pinned=pinned, caps=caps, today=date.fromisoformat(store.now()[:10]),
                                 unread=store.pinned_unread(reader_id))
 
+        def _base(self) -> str:
+            return f"{self.headers.get('x-forwarded-proto') or 'http'}://{self.headers.get('host') or 'localhost'}"
+
+        def _api(self, method: str, path: str) -> None:
+            """The iOS app's JSON API (see serve_cards)."""
+            if not (session_secret and bundle_id):
+                self._send(404, json.dumps({"error": "api off"}), "application/json")
+                return
+            reply = lambda status, obj: self._send(status, json.dumps(obj), "application/json")
+            n = int(self.headers.get("content-length") or 0)
+            try:
+                body = json.loads(self.rfile.read(min(n, 16384)) or b"{}") if n else {}
+                assert isinstance(body, dict)
+            except (ValueError, AssertionError):
+                reply(400, {"error": "bad json"})
+                return
+            what, _, arg = path.partition("/")
+            if (method, what, arg) == ("POST", "auth", "apple"):
+                try:
+                    sub = verify_apple(str(body.get("identity_token") or ""))
+                except (jwt.InvalidTokenError, jwt.PyJWKClientError) as e:
+                    reply(401, {"error": f"sign-in failed: {e}"})
+                    return
+                reader_id, new = store.reader_for_apple(sub, int(time.time()))
+                if new and body.get("name"):
+                    store.set_name(reader_id, str(body["name"]))
+                print(json.dumps({"event": "sign_in", "reader": reader_id, "new": new}))
+                reply(200, {"session": apple.make_session(reader_id, session_secret), "new": new,
+                            "profile": profile_json(reader_id, self._base())})
+                return
+            auth = self.headers.get("authorization") or ""
+            reader_id = apple.read_session(auth.removeprefix("Bearer ").strip(), session_secret)
+            if store.reader(reader_id) is None:
+                reply(401, {"error": "sign in"})
+                return
+            ok = True
+            if (method, what) == ("GET", "me"):
+                reply(200, profile_json(reader_id, self._base()))
+                return
+            elif (method, what) == ("POST", "open") and store.push(arg) is not None:
+                store.interact(arg, reader_id, "open")
+                print(json.dumps({"event": "open", "push_id": arg, "reader": reader_id, "app": True}))
+                reply(200, {"push": store.push(arg, reader_id), "profile": profile_json(reader_id, self._base())})
+                return
+            elif (method, what) == ("POST", "devices"):
+                ok = store.add_device(reader_id, str(body.get("token") or ""), bool(body.get("sandbox")))
+            elif (method, what) == ("DELETE", "devices"):
+                ok = store.remove_device(arg, reader_id)
+            elif (method, what) == ("POST", "read"):
+                ok = store.interact(arg, reader_id, "read")
+            elif (method, what) == ("POST", "volume"):
+                ok = store.set_volume(reader_id, str(body.get("volume")))
+            elif (method, what) == ("POST", "name"):
+                ok = store.set_name(reader_id, str(body.get("name") or ""))
+            elif (method, what) == ("POST", "public"):
+                ok = store.set_history_public(reader_id, bool(body.get("public")))
+            elif (method, what) == ("POST", "favorite"):
+                ok = store.set_favorite(reader_id, arg, on=body.get("on", True) is not False) == "ok"
+            elif (method, what) == ("DELETE", "articles"):
+                ok = store.remove(reader_id, arg)
+            elif (method, what) == ("DELETE", "account"):
+                ok = store.delete_reader(reader_id)
+                print(json.dumps({"event": "delete_account", "reader": reader_id}))
+                reply(200 if ok else 404, {"ok": ok})
+                return
+            else:
+                ok = None
+            if ok is None:
+                reply(404, {"error": "unknown"})
+            elif not ok:
+                reply(404, {"error": "not found"})
+            else:
+                print(json.dumps({"event": what, "arg": arg or None, "reader": reader_id, "app": True}))
+                reply(200, profile_json(reader_id, self._base()))
+
+        def do_DELETE(self):
+            route, rest = self._route()
+            if route == "api":
+                self._api("DELETE", rest)
+            else:
+                self._send(404, "", "text/plain")
+
         def _route(self) -> tuple[str, str]:
             route, _, push_id = self.path.split("?")[0].lstrip("/").partition("/")
             return route, push_id
 
         def do_POST(self):
             route, push_id = self._route()
+            if route == "api":
+                self._api("POST", push_id)
+                return
             body = self.rfile.read(min(int(self.headers.get("content-length") or 0), 200)).decode(errors="replace")
             reader_id = self._reader_id()
             if reader_id is None:
@@ -425,6 +538,8 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
             route, push_id = self._route()
             if route == "health":
                 self._send(200, "ok", "text/plain")
+            elif route == "api":
+                self._api("GET", push_id)
             elif route == "stats" and stats_token and secrets.compare_digest(
                     self.headers.get("x-api-key") or "", stats_token):
                 self._send(200, json.dumps({"readers": store.reader_count()}), "application/json")

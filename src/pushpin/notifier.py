@@ -46,6 +46,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import yaml
 
+from pushpin.apple import Apns
 from pushpin.cards import open_store
 from pushpin.objective import push_scores, send_decisions
 from pushpin.push_job import HttpScorer
@@ -128,10 +129,11 @@ def new_user_id(stored: str | None) -> str:
 
 class Notifier:
     def __init__(self, scorer, store: Store, config: dict, objective: dict, topic: str | None,
-                 click_base: str | None, dry_run: bool = False, tunnel_metrics: str | None = None):
+                 click_base: str | None, dry_run: bool = False, tunnel_metrics: str | None = None,
+                 apns=None):
         self.scorer, self.store, self.cfg, self.objective = scorer, store, config, objective
         self.topic, self.click_base, self.dry_run = topic, (click_base or "").rstrip("/"), dry_run
-        self.tunnel_metrics = tunnel_metrics
+        self.tunnel_metrics, self.apns = tunnel_metrics, apns
         self.tz = ZoneInfo(config["timezone"])
         info = scorer.info()
         if store.get("anchor") is None:  # first run: map today to the day after the MIND log
@@ -209,8 +211,11 @@ class Notifier:
             # tracker, the article itself
             base = self.base_url()
             click = f"{base}/p/{push_id}" if base else article["url"]
-            send_ntfy(self.cfg["ntfy_server"], self.topic, article["title"], article["abstract"], click,
-                      tags=["newspaper"])
+            if self.topic:
+                send_ntfy(self.cfg["ntfy_server"], self.topic, article["title"], article["abstract"], click,
+                          tags=["newspaper"])
+            self.send_apns(article["title"], article["abstract"],
+                           {"push_id": push_id, "news_id": str(article.name), "url": article["url"]})
 
         out = scores.drop(columns=["impression_id"]).merge(
             cand[["news_id", "title", "section", "subcategory", "subcat_sim", "url", "published"]], on="news_id")
@@ -231,6 +236,24 @@ class Notifier:
                   "sent": sent}
         print(json.dumps(result))
         return result
+
+    def send_apns(self, title: str, body: str, data: dict) -> int:
+        """Send to every iOS app device; drop the tokens APNs says are dead. Returns how many took it."""
+        if self.apns is None:
+            return 0
+        ok = 0
+        for device in self.store.devices():
+            try:
+                status, reason = self.apns.send(device["token"], title, body, data, sandbox=bool(device["sandbox"]))
+            except Exception as e:  # noqa: BLE001 -- one device failing shouldn't stop the others
+                print(f"apns error for {device['token'][:8]}: {e!r}")
+                continue
+            if status == 200:
+                ok += 1
+            elif self.apns.dead(status, reason):
+                self.store.remove_device(device["token"])
+            print(json.dumps({"event": "apns", "device": device["token"][:8], "status": status, "reason": reason}))
+        return ok
 
     def daily_cap(self) -> int:
         """Pushes a day: the reader's choice (light / medium / heavy, from the card or the start
@@ -286,8 +309,10 @@ def main() -> None:
     config = yaml.safe_load(args.config.read_text())
     objective = yaml.safe_load(Path(config["objective"]).read_text())
     topic = os.environ.get("NTFY_TOPIC")
-    if not topic and not args.dry_run:
-        raise SystemExit("set NTFY_TOPIC (in .env) to the topic your phone subscribes to, or use --dry-run")
+    apns = Apns.from_env()
+    if not topic and not apns and not args.dry_run:
+        raise SystemExit("set NTFY_TOPIC (in .env) to the topic your phone subscribes to, configure APNs "
+                         "(APNS_KEY_ID, APNS_TEAM_ID, APNS_KEY_FILE, PUSHPIN_APPLE_BUNDLE_ID), or use --dry-run")
     if args.test:
         send_ntfy(config["ntfy_server"], topic, "PushPin test", "If you can read this, delivery works.",
                   "https://www.nytimes.com", tags=["white_check_mark"])
@@ -308,7 +333,7 @@ def main() -> None:
     scorer = HttpScorer(args.scorer, auth=os.environ.get("PUSHPIN_SCORER_AUTH"))
     wait_for(scorer)
     notifier = Notifier(scorer, store, config, objective, topic, os.environ.get("CLICK_BASE_URL"), args.dry_run,
-                        tunnel_metrics=os.environ.get("TUNNEL_METRICS_URL"))
+                        tunnel_metrics=os.environ.get("TUNNEL_METRICS_URL"), apns=apns)
     print(f"user {notifier.user_id}, scorer time shift {notifier.shift}")
     if args.once:
         notifier.run_slot()
