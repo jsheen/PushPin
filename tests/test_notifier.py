@@ -160,7 +160,7 @@ def test_readers_tracked_separately(setup):
     server = cards.serve_cards(store, 0)
     base = f"http://127.0.0.1:{server.server_address[1]}"
     me_get, me_post = phone(base)
-    friend_get, friend_post = phone(base)
+    friend_get, _ = phone(base)
     try:
         with pytest.raises(urllib.error.HTTPError) as e:
             me_post(f"/read/{first}")  # no reader cookie until a push is opened
@@ -168,7 +168,7 @@ def test_readers_tracked_separately(setup):
 
         pin = me_get(f"/p/{first}")  # my first tap pins it and creates my reader id
         assert 'class="pin"' in pin and "About Story" in pin and "Your PushPin" in pin and "Your first name" in pin
-        assert f'href="https://www.nytimes.com/' in pin and f'data-read="{first}"' in pin and "☆ Put in Crème" in pin
+        assert 'href="https://www.nytimes.com/' in pin and f'data-read="{first}"' in pin and "☆ Put in Crème" in pin
         assert "🔖" not in pin and "data-kind" not in pin and "/saved" not in pin  # no Save any more
         assert "Nothing yet. Tap Read" in pin  # pinning isn't reading
         me_post("/name", b"Justin")
@@ -358,7 +358,7 @@ def test_landing_lists_pinned_articles_not_yet_read(setup):
         post(f"/read/{first}")  # read: moves from Pinned to Read
         me = get("/me")
         assert 'Pinned <span class="n">1</span>' in me and f'data-read="{second}"' in me and 'Read <span class="n">1</span>' in me
-        post(f"/public", b"on")
+        post("/public", b"on")
         slug = re.search(r"/u/([^\"]+)", me).group(1)
         assert "Pinned" not in stranger_get(f"/u/{slug}")  # pins stay private
         post(f"/read/{second}")
