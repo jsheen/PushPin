@@ -278,7 +278,7 @@ def test_profile_favorites_and_public_history(setup):
         link = re.search(r'href="(http://[^"]+/u/([^"]+))"', me)
         public = stranger_get(f"/u/{link.group(2)}")
         assert "Justin’s PushPin" in public and "Reading history is private" in public and "on PushPin" not in public
-        assert public.count("<li>") == 3 and "articles read" not in public and 'class="star"' not in public
+        assert public.count("<li>") == 3 and "articles read" not in public and "Reading since" not in public and 'class="star"' not in public
         assert "/p/" not in public  # links go to NYT: a visitor isn't counted as opening the push
         with pytest.raises(urllib.error.HTTPError) as e:
             stranger_post("/public", b"on")  # only the owner (by cookie) can change it
@@ -286,7 +286,7 @@ def test_profile_favorites_and_public_history(setup):
 
         post("/public", b"on")
         public = stranger_get(f"/u/{link.group(2)}")
-        assert "<strong>4</strong> articles read" in public and public.count("<li>") == 3 + 4
+        assert "Reading since 20" in public and "<strong>4</strong> articles read" in public and public.count("<li>") == 3 + 4
         post("/public", b"off")
         assert "Reading history is private" in stranger_get(f"/u/{link.group(2)}")
         with pytest.raises(urllib.error.HTTPError) as e:

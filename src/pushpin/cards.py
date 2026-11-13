@@ -70,7 +70,7 @@ border-radius:8px;background:var(--btn);color:var(--fg)}
 .profile .empty{color:var(--muted)}
 .star{font:inherit;font-size:20px;line-height:1;padding:2px 4px;border:0;background:none;color:var(--muted);cursor:pointer}
 .star[aria-pressed=true]{color:var(--on)}
-.total{font-size:17px;margin:2px 0 6px}.total strong{font-weight:700}
+.total{font-size:17px;margin:2px 0 2px}.since{font-size:15px;color:var(--muted);margin:0 0 6px}.total strong{font-weight:700}
 .toggle{display:flex;align-items:center;gap:8px;font-size:15px;margin:0 0 6px;cursor:pointer}
 .toggle input{width:18px;height:18px;margin:0}
 .share{font-size:14px;color:var(--muted);margin:0 0 12px;word-break:break-all}.share a{color:var(--link)}
@@ -210,7 +210,9 @@ def profile_page(reader: dict, read: list[dict], favorites: list[str], owner: bo
     top = f'<section><h2>Favorites</h2><ul class="list">{slots}</ul></section>'
 
     n = len(read)
-    count = f'<p class="total"><strong>{n}</strong> article{"" if n == 1 else "s"} read</p>' if owner or public else ""
+    since = f'<p class="since">Reading since {e(min(a["read_at"] for a in read)[:10])}</p>' if read else ""
+    count = (f'<p class="total"><strong>{n}</strong> article{"" if n == 1 else "s"} read</p>{since}'
+             if owner or public else "")
     articles = (f'<ul class="list">{"".join(item(a, owner) for a in read)}</ul>' if read
                 else '<p class="empty">Nothing yet. Open a push to start.</p>')
     if owner:
