@@ -458,7 +458,10 @@ function set(value, animate) {
   sw.setAttribute('aria-pressed', on);
   box.hidden = hint.hidden = !on; list.hidden = on;
   box.classList.remove('on');
-  if (on && !panel.open) panel.querySelector('summary').click();  // opens with the usual slide
+  if (on && !panel.open) {
+    if (animate) panel.querySelector('summary').click();  // opens with the usual slide
+    else { panel.open = true; panel.classList.add('shown'); }  // restored on load: already open
+  }
   show(animate);
   try { localStorage.setItem('papier', on ? '1' : ''); } catch (e) {}
 }
@@ -487,6 +490,26 @@ def papier(read: list[dict]) -> tuple[str, str, str]:
     return switch, hint, gallery
 
 
+# /demo: a public profile with made-up reads, to show several dinosaurs. Nothing is stored: real
+# opens and reads are the model's labels, so fake ones must never reach the database.
+DEMO_TITLES = [
+    "The Quiet Return of the Night Train", "What the Tide Leaves Behind", "A City Learns to Love Its Rain",
+    "The Last Typewriter Repairman in Ohio", "Inside the Race to Map the Ocean Floor", "Why Everyone Is Baking Bread Again",
+    "The Secret Life of Subway Pigeons", "How a Small Town Saved Its Library", "The Astronomers Who Count Dark Skies",
+    "A Violin Made From a Fallen Tree", "The Long Walk Home Through the Snow", "Notes From a Lighthouse Keeper",
+    "The Orchard That Outlived Three Owners", "Learning to Swim at Seventy", "A Museum for Lost Mittens",
+    "The Beekeepers of the Rooftops", "What Your Houseplants Are Telling You", "The Comeback of the Corner Bookstore",
+    "A Ferry Captain's Last Crossing", "The Mathematics of a Perfect Pancake", "Where the Fireflies Went",
+    "A Choir of Strangers Sings at Dawn", "The Map That Fits in a Pocket",
+]
+
+
+def demo_page() -> str:
+    read = [{"news_id": f"DEMO{i}", "title": t, "url": "https://www.nytimes.com", "section": None,
+             "read_at": f"2026-10-{1 + i:02d}T09:00"} for i, t in enumerate(DEMO_TITLES)]
+    return profile_page({"name": "Demo", "history_public": 1}, read, [], owner=False, today=date(2026, 10, 23))
+
+
 PIN_MARK = '<img class="pinmark" src="/icon.png" alt="PushPin">'
 
 COOKIE = "pushpin_reader"
@@ -510,6 +533,7 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
       GET  /u/<slug>           a reader's public profile
       GET  /stats              {"readers": n} for autoscaling (KEDA), only with header
                                X-Api-Key = $CARDS_STATS_TOKEN; 404 when that isn't set
+      GET  /demo               a public profile with 23 made-up reads (4 dinosaurs and one in progress); stores nothing
       GET  /health             liveness
 
     The iOS app's JSON API, on when PUSHPIN_SESSION_SECRET and PUSHPIN_APPLE_BUNDLE_ID are set.
@@ -699,6 +723,8 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
                 self.wfile.write(data)
             elif route == "health":
                 self._send(200, "ok", "text/plain")
+            elif route == "demo":
+                self._send(200, demo_page())
             elif route == "api":
                 self._api("GET", push_id)
             elif route == "stats" and stats_token and secrets.compare_digest(

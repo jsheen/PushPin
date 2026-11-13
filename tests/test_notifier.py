@@ -549,3 +549,14 @@ def test_papier_mache_only_with_a_visible_read_list():
     assert 'id="papier-on"' in cards.profile_page({**reader, "history_public": 1}, read, [], owner=False)
     assert "5 more to your first dinosaur" not in own and 'id="papier-on"' not in cards.profile_page(reader, [], [], owner=True)
     assert "4 more to your first dinosaur" in cards.profile_page(reader, read[:1], [], owner=True)
+
+
+def test_demo_page_shows_dinosaurs_and_stores_nothing(setup):
+    _n, store, _sent, db = setup
+    server = cards.serve_cards(store, 0)
+    try:
+        page = urllib.request.urlopen(f"http://127.0.0.1:{server.server_address[1]}/demo").read().decode()
+    finally:
+        server.shutdown()
+    assert 'id="papier-on"' in page and "4 dinosaurs so far" in page and "Demo’s" in page
+    assert store.reader_count() == 0 and db("SELECT COUNT(*) AS n FROM interactions")["n"].item() == 0
