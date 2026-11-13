@@ -539,6 +539,10 @@ def test_papier_mache_only_with_a_visible_read_list():
     reader = {"name": "Jo", "history_public": 0}
     own = cards.profile_page(reader, read, [], owner=True)
     assert 'id="papier-on"' in own and "Every 5 articles you read makes a new dinosaur · 1 dinosaur so far" in own
+    summary = re.search(r"<summary>.*?</summary>", own).group(0)
+    assert 'id="papier-on"' in summary and 'class="papier-hint" hidden' in own  # switch in the Read header; hint until on
+    fold = own[own.index('<div class="fold">'):]
+    assert fold.index('class="list"') < fold.index('id="papier"') < fold.index("</details>")  # one panel
     data = re.search(r'id="papier-data">(.*?)</script>', own).group(1)
     assert data.startswith('["T0<\\/script>"') and "</script>\"" not in data  # oldest first, can't close the tag
     assert 'id="papier-on"' not in cards.profile_page(reader, read, [], owner=False)  # private list: no dinosaurs

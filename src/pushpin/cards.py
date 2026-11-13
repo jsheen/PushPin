@@ -74,8 +74,15 @@ border-radius:8px;background:var(--btn);color:var(--fg)}
 .volume .row button[aria-pressed=true]{background:var(--fg);color:var(--bg)}
 .volume .row button small{display:block;font-weight:400;font-size:13px;opacity:.75}
 .profile header{margin-bottom:40px}.profile h1{margin:0 0 4px}.pinmark{height:1.15em;width:auto;vertical-align:-.22em;margin-left:.05em}
-.papier-sec{margin-top:36px;padding-top:18px;border-top:1px solid var(--line)}.papier-sec .hint{font-size:13px;color:var(--muted);margin:4px 0 0}
-.papier{opacity:0;transition:opacity .5s ease;margin-top:18px}.papier.on{opacity:1}.papier figure{width:80%;margin:0 0 26px}.papier figure.right{margin-left:auto}
+.profile summary .tools{display:flex;align-items:center;gap:12px}
+.pm{display:inline-flex;align-items:center;gap:7px;font:600 11px/1 -apple-system,system-ui,sans-serif;letter-spacing:.07em;
+text-transform:uppercase;color:var(--muted);background:none;border:0;padding:6px 0;cursor:pointer;transition:color .25s ease}
+.pm .track{position:relative;width:26px;height:15px;border-radius:8px;background:var(--line);transition:background .25s ease}
+.pm .knob{position:absolute;top:2px;left:2px;width:11px;height:11px;border-radius:50%;background:#fff;
+box-shadow:0 1px 2px rgba(0,0,0,.3);transition:transform .25s ease}
+.pm[aria-pressed=true]{color:var(--fg)}.pm[aria-pressed=true] .track{background:var(--on)}.pm[aria-pressed=true] .knob{transform:translateX(11px)}
+.papier-hint{font-size:14px;color:var(--muted);margin:0 0 14px}
+.papier{opacity:0;transition:opacity .5s ease;margin-top:4px}.papier.on{opacity:1}.papier figure{width:80%;margin:0 0 26px}.papier figure.right{margin-left:auto}
 .papier canvas{display:block;width:100%}.papier figcaption{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:center;margin-top:6px}
 .profile .sub{color:var(--muted);font-size:15px;margin:0}
 .profile section{border-top:1px solid var(--line);padding:24px 0 8px}
@@ -110,7 +117,7 @@ margin:0 0 12px}.profile summary::-webkit-details-marker{display:none}.profile s
 .profile summary .n{color:var(--fg);margin-left:6px;letter-spacing:0}
 .plus{font-size:24px;line-height:1;color:var(--muted);transition:transform .2s ease}details[open]:not(.anim) .plus,details.shown .plus{transform:rotate(45deg)}
 details.anim .fold{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows .35s ease,opacity .35s ease}
-details.anim .fold>ul{overflow:hidden;min-height:0}details.shown .fold{grid-template-rows:1fr;opacity:1}
+details.anim .fold>div{overflow:hidden;min-height:0}details.shown .fold{grid-template-rows:1fr;opacity:1}
 @media (prefers-reduced-motion:reduce){details.anim .fold,.plus{transition:none}}
 .profile details+.toggle{margin-top:4px}
 .note{font-size:14px;color:var(--on);min-height:1em;margin:0 0 8px}
@@ -315,8 +322,11 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
     on_a_roll = f' <span class="streak">(Daily streak <span class="n">{days}</span>)</span>' if days else ""
     count = since if owner or public else ""  # the number itself is in "Read n +" below
     # the list is folded under "Read  n  +"; tapping + opens it
-    articles = (f'<details><summary><h2>Read <span class="n">{n}</span>{on_a_roll}</h2><span class="plus" aria-hidden="true">+</span>'
-                f'</summary><div class="fold"><ul class="list">{"".join(item(a, owner, owner) for a in read)}</ul></div></details>'
+    shown = owner or public  # Papier-mâché only uses titles the page already shows
+    switch, hint, gallery = papier(read) if shown else ("", "", "")
+    articles = (f'<details><summary><h2>Read <span class="n">{n}</span>{on_a_roll}</h2><span class="tools">{switch}'
+                f'<span class="plus" aria-hidden="true">+</span></span></summary><div class="fold"><div>{hint}'
+                f'<ul class="list">{"".join(item(a, owner, owner) for a in read)}</ul>{gallery}</div></div></details>'
                 + FOLD_SCRIPT if read
                 else '<h2>Read</h2><p class="empty">Nothing yet. Tap Read on a push to start.</p>')
     if owner:
@@ -343,9 +353,8 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
     if owner:  # the pinned push first; until they choose, the pushes-a-day question next
         intro = ((pin_panel(pinned, fav_ids) if pinned else "")
                  + ("" if reader.get("volume") else volume_picker(None, caps)))
-    shown = owner or public  # Papier-mâché only uses titles the page already shows
     body = (f'{intro}<div class="profile"><header><h1>{title}</h1>{count}{sub}{ask_name}</header>{top}'
-            f'<section>{bottom}</section>{papier(read) if shown else ""}</div>{scripts}')
+            f'<section>{bottom}</section></div>{scripts}')
     return page(body).replace("<main>", '<main style="max-width:540px">', 1)
 
 
@@ -355,7 +364,8 @@ PAPIER_PER = 5
 PAPIER_SCRIPT = """<script>(() => {
 const sw = document.getElementById('papier-on'), box = document.getElementById('papier');
 const titles = JSON.parse(document.getElementById('papier-data').textContent), PER = %PER%;
-const list = document.querySelector('.profile details');
+const panel = sw.closest('details'), list = panel.querySelector('.list'), hint = panel.querySelector('.papier-hint');
+let on = false, built = false;
 function dino(c, w, h, flip) {  // a little sauropod, designed on a 200 x 130 grid
   c.save();
   const s = Math.min(w / 200, h / 130);
@@ -438,35 +448,43 @@ function build(animate) {
     draw(canvas, group, built, k % 2 === 1, animate);
   }
 }
-function set(on, animate) {
-  box.hidden = !on;
-  if (list) list.hidden = on;
-  if (on) {
-    build(animate);
-    requestAnimationFrame(() => box.classList.add('on'));
-    if (animate) box.scrollIntoView({behavior: 'smooth', block: 'nearest'});
-  } else box.classList.remove('on');
+function show(animate) {  // draw once the panel is open: a closed one has no width to draw into
+  if (!on || !panel.open || built) return;
+  built = true; build(animate);
+  requestAnimationFrame(() => box.classList.add('on'));
+}
+function set(value, animate) {
+  on = value; built = false;
+  sw.setAttribute('aria-pressed', on);
+  box.hidden = hint.hidden = !on; list.hidden = on;
+  box.classList.remove('on');
+  if (on && !panel.open) panel.querySelector('summary').click();  // opens with the usual slide
+  show(animate);
   try { localStorage.setItem('papier', on ? '1' : ''); } catch (e) {}
 }
-sw.addEventListener('change', () => set(sw.checked, true));
+sw.addEventListener('click', ev => { ev.preventDefault(); ev.stopPropagation(); set(!on, true); });  // not the summary's fold
+panel.addEventListener('toggle', () => show(true));
 let saved = false; try { saved = localStorage.getItem('papier') === '1'; } catch (e) {}
-if (saved) { sw.checked = true; set(true, false); }
-let t; window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout(() => sw.checked && build(false), 150); });
+if (saved) document.addEventListener('DOMContentLoaded', () => set(true, false));  // after the fold's script
+let t; window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout(() => { if (on && panel.open) build(false); }, 150); });
 })();</script>""".replace("%PER%", str(PAPIER_PER))
 
 
-def papier(read: list[dict]) -> str:
-    """The Papier-mâché switch and its dinosaurs, for a Read list the page shows."""
+def papier(read: list[dict]) -> tuple[str, str, str]:
+    """Papier-mâché for a Read list the page shows: the switch for the panel's header, the
+    instructions (shown when it's on), and the dinosaurs' container with their titles and script."""
     if not read:
-        return ""
+        return "", "", ""
     titles = [a["title"] or "Untitled" for a in sorted(read, key=lambda a: a["read_at"] or "")]  # oldest first
     data = json.dumps(titles).replace("</", "<\\/")
     made = len(read) // PAPIER_PER
     note = f"{made} dinosaur{'s' if made != 1 else ''} so far" if made else f"{PAPIER_PER - len(read)} more to your first dinosaur"
-    return (f'<section class="papier-sec"><label class="toggle"><input type="checkbox" id="papier-on"> '
-            f'Papier-mâché</label><p class="hint">Every {PAPIER_PER} articles you read makes a new dinosaur · {note}</p>'
-            f'<div class="papier" id="papier" hidden></div>'
-            f'<script type="application/json" id="papier-data">{data}</script>{PAPIER_SCRIPT}</section>')
+    switch = ('<button type="button" class="pm" id="papier-on" aria-pressed="false">'
+              '<span class="track"><span class="knob"></span></span>Papier-mâché</button>')
+    hint = f'<p class="papier-hint" hidden>Every {PAPIER_PER} articles you read makes a new dinosaur · {note}</p>'
+    gallery = (f'<div class="papier" id="papier" hidden></div>'
+               f'<script type="application/json" id="papier-data">{data}</script>{PAPIER_SCRIPT}')
+    return switch, hint, gallery
 
 
 PIN_MARK = '<img class="pinmark" src="/icon.png" alt="PushPin">'
