@@ -94,8 +94,8 @@ def send_ntfy(server: str, topic: str, title: str, message: str, click: str, tag
     """Publish through ntfy's JSON API (body JSON, so non-ASCII titles are fine).
 
     `actions` are ntfy action buttons. The notifier doesn't use them: an `http` action does run in
-    the background (tested on iOS), but its request can't say which subscriber tapped it, so Save
-    lives on the card, where the reader cookie identifies them."""
+    the background (tested on iOS), but its request can't say which subscriber tapped it, so Read
+    and the Crème live on the profile page the tap opens, where the reader cookie identifies them."""
     body = {"topic": topic, "title": title, "message": message, "click": click, "tags": tags or [],
             **({"actions": actions} if actions else {})}
     req = urllib.request.Request(server.rstrip("/"), data=json.dumps(body).encode(),
@@ -205,7 +205,8 @@ class Notifier:
 
         sent = passes and under_cap and not self.dry_run
         if sent:
-            # the tap opens the push's card (Read on NYT, Save); without a tracker, the article itself
+            # the tap pins the push and opens the reader's profile (Read, Put in Crème); without a
+            # tracker, the article itself
             base = self.base_url()
             click = f"{base}/p/{push_id}" if base else article["url"]
             send_ntfy(self.cfg["ntfy_server"], self.topic, article["title"], article["abstract"], click,

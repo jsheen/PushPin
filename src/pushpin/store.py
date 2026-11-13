@@ -15,12 +15,15 @@ Tables:
                 they asked for, NULL = not chosen), volume_at (when they chose it), slug (the
                 random id in their public profile link, /u/<slug>; never the reader_id, which is
                 their login cookie) and history_public (1 = others see what they've read)
-  interactions  one row per (push, reader, kind), kind = open (the card was opened: the click)
-                or save: created_at, minutes_after_push. Unsaving deletes the row.
-  favorites     a reader's top article (their Crème; MAX_FAVORITES of them): reader_id, news_id, created_at
+  interactions  one row per (push, reader, kind): created_at, minutes_after_push. kind = open
+                (the push was tapped: the click, which "pins" the article; not shown on the
+                profile) or read (Read was tapped on the pinned article: what the profile counts).
+                Rows of kind save are from before saves were dropped.
+  favorites     a reader's top article (their Crème; MAX_FAVORITES of them), any article they
+                pinned: reader_id, news_id, created_at
   labeled       view, one row per (sent push, reader who could have received it): the push's
                 scores plus reader_id, reader_name, reader_volume, label (1 = opened, 0 = not
-                opened within `click_window_hours`, NULL = pending), saved
+                opened within `click_window_hours`, NULL = pending), read (1 = tapped Read)
   articles      every article read from the feeds, with its mapped MIND subcategory
   meta          the user_id pushes are scored for, and the time anchor
 """
@@ -36,8 +39,7 @@ import pandas as pd
 from sqlalchemy import BigInteger, Boolean, Text, create_engine, inspect, text
 
 ARTICLE_COLUMNS = ["news_id", "title", "abstract", "section", "url", "published"]
-REACTIONS = ("save",)              # toggles on the card
-KINDS = ("open", *REACTIONS)  # everything recorded per reader
+KINDS = ("open", "read")  # recorded per reader: the push tapped (pinned), then Read tapped
 VOLUMES = ("light", "medium", "heavy")  # push volume a reader can ask for (caps in configs/notifier.yml)
 MAX_FAVORITES = 1  # the Crème: a reader's one top article
 # reader columns added after the first release, created on older databases
@@ -121,7 +123,7 @@ class Store:
         self._exec(f"""CREATE VIEW labeled AS SELECT s.*, r.reader_id, r.name AS reader_name,
             r.volume AS reader_volume,
             CASE WHEN {did("open")} THEN 1 WHEN s.sent_ts <= {self._now_epoch()} - {window} THEN 0 END AS label,
-            {did("save")} AS saved
+            {did("read")} AS read
             FROM scores s JOIN readers r ON s.sent_ts >= r.first_push_ts
             WHERE s.sent""")
 
@@ -200,13 +202,13 @@ class Store:
     # --- readers and interactions (written by the card server)
 
     def push(self, push_id: str, reader_id: str | None = None) -> dict | None:
-        """A sent push with its article, plus whether this reader saved it (None if unknown)."""
+        """A sent push with its article, plus whether this reader read it (None if unknown)."""
         if not self._has_scores():
             return None
         mark = lambda kind: (f"EXISTS (SELECT 1 FROM interactions i WHERE i.push_id = s.push_id "
                              f"AND i.reader_id = :reader AND i.kind = '{kind}')")
         rows = self._rows(f"""SELECT s.push_id, s.news_id, s.title, s.section, s.url, s.sent_ts, a.abstract,
-                {mark("save")} AS saved
+                {mark("read")} AS read
             FROM scores s LEFT JOIN articles a ON a.news_id = s.news_id
             WHERE s.push_id = :push AND s.sent""", push=push_id, reader=reader_id)
         return rows[0] if rows else None
@@ -240,63 +242,58 @@ class Store:
         rows = self._rows("SELECT volume FROM readers WHERE volume IS NOT NULL ORDER BY volume_at DESC LIMIT 1")
         return rows[0]["volume"] if rows else None
 
-    def interact(self, push_id: str, reader_id: str, kind: str, on: bool = True) -> bool:
-        """Record (or, for save with on=False, clear) one reader's interaction with a sent push.
-        Only the first open is kept. False if the push, reader or kind is unknown."""
+    def interact(self, push_id: str, reader_id: str, kind: str) -> bool:
+        """Record one reader's open or read of a sent push; only the first of each is kept.
+        False if the push, reader or kind is unknown."""
         push = self.push(push_id)
         if push is None or kind not in KINDS or self.reader(reader_id) is None:
             return False
-        params = {"p": push_id, "r": reader_id, "k": kind}
-        if on:
-            minutes = (time.time() - push["sent_ts"]) / 60 if push["sent_ts"] is not None else None
-            self._exec("INSERT INTO interactions VALUES (:p, :r, :k, :at, :m) ON CONFLICT DO NOTHING",
-                       {**params, "at": self.now(), "m": minutes})
-        elif kind in REACTIONS:
-            self._exec("DELETE FROM interactions WHERE push_id = :p AND reader_id = :r AND kind = :k", params)
+        minutes = (time.time() - push["sent_ts"]) / 60 if push["sent_ts"] is not None else None
+        self._exec("INSERT INTO interactions VALUES (:p, :r, :k, :at, :m) ON CONFLICT DO NOTHING",
+                   {"p": push_id, "r": reader_id, "k": kind, "at": self.now(), "m": minutes})
         return True
 
     def reader_count(self) -> int:
         return self._rows("SELECT COUNT(*) AS n FROM readers")[0]["n"]
 
-    def reading_list(self, reader_id: str | None) -> list[dict]:
-        """This reader's saved pushes, newest first."""
-        if not reader_id or not self._has_scores():
-            return []
-        return self._rows("""SELECT i.push_id, s.title, s.section, i.created_at AS saved_at
-            FROM interactions i JOIN scores s ON s.push_id = i.push_id AND s.sent
-            WHERE i.kind = 'save' AND i.reader_id = :r ORDER BY i.created_at DESC""", r=reader_id)
-
-
     # --- profile: articles read, favorites, public history
 
     def articles_read(self, reader_id: str | None) -> list[dict]:
-        """Every article this reader opened a push card for, most recent first: news_id, title,
-        section, url, read_at. Opening the card is what's recorded, not reading on NYT."""
+        """Every article this reader tapped Read on, most recent first: news_id, title, section,
+        url, read_at. The tap on Read is what's recorded, not reading on NYT."""
         if not reader_id or not self._has_scores():
             return []
         return self._rows("""SELECT s.news_id, MAX(s.title) AS title, MAX(s.section) AS section, MAX(s.url) AS url,
                 MIN(i.created_at) AS read_at
             FROM interactions i JOIN scores s ON s.push_id = i.push_id AND s.sent
-            WHERE i.kind = 'open' AND i.reader_id = :r
+            WHERE i.kind = 'read' AND i.reader_id = :r
             GROUP BY s.news_id ORDER BY read_at DESC""", r=reader_id)
 
-    def favorites(self, reader_id: str | None) -> list[str]:
-        """This reader's favorite news_ids, in the order they were picked."""
-        if not reader_id:
+    def pinned(self, reader_id: str, news_id: str) -> bool:
+        """Whether this reader tapped (or read) a push of this article."""
+        if not self._has_scores():
+            return False
+        return bool(self._rows("""SELECT 1 FROM interactions i JOIN scores s ON s.push_id = i.push_id AND s.sent
+            WHERE i.reader_id = :r AND s.news_id = :n LIMIT 1""", r=reader_id, n=news_id))
+
+    def favorites(self, reader_id: str | None) -> list[dict]:
+        """This reader's favorites (the Crème), in the order they were picked: news_id, title, url."""
+        if not reader_id or not self._has_scores():
             return []
-        return [r["news_id"] for r in self._rows(
-            "SELECT news_id FROM favorites WHERE reader_id = :r ORDER BY created_at, news_id", r=reader_id)]
+        return self._rows("""SELECT f.news_id, MAX(s.title) AS title, MAX(s.url) AS url
+            FROM favorites f JOIN scores s ON s.news_id = f.news_id AND s.sent
+            WHERE f.reader_id = :r GROUP BY f.news_id, f.created_at ORDER BY f.created_at, f.news_id""", r=reader_id)
 
     def set_favorite(self, reader_id: str, news_id: str, on: bool = True) -> str:
-        """Pick (or drop) an article the reader has read as a favorite. Past MAX_FAVORITES, the
-        oldest pick makes room. Returns "ok", or "unknown" (not an article they've read)."""
+        """Pick (or drop) an article the reader pinned as a favorite. Past MAX_FAVORITES, the
+        oldest pick makes room. Returns "ok", or "unknown" (not an article they pinned)."""
         params = {"r": reader_id, "n": news_id}
         if not on:
             self._exec("DELETE FROM favorites WHERE reader_id = :r AND news_id = :n", params)
             return "ok"
-        if news_id not in {a["news_id"] for a in self.articles_read(reader_id)}:
+        if not self.pinned(reader_id, news_id):
             return "unknown"
-        current = self.favorites(reader_id)
+        current = [f["news_id"] for f in self.favorites(reader_id)]
         if news_id in current:
             return "ok"
         for old in current[:len(current) - MAX_FAVORITES + 1]:  # replace the oldest pick(s)

@@ -163,28 +163,28 @@ def test_readers_tracked_separately(setup):
     friend_get, friend_post = phone(base)
     try:
         with pytest.raises(urllib.error.HTTPError) as e:
-            me_post(f"/save/{first}")  # no reader cookie until a card is opened
+            me_post(f"/read/{first}")  # no reader cookie until a push is opened
         assert e.value.code == 403
 
-        card = me_get(f"/p/{first}")  # my first tap creates my reader id
-        assert "Read on NYT" in card and 'href="https://www.nytimes.com/' in card and "About Story" in card
-        assert 'aria-pressed="false">🔖 Save' in card and "Your first name" in card
-        assert "Love" not in card and "/read/" not in card  # only opens and saves are recorded
+        pin = me_get(f"/p/{first}")  # my first tap pins it and creates my reader id
+        assert 'class="pin"' in pin and "About Story" in pin and "Your PushPin" in pin and "Your first name" in pin
+        assert f'href="https://www.nytimes.com/' in pin and f'data-read="{first}"' in pin and "☆ Put in Crème" in pin
+        assert "🔖" not in pin and "data-kind" not in pin and "/saved" not in pin  # no Save any more
+        assert "Nothing yet. Tap Read" in pin  # pinning isn't reading
         me_post("/name", b"Justin")
-        me_post(f"/save/{first}"), me_post(f"/save/{first}")  # double tap: still one
-        assert 'aria-pressed="true">🔖 Saved' in me_get(f"/p/{first}") and "Reading as Justin" in me_get(f"/p/{first}")
+        me_post(f"/read/{first}"), me_post(f"/read/{first}")  # double tap: still one
+        assert 'Read <span class="n">1</span>' in me_get("/me") and 'class="pin"' not in me_get("/me")
 
         friend_get(f"/p/{second}")  # the friend only opens the second push
-        assert 'aria-pressed="false">🔖 Save' in friend_get(f"/p/{first}")  # my save isn't theirs
-        friend_post(f"/save/{second}"), friend_post(f"/save/{second}", b"off")  # save, then unsave
+        assert "Nothing yet. Tap Read" in friend_get(f"/p/{first}")  # my read isn't theirs
 
-        for bad in ("/save/nope", "/heart/" + first, "/read/" + first):
+        for bad in ("/read/nope", "/save/" + first, "/heart/" + first):
             with pytest.raises(urllib.error.HTTPError) as e:
                 me_post(bad)
             assert e.value.code == 404
-        mine = me_get("/saved")
-        assert mine.count("<li") == 1 and f'href="/p/{first}"' in mine
-        assert "Nothing saved" in friend_get("/saved")
+        with pytest.raises(urllib.error.HTTPError) as e:
+            me_get("/saved")
+        assert e.value.code == 404
     finally:
         server.shutdown()
 
@@ -192,11 +192,11 @@ def test_readers_tracked_separately(setup):
     assert len(readers) == 2 and sorted(readers["name"].fillna("")) == ["", "Justin"]
     me = readers.loc[readers["name"] == "Justin", "reader_id"].item()
     friend = readers.loc[readers["name"].isna(), "reader_id"].item()
-    assert set(db("SELECT DISTINCT kind FROM interactions")["kind"]) == {"open", "save"}
-    labeled = db("SELECT push_id, reader_id, label, saved FROM labeled")
-    rows = {(r.push_id, r.reader_id): (r.label, r.saved) for r in labeled.itertuples()}
+    assert set(db("SELECT DISTINCT kind FROM interactions")["kind"]) == {"open", "read"}
+    labeled = db("SELECT push_id, reader_id, label, read FROM labeled")
+    rows = {(r.push_id, r.reader_id): (r.label, r.read) for r in labeled.itertuples()}
     assert rows[(first, me)] == (1, 1)
-    assert rows[(first, friend)] == (1, 0)  # the friend's check of the first card opened it
+    assert rows[(first, friend)] == (1, 0)  # the friend's look at the first push opened it
     assert rows[(second, friend)] == (1, 0)
     assert pd.isna(rows[(second, me)][0])  # I haven't opened it, still inside the 24h window
 
@@ -257,14 +257,17 @@ def test_profile_favorites_and_public_history(setup):
         assert "Open a push first" in get("/me")
         for p in pushes:
             get(f"/p/{p}")
+            post(f"/read/{p}")
         get(f"/p/{pushes[0]}")  # reopening doesn't count twice
+        post(f"/read/{pushes[0]}")
         post("/name", b"Justin")
         me = get("/me")
         assert 'Read <span class="n">4</span>' in me and "articles read" not in me and "Justin’s PushPin" in me and me.count('class="star"') == 4
         ids = re.findall(r'data-fav="([^"]+)"', me)
         post(f"/favorite/{ids[0]}")
         post(f"/favorite/{ids[1]}")  # a second pick replaces the first
-        assert store.favorites(store.reader_by_slug(re.search(r"/u/([^\"]+)", get("/me")).group(1))["reader_id"]) == [ids[1]]
+        rid = store.reader_by_slug(re.search(r"/u/([^\"]+)", get("/me")).group(1))["reader_id"]
+        assert [f["news_id"] for f in store.favorites(rid)] == [ids[1]]
         with pytest.raises(urllib.error.HTTPError) as e:
             post("/favorite/NYT-never-read")
         assert e.value.code == 404
@@ -317,16 +320,34 @@ def test_public_profile_opens_with_a_summary():
     assert "<div>2 articles read</div></div>" in lapsed and "streak" not in lapsed  # a 0 streak isn't shown
 
 
-def test_card_asks_for_volume_until_chosen(setup):
+def test_pinned_push_can_go_in_the_creme_unread(setup):
+    n, store, sent, _db = setup
+    n.run_slot(pd.Timestamp("2026-11-12 12:00"))
+    push_id = sent[0][4].rsplit("/", 1)[1]
+    server = cards.serve_cards(store, 0)
+    get, post = phone(f"http://127.0.0.1:{server.server_address[1]}")
+    try:
+        news_id = re.search(r'class="creme" data-fav="([^"]+)"', get(f"/p/{push_id}")).group(1)
+        post(f"/favorite/{news_id}")  # pinned, never read: still allowed in the Crème
+        pin = get(f"/p/{push_id}")
+        assert "★ In your Crème" in pin and "Nothing yet. Tap Read" in pin
+        assert "<h2>Crème</h2><ul class=\"list\"><li>" in pin
+    finally:
+        server.shutdown()
+
+
+def test_profile_asks_for_volume_until_chosen(setup):
     n, store, sent, _db = setup
     n.run_slot(pd.Timestamp("2026-11-12 12:00"))
     push_id = sent[0][4].rsplit("/", 1)[1]
     reader = store.new_reader(store.push(push_id)["sent_ts"])
-    ask = cards.card_page(store.push(push_id, reader), store.reader(reader))
-    assert "How many pushes a day?" in ask
+    show = lambda: cards.profile_page(store.reader(reader), [], [], owner=True, pinned=store.push(push_id, reader))
+    ask = show()
+    assert "How many pushes a day?" in ask and ask.index('class="pin"') < ask.index("How many pushes a day?")
     store.set_volume(reader, "medium")
-    chosen = cards.card_page(store.push(push_id, reader), store.reader(reader))
+    chosen = show()
     assert "How many pushes a day?" not in chosen and 'data-volume="medium" aria-pressed="true"' in chosen
+    assert chosen.index('class="toggle"') < chosen.index('class="volume"')  # at the bottom once chosen
 
 
 def test_reader_not_labeled_for_pushes_before_they_joined(setup):
@@ -374,11 +395,13 @@ def test_tunnel_url_reads_quicktunnel_endpoint():
         srv.shutdown()
 
 
-def test_card_escapes_html(setup):
-    page = cards.card_page({"push_id": 'x"</script>', "title": "<b>T</b>", "section": "us", "url": "https://www.nytimes.com/a",
-                         "abstract": "a & b", "hearted": 0, "saved": 0}, {"reader_id": "r", "name": "<i>x</i>"})
+def test_pinned_profile_escapes_html():
+    pinned = {"push_id": 'x"</script>', "news_id": "N1", "title": "<b>T</b>", "section": "us",
+              "url": "https://www.nytimes.com/a", "abstract": "a & b", "read": 0}
+    page = cards.profile_page({"reader_id": "r", "name": "<i>x</i>", "volume": "light"}, [], [], owner=True,
+                              pinned=pinned)
     assert "<b>T</b>" not in page and "a &amp; b" in page and "<i>x</i>" not in page
-    assert page.split("<script>")[1].count("</script>") == 1  # the id can't close the script early
+    assert 'data-read="x&quot;&lt;/script&gt;"' in page  # the id can't close a tag or script
 
 
 def test_unclicked_push_labeled_zero_after_window(setup):

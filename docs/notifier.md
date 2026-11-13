@@ -8,10 +8,10 @@ and so is what you did with the push. That gives you labeled push data, which MI
 NYT RSS feeds ──▶ notifier ──HTTP──▶ scorer  (model + MIND user state, from the NYT sim)
                    │
    ntfy.sh ◀───────┤          cards :8090 ◀── tunnel (https://….trycloudflare.com) ◀── a reader taps
-   (push to phones)│            │                                                    Save / pushes a day
+   (push to phones)│            │                                                    Read / Crème / pushes a day
                    ▼            ▼
         outputs/notifier/pushes.db, or Postgres via DATABASE_URL
-        (candidates, covariates, sends, and per reader: opens, saves, push volume)
+        (candidates, covariates, sends, and per reader: opens, reads, Crème, push volume)
 ```
 
 ## The schedule
@@ -40,28 +40,34 @@ Each slot:
    until they choose.
 5. Writes every candidate to the database.
 
-## The card
+## Pin, then the profile
 
-Tapping a notification opens that push's **card**, a small page served by the `cards` service
-(`src/pushpin/cards.py`) and made public by the `tunnel` service. It shows the headline, the abstract and:
+Tapping a notification **pins** its article: the open is recorded (the click the model learns
+from; it isn't shown anywhere) and the reader lands on their profile, served by the `cards`
+service (`src/pushpin/cards.py`) and made public by the `tunnel` service, with that article on
+top (headline and abstract) and two choices:
 
-- **Read on NYT** is a plain nytimes.com link, so iOS opens the NYT app if it's installed and
-  Safari otherwise. Reading needs the reader's own NYT login there, as usual. Tapping it isn't
-  tracked.
-- **🔖 Save** adds it to your reading list at `/saved`. Tap again to unsave.
-- **Pushes a day**: Light, Medium or Heavy (see below).
-- **Profile →** opens `/me`, the reader's own page. On top is their **Crème**, the one article
-  they liked most, starred (☆) from the ones they've read; starring another replaces it. Below that are how many articles they've read (opened
-  a card for) and the list. A **Make my reading public** checkbox shows the count and list on
-  their public link, `/u/<slug>`, which uses a separate random id, not the reader cookie. Visitors
-  always see the Crème, and see the count and list only when public. Links there go straight
-  to NYT, so a visitor's tap isn't counted as an open.
+- **Read** is a plain nytimes.com link, so iOS opens the NYT app if it's installed and Safari
+  otherwise. Reading needs the reader's own NYT login there, as usual. The tap is recorded as a
+  read (a beacon to `/read/<push_id>`); what they do on NYT isn't.
+- **☆ Put in Crème** makes it their **Crème**, the one article they liked most. Any pinned
+  article can be the Crème, read or not; picking another replaces it.
 
-The first card a phone opens sets a cookie with a random reader ID, and offers an optional
-first-name box. Only two things are stored per push under that reader: whether they opened it
-(the click) and whether they saved it. ntfy's
-own notification buttons aren't used: their requests carry no reader identity, and the card
-keeps the buttons, the reading list and the tracking in one place.
+Below the pinned article is the rest of the profile, the same page as `/me`: the Crème, how
+many articles they've read (tapped Read on) and the list, where ☆ also picks the Crème, and
+**Pushes a day** (Light, Medium or Heavy, see below; asked right under the pinned article until
+they choose). A **Make my reading public** checkbox shows the count and list on their public
+link, `/u/<slug>`, which uses a separate random id, not the reader cookie. Visitors always see the
+Crème, and see the count and list only when public. Links there go straight to NYT, so a
+visitor's tap isn't counted as an open or a read. The count, list, streak and "Started reading
+on" date all come from reads, not opens; opens from before reads were recorded (2026-11-13) don't
+count as reads.
+
+The first push a phone opens sets a cookie with a random reader ID, and the profile offers an
+optional first-name box. Two things are stored per push under that reader: whether they opened
+it (the click) and whether they tapped Read. ntfy's own notification buttons aren't used: their
+requests carry no reader identity, and the profile keeps the buttons and the tracking in one
+place.
 
 ## Push volume
 
@@ -152,9 +158,9 @@ the Mac is awake and Docker is running:
 |-------|-------------|---------|
 | `scores` | slot × candidate article | `slot_time`, article (`title`, `section`, `subcategory`, `url`, `published`), every model feature, `p_click`, `p_return`, `novelty`, `push_score`, `is_top`, `passes_policy`, `sent`, `push_id`, `sent_at`, `sent_ts` (Unix seconds) |
 | `readers` | phone that opened a card or `/start` | `reader_id` (the cookie), `name` (optional), `created_at`, `first_push_ts`, `volume` (`light` / `medium` / `heavy`, NULL = not chosen), `volume_at`, `slug` (public profile id), `history_public` (1 = count and list public) |
-| `favorites` | reader's Crème (one article) | `reader_id`, `news_id`, `created_at` |
-| `interactions` | push × reader × kind | `kind` (`open` = the click, or `save`), `created_at`, `minutes_after_push`; unsaving deletes the row |
-| `labeled` (view) | sent push × reader | the push's `scores` row plus `reader_id`, `reader_name`, `reader_volume`, `label` (1 = opened, 0 = not opened within 24 h, NULL = pending), `saved` |
+| `favorites` | reader's Crème (one article, any they pinned) | `reader_id`, `news_id`, `created_at` |
+| `interactions` | push × reader × kind | `kind` (`open` = the click that pins it, `read` = Read tapped; older `save` rows are from before saves were dropped), `created_at`, `minutes_after_push` |
+| `labeled` (view) | sent push × reader | the push's `scores` row plus `reader_id`, `reader_name`, `reader_volume`, `label` (1 = opened, 0 = not opened within 24 h, NULL = pending), `read` (1 = tapped Read) |
 | `articles` | article read from the feeds | text, URL, publish time, mapped MIND subcategory |
 | `meta` | setting | `user_id` the pushes are scored for, time anchor |
 
@@ -166,11 +172,11 @@ Example queries:
 
 ```bash
 sqlite3 -header -column outputs/notifier/pushes.db \
-  "SELECT slot_time, reader_name, round(p_click, 3) AS p_click, label, saved, title FROM labeled ORDER BY slot_time DESC LIMIT 20"
+  "SELECT slot_time, reader_name, round(p_click, 3) AS p_click, label, read, title FROM labeled ORDER BY slot_time DESC LIMIT 20"
 
-# per reader: pushes, opens, open rate, saves
+# per reader: pushes, opens, open rate, reads
 sqlite3 -header -column outputs/notifier/pushes.db \
-  "SELECT coalesce(reader_name, reader_id) AS reader, count(*) AS pushes, sum(label = 1) AS opens, round(avg(label), 3) AS open_rate, sum(saved) AS saves FROM labeled GROUP BY reader_id"
+  "SELECT coalesce(reader_name, reader_id) AS reader, count(*) AS pushes, sum(label = 1) AS opens, round(avg(label), 3) AS open_rate, sum(read) AS reads FROM labeled GROUP BY reader_id"
 
 # open rate by predicted P(click) bucket
 sqlite3 outputs/notifier/pushes.db \
@@ -203,15 +209,15 @@ feeds, ntfy server and click window. The threshold, risk penalty and friction co
   and the model learned in-log clicks only through the features above. So taps don't enter it:
   `user_history_len` stays 0 and the history-similarity features (`sim_text`,
   `subcat_affinity`, embedding retrieval, LLM themes) stay missing for the new user.
-- **Only opens are fed back.** Saves are stored but not used: an open means "curious", a save
-  means "interested, not now". MIND has only clicks, so the model can't use saves until it's
-  retrained on push data.
+- **Only opens are fed back.** Reads are stored but not used: an open means "curious", a read
+  means they went on to the article. MIND has only clicks, so the model can't use reads until
+  it's retrained on push data.
 - **Exposure features learned from feed visits.** MIND impressions are visits users chose to
   make; pushes aren't. The model's exposure effect is small (about 2–3% lower engagement after
   5+ impressions a day; see analysis.md), so it won't do much to stop over-pushing on its own.
 - **Cookies are per browser.** A reader who clears cookies, or opens a card in another browser,
-  becomes a new reader. Saves live in this database, not in the reader's NYT account; NYT
-  has no public API for writing to its saved list.
+  becomes a new reader. The Crème and reads live in this database, not in the reader's NYT
+  account.
 - **The feeds are RSS.** RSS needs no API key, but it only lists what editors put in each
   section's feed. The NYT Times Wire API would cover every article in one call.
 - **P(click) is a ranking signal here, not a rate.** The model was trained on another outlet

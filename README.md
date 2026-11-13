@@ -301,15 +301,15 @@ outputs in `outputs/nyt-sim/`. See [docs/live-scoring.md](docs/live-scoring.md) 
 ## Real pushes and cloud deployment
 
 The `notifier` service scores today's NYT RSS news with the model and pushes the top pick to your
-phone through [ntfy](https://ntfy.sh) at 8, 12, 17 and 21 New York time. Tapping opens a card
-(Read on NYT / Save / pushes a day, plus a profile page with favorites and articles read) served through a Cloudflare quick tunnel, and every candidate and reader
+phone through [ntfy](https://ntfy.sh) at 8, 12, 17 and 21 New York time. Tapping pins the article and opens
+the reader's profile with it on top (Read / Put in Crème, plus pushes a day and the articles read) served through a Cloudflare quick tunnel, and every candidate and reader
 interaction is logged, which yields the labeled push data MIND lacks.
 
 ```
 NYT RSS feeds ──▶ notifier ──HTTP──▶ scorer  (model + MIND user state, from the NYT sim)
                    │
    ntfy.sh ◀───────┤          cards :8090 ◀── tunnel (https://….trycloudflare.com) ◀── a reader taps
-   (push to phones)│            │                                                    Save / pushes a day
+   (push to phones)│            │                                                    Read / Crème / pushes a day
                    ▼            ▼
         outputs/notifier/pushes.db, or Postgres via DATABASE_URL
 ```

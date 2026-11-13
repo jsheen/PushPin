@@ -7,15 +7,17 @@ containers in docker compose; in the cloud the cards are a Cloud Run service (sc
 including to zero) while each slot is a Cloud Run job. Both share the database in DATABASE_URL
 (Cloud SQL), or the SQLite file from configs/notifier.yml when it isn't set.
 
-Each card shows the headline and abstract, Read on NYT (a plain nytimes.com link, so iOS opens the
-NYT app if it's installed), 🔖 Save, and how many pushes a day the reader wants (light,
-medium or heavy). The first card a phone opens, or the /start page (linked from the welcome push,
+Tapping a push "pins" its article: the open is recorded (the click the model learns from) and the
+reader lands on their profile with that article on top and two choices: Read (a plain nytimes.com
+link, so iOS opens the NYT app if it's installed; the tap is recorded as a read) or Put in Crème.
+The first push a phone opens, or the /start page (linked from the welcome push,
 `pushpin.notifier --welcome`), sets a cookie with a random reader id, and everything the reader
-does is stored under it. Opening the card is the click; what they do on NYT isn't tracked.
+does is stored under it. What they do on NYT isn't tracked.
 
-/me is the reader's profile: their top article on top (the Crème), and below, how many articles
-they've read (opened a card for) with the list, which they can make public. /u/<slug> is the
-same page for anyone with the link: favorites always, the count and list only when public.
+/me is the same profile without a pinned article: their top article on top (the Crème), how many
+articles they've read (tapped Read on) with the list, which they can make public, and how many
+pushes a day they want (light, medium or heavy). /u/<slug> is the profile for anyone with the
+link: the Crème always, the count and list only when public.
 """
 
 import argparse
@@ -33,7 +35,7 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
-from pushpin.store import MAX_FAVORITES, REACTIONS, VOLUMES, Store
+from pushpin.store import MAX_FAVORITES, VOLUMES, Store
 
 PAGE = """<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>PushPin</title>
@@ -96,23 +98,17 @@ details.anim .fold>ul{overflow:hidden;min-height:0}details.shown .fold{grid-temp
 @media (prefers-reduced-motion:reduce){details.anim .fold,.plus{transition:none}}
 .profile details+.toggle{margin-top:4px}
 .note{font-size:14px;color:var(--on);min-height:1em;margin:0 0 8px}
+.pin{margin:0 0 40px}.pin .headline{font:700 26px/1.2 Georgia,"Times New Roman",serif;margin:6px 0 12px}
+.pin .creme[aria-pressed=true]{color:var(--on)}.profile .volume{margin:24px 0 0}
 </style></head><body><main>%BODY%</main></body></html>"""
 
-CARD_SCRIPT = """<script>
-const id = %ID%;
-document.querySelectorAll("button[data-kind]").forEach(b => b.addEventListener("click", async () => {
-  const on = b.getAttribute("aria-pressed") !== "true";
-  b.setAttribute("aria-pressed", on);
-  b.textContent = b.dataset[on ? "on" : "off"];
-  const r = await fetch(`/${b.dataset.kind}/${id}`, {method: "POST", body: on ? "on" : "off"}).catch(() => null);
-  if (!r || !r.ok) { b.setAttribute("aria-pressed", !on); b.textContent = b.dataset[on ? "off" : "on"]; }
-}));
+OWNER_SCRIPT = """<script>
 document.querySelectorAll("button[data-volume]").forEach(b => b.addEventListener("click", async () => {
   const r = await fetch("/volume", {method: "POST", body: b.dataset.volume}).catch(() => null);
   if (!r || !r.ok) return;
   document.querySelectorAll("button[data-volume]").forEach(x => x.setAttribute("aria-pressed", x === b));
   const hint = document.querySelector(".volume .hint");
-  if (hint) hint.textContent = "Saved. You can change it on any push.";
+  if (hint) hint.textContent = "Saved. You can change it on your profile.";
 }));
 const who = document.querySelector(".who");
 if (who) who.addEventListener("submit", async ev => {
@@ -143,46 +139,11 @@ def volume_picker(current: str | None, caps: dict | None = None) -> str:
             f'a story worth it, so some days get fewer.</div><div class="row">{buttons}</div></div>')
 
 
-def card_page(push: dict, reader: dict | None = None, caps: dict | None = None) -> str:
-    """The landing card a notification tap opens: Read on NYT, Save, push volume, and who's reading."""
-    e = html.escape
-
-    def toggle(kind, on, off, pressed):
-        return (f'<button data-kind="{kind}" data-on="{e(on)}" data-off="{e(off)}" '
-                f'aria-pressed="{"true" if pressed else "false"}">{e(on if pressed else off)}</button>')
-
-    if reader and reader.get("name"):
-        who = f'Reading as {e(reader["name"])} · <a href="/saved">Reading list</a> · <a href="/me">Profile →</a>'
-    else:
-        who = ('<a href="/saved">Reading list</a> · <a href="/me">Profile →</a><form class="who"><input name="name" maxlength="40" '
-               'placeholder="Your first name (optional)" autocomplete="given-name"><button>Save</button></form>')
-    volume = (reader or {}).get("volume")
-    # a plain link to nytimes.com (not a redirect) lets iOS open it in the NYT app when installed
-    return page(f"""{"" if volume else volume_picker(None, caps)}<div class="kicker">{e(push["section"] or "")}</div>
-<h1>{e(push["title"])}</h1>
-<p class="abstract">{e(push["abstract"] or "")}</p>
-<a class="read" href="{e(push["url"])}">Read on NYT</a>
-<div class="row">{toggle("save", "🔖 Saved", "🔖 Save", push["saved"])}</div>
-<div class="foot">{volume_picker(volume, caps) if volume else ""}{who}</div>
-{CARD_SCRIPT.replace("%ID%", json.dumps(push["push_id"]).replace("<", "\\u003c"))}""")
-
-
 def start_page(reader: dict | None, caps: dict | None = None) -> str:
     """The welcome push's page: pick how many pushes a day, before the first real one."""
     return page(f"""<h1>PushPin</h1><p class="abstract">A few NYT stories a day, picked for you. Tap a
-push to open its card; that's how it learns what you like.</p>{volume_picker((reader or {}).get("volume"), caps)}
-{CARD_SCRIPT.replace("%ID%", "null")}""")
-
-
-def reading_list_page(items: list[dict]) -> str:
-    if not items:
-        return page("<h1>Reading list</h1><p>Nothing saved yet. Tap 🔖 Save on a push.</p>")
-    e = html.escape
-    rows = "".join(
-        f'<li><a href="/p/{e(it["push_id"])}">{e(it["title"])}</a>'
-        f'<div class="meta">{e(it["section"] or "")} · saved {e(it["saved_at"][:16].replace("T", " "))}'
-        f'</div></li>' for it in items)
-    return page(f'<h1>Reading list</h1><ul class="list">{rows}</ul>')
+push to pin it, then Read it or keep it; that's how it learns what you like.</p>
+{volume_picker((reader or {}).get("volume"), caps)}{OWNER_SCRIPT}""")
 
 
 PROFILE_SCRIPT = """<script>
@@ -196,9 +157,19 @@ document.querySelectorAll("button[data-fav]").forEach(b => b.addEventListener("c
   const on = b.getAttribute("aria-pressed") !== "true";
   const r = await fetch(`/favorite/${encodeURIComponent(b.dataset.fav)}`,
                         {method: "POST", body: on ? "on" : "off"}).catch(() => null);
-  if (r && r.ok) { history.replaceState(null, "", "#read"); return location.reload(); }  // reopen the list
+  if (r && r.ok) {
+    if (b.closest("details")) history.replaceState(null, "", "#read");  // reopen the list
+    return location.reload();
+  }
   document.querySelector(".note").textContent = "Couldn't save that, try again.";
 }));
+// Read: record the tap, then follow the plain nytimes.com link (so iOS can open the NYT app)
+document.querySelectorAll("a[data-read]").forEach(a => a.addEventListener("click", () => {
+  const url = `/read/${encodeURIComponent(a.dataset.read)}`;
+  if (!(navigator.sendBeacon && navigator.sendBeacon(url, "on")))
+    fetch(url, {method: "POST", body: "on", keepalive: true}).catch(() => null);
+}));
+addEventListener("pageshow", ev => { if (ev.persisted) location.reload(); });  // back from NYT: fresh count
 </script>"""
 
 
@@ -254,14 +225,27 @@ document.querySelectorAll("details").forEach(d => {
 </script>"""
 
 
-def profile_page(reader: dict, read: list[dict], favorites: list[str], owner: bool, share_url: str = "",
-                 today: date | None = None) -> str:
-    """A reader's profile. `owner`: their own view (/me), with the star buttons, the public toggle
-    and always the list; otherwise the public view (/u/<slug>), where the count and list only show
-    if they made them public. Article links go straight to NYT, so a visitor isn't counted as opening."""
+def pin_panel(push: dict, creme: set[str]) -> str:
+    """The article a push tap pinned, on top of the profile: Read, or put it in the Crème."""
     e = html.escape
-    by_id = {a["news_id"]: a for a in read}
-    favs = [by_id[n] for n in favorites if n in by_id][-MAX_FAVORITES:]
+    on = push["news_id"] in creme
+    return (f'<section class="pin"><div class="kicker">{e(push["section"] or "")}</div>'
+            f'<div class="headline">{e(push["title"] or "")}</div><p class="abstract">{e(push["abstract"] or "")}</p>'
+            # a plain link to nytimes.com (not a redirect) lets iOS open it in the NYT app when installed
+            f'<a class="read" href="{e(push["url"] or "#")}" data-read="{e(push["push_id"])}">Read</a>'
+            f'<div class="row"><button class="creme" data-fav="{e(push["news_id"])}" '
+            f'aria-pressed="{"true" if on else "false"}">{"★ In your Crème" if on else "☆ Put in Crème"}</button></div>'
+            f'</section>')
+
+
+def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: bool, share_url: str = "",
+                 today: date | None = None, pinned: dict | None = None, caps: dict | None = None) -> str:
+    """A reader's profile. `owner`: their own view (/me, or /p/<push_id> with that push's article
+    `pinned` on top), with the star buttons, the public toggle, pushes a day and always the list;
+    otherwise the public view (/u/<slug>), where the count and list only show if they made them
+    public. Article links go straight to NYT, so a visitor isn't counted as opening or reading."""
+    e = html.escape
+    favs = favorites[-MAX_FAVORITES:]
     fav_ids = {a["news_id"] for a in favs}
     name = reader.get("name")
     public = bool(reader.get("history_public"))
@@ -275,7 +259,7 @@ def profile_page(reader: dict, read: list[dict], favorites: list[str], owner: bo
 
     slots = "".join(item(a, owner) for a in favs)
     if owner:
-        slots = slots or '<li class="empty">Star the article you liked most below.</li>'
+        slots = slots or '<li class="empty">Put the article you liked most here: ☆ on a push, or below.</li>'
     elif not favs:
         slots = '<li class="empty">Nothing picked yet.</li>'
     top = f'<section><h2>Crème</h2><ul class="list">{slots}</ul></section>'
@@ -288,12 +272,13 @@ def profile_page(reader: dict, read: list[dict], favorites: list[str], owner: bo
     articles = (f'<details><summary><h2>Read <span class="n">{n}</span></h2><span class="plus" aria-hidden="true">+</span>'
                 f'</summary><div class="fold"><ul class="list">{"".join(item(a, owner) for a in read)}</ul></div></details>'
                 + FOLD_SCRIPT if read
-                else '<h2>Read</h2><p class="empty">Nothing yet. Open a push to start.</p>')
+                else '<h2>Read</h2><p class="empty">Nothing yet. Tap Read on a push to start.</p>')
     if owner:
         bottom = (f'{articles}<label class="toggle"><input type="checkbox" id="public"{" checked" if public else ""}> '
                   f'Make my reading public</label><p class="share"{"" if public else " hidden"}>Anyone with this link '
                   f'can see what you’ve read: <a href="{e(share_url)}">{e(share_url)}</a></p>'
-                  f'<p class="note" aria-live="polite"></p>')
+                  f'<p class="note" aria-live="polite"></p>'
+                  + (volume_picker(reader.get("volume"), caps) if reader.get("volume") else ""))
     elif public:
         bottom = articles
     else:
@@ -303,12 +288,15 @@ def profile_page(reader: dict, read: list[dict], favorites: list[str], owner: bo
     sub = '<p class="sub">Only you see this page. Your Crème shows on your public link.</p>' if owner else ""
     ask_name = ('<form class="who"><input name="name" maxlength="40" placeholder="Your first name (optional)" '
                 'autocomplete="given-name"><button>Save</button></form>') if owner and not name else ""
-    scripts = (CARD_SCRIPT.replace("%ID%", "null") + PROFILE_SCRIPT) if owner else ""
+    scripts = (OWNER_SCRIPT + PROFILE_SCRIPT) if owner else ""
     intro = ""
     if not owner:  # the public link opens with a short summary
         days = streak(read, today or date.today())
         lines = [f'{n} article{"" if n == 1 else "s"} read', *([f"{days} day streak"] if days else [])] if public else []
         intro = splash(title, lines)
+    if owner:  # the pinned push first; until they choose, the pushes-a-day question next
+        intro = ((pin_panel(pinned, fav_ids) if pinned else "")
+                 + ("" if reader.get("volume") else volume_picker(None, caps)))
     body = (f'{intro}<div class="profile"><header><h1>{title}</h1>{count}{sub}{ask_name}</header>{top}'
             f'<section>{bottom}</section></div>{scripts}')
     return page(body).replace("<main>", '<main style="max-width:540px">', 1)
@@ -321,14 +309,14 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
     """The phone-facing endpoints. The reader is identified by the `pushpin_reader` cookie.
     `caps` maps each volume to its daily cap (configs/notifier.yml), shown on the buttons.
 
-      GET  /p/<push_id>        the push's card; records the open (and creates the reader on first visit)
+      GET  /p/<push_id>        pins the push: records the open (creating the reader on first visit)
+                               and shows their profile with its article on top: Read / Put in Crème
+      POST /read/<push_id>     Read was tapped on it (sent as a beacon; the link itself goes to NYT)
       GET  /start              the welcome page: choose light / medium / heavy (creates the reader)
       POST /volume             body "light", "medium" or "heavy": pushes a day
-      POST /save/<push_id>     body "on" or "off": save for later, or unsave
       POST /name               body: the reader's first name
-      GET  /saved              this reader's reading list; its links open the cards
-      GET  /me                 this reader's profile: favorites, articles read, public toggle
-      POST /favorite/<news_id> body "on" or "off": make an article they've read their Crème (replaces the last)
+      GET  /me                 this reader's profile: Crème, articles read, public toggle, pushes a day
+      POST /favorite/<news_id> body "on" or "off": make an article they pinned their Crème (replaces the last)
       POST /public             body "on" or "off": show the count and list on their public link
       GET  /u/<slug>           a reader's public profile
       GET  /stats              {"readers": n} for autoscaling (KEDA), only with header
@@ -358,6 +346,12 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
             self.end_headers()
             self.wfile.write(data)
 
+        def _own_profile(self, reader_id: str, pinned: dict | None = None) -> str:
+            proto = self.headers.get("x-forwarded-proto") or "http"
+            share = f"{proto}://{self.headers.get('host') or 'localhost'}/u/{store.slug(reader_id)}"
+            return profile_page(store.reader(reader_id), store.articles_read(reader_id), store.favorites(reader_id),
+                                owner=True, share_url=share, pinned=pinned, caps=caps)
+
         def _route(self) -> tuple[str, str]:
             route, _, push_id = self.path.split("?")[0].lstrip("/").partition("/")
             return route, push_id
@@ -377,15 +371,15 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
                 ok = store.set_name(reader_id, body)
             elif route == "volume":
                 ok = store.set_volume(reader_id, body.strip())
-            elif route in REACTIONS:
-                ok = store.interact(push_id, reader_id, route, on=body.strip() != "off")
+            elif route == "read":
+                ok = store.interact(push_id, reader_id, "read")
             else:
                 ok = False
             if not ok:
                 self._send(404, "unknown push", "text/plain")
                 return
             print(json.dumps({"event": route, "push_id": push_id or None, "reader": reader_id,
-                              **({"on": body.strip() != "off"} if route in (*REACTIONS, "favorite", "public") else {}),
+                              **({"on": body.strip() != "off"} if route in ("favorite", "public") else {}),
                               **({"volume": body.strip()} if route == "volume" else {})}))
             self._send(200, "ok", "text/plain")
 
@@ -401,17 +395,12 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
                 if reader_id is None:  # subscribed now: pushes from here on count for them
                     reader_id = new = store.new_reader(int(time.time()))
                 self._send(200, start_page(store.reader(reader_id), caps), set_reader=new)
-            elif route == "saved":
-                self._send(200, reading_list_page(store.reading_list(self._reader_id())))
             elif route == "me":
                 reader_id = self._reader_id()
                 if reader_id is None:
                     self._send(200, page("<h1>Your reading</h1><p>Open a push first; your profile starts there.</p>"))
                     return
-                proto = self.headers.get("x-forwarded-proto") or "http"
-                share = f"{proto}://{self.headers.get('host') or 'localhost'}/u/{store.slug(reader_id)}"
-                self._send(200, profile_page(store.reader(reader_id), store.articles_read(reader_id),
-                                             store.favorites(reader_id), owner=True, share_url=share))
+                self._send(200, self._own_profile(reader_id))
             elif route == "u" and (other := store.reader_by_slug(push_id)) is not None:
                 rid = other["reader_id"]
                 self._send(200, profile_page(other, store.articles_read(rid), store.favorites(rid), owner=False,
@@ -422,8 +411,7 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
                     reader_id = new = store.new_reader(push["sent_ts"])
                 store.interact(push_id, reader_id, "open")
                 print(json.dumps({"event": "open", "push_id": push_id, "reader": reader_id, "new_reader": bool(new)}))
-                self._send(200, card_page(store.push(push_id, reader_id), store.reader(reader_id), caps),
-                           set_reader=new)
+                self._send(200, self._own_profile(reader_id, store.push(push_id, reader_id)), set_reader=new)
             else:
                 self._send(404, page("<p>Unknown push.</p>"))
 
