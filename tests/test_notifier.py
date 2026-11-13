@@ -315,6 +315,7 @@ def test_public_profile_opens_with_a_summary():
     html = cards.profile_page(reader, read, [], owner=False, today=date(2026, 11, 13))
     assert 'class="splash"' in html and ('<div class="stat">Read <span class="n">2</span></div>'
                                     '<div class="stat">Daily streak <span class="n">1</span></div></div>') in html
+    assert 's.classList.remove("gone")' in html  # a tap on the page brings the card back
     assert "day streak" not in html and 'Daily streak <span class="n">1</span>' in html  # box, then the header
     private = cards.profile_page({**reader, "history_public": 0}, read, [], owner=False, today=date(2026, 11, 13))
     assert 'class="splash"' in private and 'class="stat"' not in private and "day streak" not in private and "Daily streak <span" not in private

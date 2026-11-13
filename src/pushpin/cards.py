@@ -189,7 +189,7 @@ def streak(read: list[dict], today: date) -> int:
 
 def splash(title: str, stats: list[tuple[str, int]]) -> str:
     """A large white window in place of the page: fades in and stays until a tap, click or key,
-    then fades out as the page fades in. Each stat is a line like the page's headers: READ 4.
+    then fades out as the page fades in; a tap on the page (off its links) brings it back. Each stat is a line like the page's headers: READ 4.
     Without JavaScript it's skipped."""
     lines = "".join(f'<div class="stat">{html.escape(label)} <span class="n">{value}</span></div>' for label, value in stats)
     return (f'<div class="splash" role="button" tabindex="0" aria-label="Continue"><div><strong>{title}</strong>'
@@ -201,8 +201,14 @@ SPLASH_SCRIPT = """<noscript><style>.splash{display:none}.splash~.profile{opacit
 (() => {
   const s = document.querySelector(".splash");
   const go = () => s.classList.add("gone");
-  s.addEventListener("click", go, {once: true});
-  document.addEventListener("keydown", go, {once: true});
+  s.addEventListener("click", ev => { ev.stopPropagation(); go(); });
+  document.addEventListener("keydown", () => { if (!s.classList.contains("gone")) go(); });
+  // once it's gone, a tap on the page (not on a link or control) brings the card back
+  document.addEventListener("click", ev => {
+    if (!s.classList.contains("gone") || ev.target.closest("a, button, input, label, summary")) return;
+    s.classList.remove("gone");
+    s.focus();
+  });
   s.focus();
 })();
 </script>"""
