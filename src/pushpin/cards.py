@@ -542,18 +542,12 @@ function draw(canvas, words, built, flip, animate, kind) {
   }
   const css = getComputedStyle(document.documentElement);
   const ink = css.getPropertyValue('--fg').trim() || '#121212', pencil = css.getPropertyValue('--line').trim() || '#e2e2e2';
-  // the silhouette itself, very faint behind the letters, so each species reads at a glance
-  const shade = document.createElement('canvas'); shade.width = w * dpr; shade.height = h * dpr;
-  const sc = shade.getContext('2d'); dino(sc, w * dpr, h * dpr, flip, kind);
-  sc.globalCompositeOperation = 'source-in'; sc.fillStyle = ink; sc.fillRect(0, 0, shade.width, shade.height);
   const reach = w * built;  // built from the tail: left to right, or right to left when flipped
   const isBuilt = ([, x]) => built >= 1 || (flip ? x >= w - reach : x <= reach);
   const start = performance.now(), sweep = animate ? 900 : 0, fade = animate ? 280 : 0;
   const frame = now => {
     c.clearRect(0, 0, w, h);
-    const p = sweep ? Math.min(1, (now - start) / (sweep + fade)) : 1;
-    c.globalAlpha = 0.07 * p; c.drawImage(shade, 0, 0, w, h);
-    let busy = p < 1;
+    let busy = false;
     for (const g of glyphs) {
       const along = flip ? 1 - g[1] / w : g[1] / w;
       const t = fade ? Math.min(1, Math.max(0, (now - start - along * sweep - (g[2] / h) * 120) / fade)) : 1;
