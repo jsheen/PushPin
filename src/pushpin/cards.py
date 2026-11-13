@@ -15,8 +15,8 @@ The first push a phone opens, or the /start page (linked from the welcome push,
 does is stored under it. What they do on NYT isn't tracked.
 
 /me is the same profile without a pinned article: their top article on top (the Crème), the
-articles they pinned but haven't read yet (each with Read and ☆), how many
-articles they've read (tapped Read on) with the list, which they can make public, and how many
+articles they pinned but haven't read yet (each with Read, ☆ and × to delete it), how many
+articles they've read (tapped Read on) with the list (× deletes one, from the Crème too), which they can make public, and how many
 pushes a day they want (light, medium or heavy). /u/<slug> is the profile for anyone with the
 link: the Crème always, the count and list only when public.
 """
@@ -75,6 +75,8 @@ border-radius:8px;background:var(--btn);color:var(--fg)}
 .profile section>.list>li:last-child{border-bottom:0}
 .star{font:inherit;font-size:20px;line-height:1;padding:2px 4px;border:0;background:none;color:var(--muted);cursor:pointer}
 .star[aria-pressed=true]{color:var(--on)}
+.del{font:inherit;font-size:20px;line-height:1;padding:2px 4px;border:0;background:none;color:var(--muted);cursor:pointer}
+.del:hover{color:var(--on)}
 .since{font-size:15px;color:var(--muted);margin:2px 0 6px}
 .toggle{display:flex;align-items:center;gap:8px;font-size:15px;margin:0 0 6px;cursor:pointer}
 .toggle input{width:18px;height:18px;margin:0}
@@ -165,6 +167,13 @@ document.querySelectorAll("button[data-fav]").forEach(b => b.addEventListener("c
     return location.reload();
   }
   document.querySelector(".note").textContent = "Couldn't save that, try again.";
+}));
+// ×: delete an article from the profile (and the Crème), after a confirm
+document.querySelectorAll("button[data-del]").forEach(b => b.addEventListener("click", async () => {
+  if (!confirm(b.dataset.confirm)) return;
+  const r = await fetch(`/remove/${encodeURIComponent(b.dataset.del)}`, {method: "POST", body: "on"}).catch(() => null);
+  if (r && r.ok) return location.replace("/me" + (b.closest("details") ? "#read" : ""));
+  document.querySelector(".note").textContent = "Couldn't delete that, try again.";
 }));
 // Read: record the tap, then follow the plain nytimes.com link (so iOS can open the NYT app)
 document.querySelectorAll("a[data-read]").forEach(a => a.addEventListener("click", () => {
@@ -263,10 +272,14 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
     name = reader.get("name")
     public = bool(reader.get("history_public"))
 
-    def item(a, star):
+    def item(a, star, delete=False):
         on = a["news_id"] in fav_ids
         button = (f'<button class="star" data-fav="{e(a["news_id"])}" aria-pressed="{"true" if on else "false"}" '
                   f'aria-label="Add to Crème">{"★" if on else "☆"}</button>') if star else ""
+        if delete:  # the owner's Pinned and Read lists: delete it from the profile, Crème included
+            ask = "Delete this article from your PushPin?" + (" It also leaves your Crème." if on else "")
+            button += (f'<button class="del" data-del="{e(a["news_id"])}" data-confirm="{e(ask)}" '
+                       f'aria-label="Delete">×</button>')
         read_tap = f' data-read="{e(a["push_id"])}"' if a.get("push_id") else ""  # a pinned one: tapping reads it
         return (f'<li><div><a href="{e(a["url"] or "#")}"{read_tap}>{e(a["title"] or "Untitled")}</a>'
                 f'</div>{button}</li>')
@@ -282,7 +295,7 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
     if waiting:  # only the owner sees what they pinned; the one on top isn't listed twice
         top += (f'<section><h2>Pinned <span class="n">{len(waiting)}</span></h2>'
                 f'<p class="private">Always private: only you see what you’ve pinned.</p><ul class="list">'
-                f'{"".join(item(a, True) for a in waiting)}</ul></section>')
+                f'{"".join(item(a, True, True) for a in waiting)}</ul></section>')
 
     n = len(read)
     first = date.fromisoformat(min(a["read_at"] for a in read)[:10]) if read else None
@@ -292,7 +305,7 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
     count = since if owner or public else ""  # the number itself is in "Read n +" below
     # the list is folded under "Read  n  +"; tapping + opens it
     articles = (f'<details><summary><h2>Read <span class="n">{n}</span>{on_a_roll}</h2><span class="plus" aria-hidden="true">+</span>'
-                f'</summary><div class="fold"><ul class="list">{"".join(item(a, owner) for a in read)}</ul></div></details>'
+                f'</summary><div class="fold"><ul class="list">{"".join(item(a, owner, owner) for a in read)}</ul></div></details>'
                 + FOLD_SCRIPT if read
                 else '<h2>Read</h2><p class="empty">Nothing yet. Tap Read on a push to start.</p>')
     if owner:
@@ -338,6 +351,7 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
       POST /name               body: the reader's first name
       GET  /me                 this reader's profile: Crème, articles read, public toggle, pushes a day
       POST /favorite/<news_id> body "on" or "off": make an article they pinned their Crème (replaces the last)
+      POST /remove/<news_id>   delete an article they pinned or read from their profile (and Crème)
       POST /public             body "on" or "off": show the count and list on their public link
       GET  /u/<slug>           a reader's public profile
       GET  /stats              {"readers": n} for autoscaling (KEDA), only with header
@@ -387,6 +401,8 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
                 return
             if route == "favorite":
                 ok = store.set_favorite(reader_id, push_id, on=body.strip() != "off") == "ok"
+            elif route == "remove":
+                ok = store.remove(reader_id, push_id)
             elif route == "public":
                 ok = store.set_history_public(reader_id, body.strip() == "on")
             elif route == "name":

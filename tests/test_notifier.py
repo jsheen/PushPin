@@ -372,6 +372,37 @@ def test_landing_lists_pinned_articles_not_yet_read(setup):
         server.shutdown()
 
 
+def test_reader_can_delete_pinned_and_read_articles(setup):
+    n, store, sent, _db = setup
+    n.run_slot(pd.Timestamp("2026-11-12 12:00"))
+    n.run_slot(pd.Timestamp("2026-11-12 17:00"))
+    first, second = (a[4].rsplit("/", 1)[1] for a in sent)
+    server = cards.serve_cards(store, 0)
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    get, post = phone(base)
+    _, stranger_post = phone(base)
+    try:
+        news = [re.search(r'class="creme" data-fav="([^"]+)"', get(f"/p/{p}")).group(1) for p in (first, second)]
+        post(f"/read/{first}")
+        post(f"/favorite/{news[1]}")  # pinned, unread, in the Crème
+        me = get("/me")
+        assert f'data-del="{news[0]}"' in me and f'data-del="{news[1]}"' in me and "It also leaves your Crème." in me
+        with pytest.raises(urllib.error.HTTPError):
+            stranger_post(f"/remove/{news[1]}")  # not theirs
+        post(f"/remove/{news[1]}")  # out of Pinned and the Crème
+        me = get("/me")
+        assert "<h2>Pinned" not in me and "Nothing yet. Tap ☆" in me and f'data-del="{news[1]}"' not in me
+        post(f"/remove/{news[0]}")  # out of Read, and the count
+        me = get("/me")
+        assert "Nothing yet. Tap Read" in me and not store.articles_read(store.reader_by_slug(
+            re.search(r"/u/([^\"]+)", me).group(1))["reader_id"])
+        get(f"/p/{second}")  # reloading the same push doesn't bring it back
+        assert "<h2>Pinned" not in get("/me")
+        assert store._rows("SELECT COUNT(*) AS n FROM interactions")[0]["n"] == 3  # labels kept for the model
+    finally:
+        server.shutdown()
+
+
 def test_profile_asks_for_volume_until_chosen(setup):
     n, store, sent, _db = setup
     n.run_slot(pd.Timestamp("2026-11-12 12:00"))

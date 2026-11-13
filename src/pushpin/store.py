@@ -21,6 +21,9 @@ Tables:
                 Rows of kind save are from before saves were dropped.
   favorites     a reader's top article (their Crème; MAX_FAVORITES of them), any article they
                 pinned: reader_id, news_id, created_at
+  removed       articles a reader deleted from their profile (out of Pinned, Read and the Crème):
+                reader_id, news_id, created_at. Their open and read rows stay, so the model's
+                labels don't change; a later push of the article, if tapped, brings it back
   labeled       view, one row per (sent push, reader who could have received it): the push's
                 scores plus reader_id, reader_name, reader_volume, label (1 = opened, 0 = not
                 opened within `click_window_hours`, NULL = pending), read (1 = tapped Read)
@@ -59,7 +62,11 @@ SCHEMA = [
         minutes_after_push DOUBLE PRECISION, PRIMARY KEY (push_id, reader_id, kind))""",
     """CREATE TABLE IF NOT EXISTS favorites (reader_id TEXT, news_id TEXT, created_at TEXT,
         PRIMARY KEY (reader_id, news_id))""",
+    """CREATE TABLE IF NOT EXISTS removed (reader_id TEXT, news_id TEXT, created_at TEXT,
+        PRIMARY KEY (reader_id, news_id))""",
 ]
+# profile lists leave out what the reader deleted (s = the scores row, :r = the reader)
+KEPT = "NOT EXISTS (SELECT 1 FROM removed x WHERE x.reader_id = :r AND x.news_id = s.news_id)"
 
 
 def database_url(location: str | Path) -> str:
@@ -249,8 +256,11 @@ class Store:
         if push is None or kind not in KINDS or self.reader(reader_id) is None:
             return False
         minutes = (time.time() - push["sent_ts"]) / 60 if push["sent_ts"] is not None else None
-        self._exec("INSERT INTO interactions VALUES (:p, :r, :k, :at, :m) ON CONFLICT DO NOTHING",
-                   {"p": push_id, "r": reader_id, "k": kind, "at": self.now(), "m": minutes})
+        new = self._exec("INSERT INTO interactions VALUES (:p, :r, :k, :at, :m) ON CONFLICT DO NOTHING",
+                         {"p": push_id, "r": reader_id, "k": kind, "at": self.now(), "m": minutes}).rowcount > 0
+        if new and kind == "open":  # a new push of a deleted article was tapped: it's pinned again
+            self._exec("DELETE FROM removed WHERE reader_id = :r AND news_id = :n",
+                       {"r": reader_id, "n": push["news_id"]})
         return True
 
     def reader_count(self) -> int:
@@ -263,10 +273,10 @@ class Store:
         url, read_at. The tap on Read is what's recorded, not reading on NYT."""
         if not reader_id or not self._has_scores():
             return []
-        return self._rows("""SELECT s.news_id, MAX(s.title) AS title, MAX(s.section) AS section, MAX(s.url) AS url,
+        return self._rows(f"""SELECT s.news_id, MAX(s.title) AS title, MAX(s.section) AS section, MAX(s.url) AS url,
                 MIN(i.created_at) AS read_at
             FROM interactions i JOIN scores s ON s.push_id = i.push_id AND s.sent
-            WHERE i.kind = 'read' AND i.reader_id = :r
+            WHERE i.kind = 'read' AND i.reader_id = :r AND {KEPT}
             GROUP BY s.news_id ORDER BY read_at DESC""", r=reader_id)
 
     def pinned_unread(self, reader_id: str | None) -> list[dict]:
@@ -274,10 +284,10 @@ class Store:
         pinned first: news_id, title, url, push_id (a push of it, for recording the read)."""
         if not reader_id or not self._has_scores():
             return []
-        return self._rows("""SELECT s.news_id, MAX(s.title) AS title, MAX(s.url) AS url, MAX(i.push_id) AS push_id,
+        return self._rows(f"""SELECT s.news_id, MAX(s.title) AS title, MAX(s.url) AS url, MAX(i.push_id) AS push_id,
                 MAX(i.created_at) AS pinned_at
             FROM interactions i JOIN scores s ON s.push_id = i.push_id AND s.sent
-            WHERE i.kind = 'open' AND i.reader_id = :r AND s.news_id NOT IN (
+            WHERE i.kind = 'open' AND i.reader_id = :r AND {KEPT} AND s.news_id NOT IN (
                 SELECT s2.news_id FROM interactions i2 JOIN scores s2 ON s2.push_id = i2.push_id AND s2.sent
                 WHERE i2.kind = 'read' AND i2.reader_id = :r)
             GROUP BY s.news_id ORDER BY pinned_at DESC""", r=reader_id)
@@ -293,9 +303,9 @@ class Store:
         """This reader's favorites (the Crème), in the order they were picked: news_id, title, url."""
         if not reader_id or not self._has_scores():
             return []
-        return self._rows("""SELECT f.news_id, MAX(s.title) AS title, MAX(s.url) AS url
+        return self._rows(f"""SELECT f.news_id, MAX(s.title) AS title, MAX(s.url) AS url
             FROM favorites f JOIN scores s ON s.news_id = f.news_id AND s.sent
-            WHERE f.reader_id = :r GROUP BY f.news_id, f.created_at ORDER BY f.created_at, f.news_id""", r=reader_id)
+            WHERE f.reader_id = :r AND {KEPT} GROUP BY f.news_id, f.created_at ORDER BY f.created_at, f.news_id""", r=reader_id)
 
     def set_favorite(self, reader_id: str, news_id: str, on: bool = True) -> str:
         """Pick (or drop) an article the reader pinned as a favorite. Past MAX_FAVORITES, the
@@ -313,6 +323,16 @@ class Store:
             self._exec("DELETE FROM favorites WHERE reader_id = :r AND news_id = :n", {"r": reader_id, "n": old})
         self._exec("INSERT INTO favorites VALUES (:r, :n, :at) ON CONFLICT DO NOTHING", {**params, "at": self.now()})
         return "ok"
+
+    def remove(self, reader_id: str, news_id: str) -> bool:
+        """Delete an article the reader pinned or read from their profile: it leaves Pinned, Read
+        and the Crème. False if it isn't one of theirs."""
+        if not self.pinned(reader_id, news_id):
+            return False
+        params = {"r": reader_id, "n": news_id}
+        self._exec("DELETE FROM favorites WHERE reader_id = :r AND news_id = :n", params)
+        self._exec("INSERT INTO removed VALUES (:r, :n, :at) ON CONFLICT DO NOTHING", {**params, "at": self.now()})
+        return True
 
     def set_history_public(self, reader_id: str, public: bool) -> bool:
         return self._exec("UPDATE readers SET history_public = :p WHERE reader_id = :r",
