@@ -1,6 +1,6 @@
 # PushPin
 
-[![CI](https://github.com/jsheen/pushPin/actions/workflows/ci.yml/badge.svg)](https://github.com/jsheen/pushPin/actions/workflows/ci.yml)
+[![CI](https://github.com/jsheen/PushPin/actions/workflows/ci.yml/badge.svg)](https://github.com/jsheen/PushPin/actions/workflows/ci.yml)
 
 Push notification engine that could be utilized by The New York Times product. Balances engagement, discovery, and opt-out risk. Built as final project for AC215: MLOps and LLMOps: Production AI Systems at Harvard. Utilized Anthropic's Claude Code Pro.
 
