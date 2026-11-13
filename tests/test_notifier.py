@@ -314,13 +314,13 @@ def test_public_profile_opens_with_a_summary():
     reader = {"name": "Justin", "history_public": 1}
     html = cards.profile_page(reader, read, [], owner=False, today=date(2026, 11, 13))
     assert 'class="splash"' in html and "<div>2 articles read</div><div>1 day streak!</div>" in html
-    assert html.count("1 day streak!") == 2  # in the white box and on the page
+    assert html.count("1 day streak!") == 1 and 'Streak <span class="n">1</span>' in html  # box, then the header
     private = cards.profile_page({**reader, "history_public": 0}, read, [], owner=False, today=date(2026, 11, 13))
-    assert 'class="splash"' in private and "articles read" not in private and "streak" not in private
+    assert 'class="splash"' in private and "articles read" not in private and "day streak" not in private and "Streak <span" not in private
     own = cards.profile_page(reader, read, [], owner=True, today=date(2026, 11, 13))
-    assert 'class="splash"' not in own and '<p class="since">1 day streak!</p>' in own
+    assert 'class="splash"' not in own and '<h2 class="streak">Streak <span class="n">1</span></h2>' in own
     lapsed = cards.profile_page(reader, read, [], owner=False, today=date(2026, 11, 20))
-    assert "<div>2 articles read</div></div>" in lapsed and "streak" not in lapsed  # a 0 streak isn't shown
+    assert "<div>2 articles read</div></div>" in lapsed and "day streak" not in lapsed and "Streak <span" not in lapsed  # a 0 streak isn't shown
 
 
 def test_pinned_push_can_go_in_the_creme_unread(setup):

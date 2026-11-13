@@ -71,7 +71,7 @@ border-radius:8px;background:var(--btn);color:var(--fg)}
 .profile h2{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:0 0 12px}
 .profile .list li{display:flex;gap:12px;align-items:flex-start}.profile .list li>div{flex:1;min-width:0}
 .profile .list a{color:var(--fg)}.profile .list a:hover{color:var(--link)}
-.profile .empty{color:var(--muted)}.profile .private{font-size:14px;color:var(--muted);margin:-6px 0 8px}.profile h2 .n{color:var(--fg);margin-left:6px;letter-spacing:0}
+.profile .empty{color:var(--muted)}.profile .private{font-size:14px;color:var(--muted);margin:-6px 0 8px}.profile .streak{margin:14px 0 0}.profile h2 .n{color:var(--fg);margin-left:6px;letter-spacing:0}
 .profile section>.list>li:last-child{border-bottom:0}
 .star{font:inherit;font-size:20px;line-height:1;padding:2px 4px;border:0;background:none;color:var(--muted);cursor:pointer}
 .star[aria-pressed=true]{color:var(--on)}
@@ -278,7 +278,7 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
     first = date.fromisoformat(min(a["read_at"] for a in read)[:10]) if read else None
     since = f'<p class="since">Started reading on {first:%B} {first.day}, {first.year}</p>' if first else ""
     days = streak(read, today or date.today())
-    on_a_roll = f'<p class="since">{days} day streak!</p>' if days else ""
+    on_a_roll = f'<h2 class="streak">Streak <span class="n">{days}</span></h2>' if days else ""  # styled like "Read n"
     count = since + on_a_roll if owner or public else ""  # the number itself is in "Read n +" below
     # the list is folded under "Read  n  +"; tapping + opens it
     articles = (f'<details><summary><h2>Read <span class="n">{n}</span></h2><span class="plus" aria-hidden="true">+</span>'
