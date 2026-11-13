@@ -197,7 +197,7 @@ def profile_page(reader: dict, read: list[dict], favorites: list[str], owner: bo
         on = a["news_id"] in fav_ids
         button = (f'<button class="star" data-fav="{e(a["news_id"])}" aria-pressed="{"true" if on else "false"}" '
                   f'aria-label="Favorite">{"★" if on else "☆"}</button>') if star else ""
-        meta = "read " + a["read_at"][:10] if a.get("read_at") else ""
+        meta = a["read_at"][:10] if a.get("read_at") else ""
         return (f'<li><div><a href="{e(a["url"] or "#")}">{e(a["title"] or "Untitled")}</a>'
                 f'<div class="meta">{e(meta)}</div></div>{button}</li>')
 
