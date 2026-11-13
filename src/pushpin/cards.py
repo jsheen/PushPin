@@ -25,7 +25,7 @@ import os
 import secrets
 import threading
 import time
-from datetime import date
+from datetime import date, timedelta
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -75,6 +75,13 @@ border-radius:8px;background:var(--btn);color:var(--fg)}
 .toggle{display:flex;align-items:center;gap:8px;font-size:15px;margin:0 0 6px;cursor:pointer}
 .toggle input{width:18px;height:18px;margin:0}
 .share{font-size:14px;color:var(--muted);margin:0 0 12px;word-break:break-all}.share a{color:var(--link)}
+.splash{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:16px;
+pointer-events:none;z-index:10;opacity:0;animation:splash 3.8s ease forwards}
+.splash>div{background:#fff;color:#121212;border-radius:14px;padding:24px 32px;text-align:center;
+box-shadow:0 10px 40px rgba(0,0,0,.25);line-height:1.5}
+.splash strong{display:block;font:700 22px/1.3 Georgia,"Times New Roman",serif;margin-bottom:4px}
+@keyframes splash{0%{opacity:0}10%,90%{opacity:1}100%{opacity:0;visibility:hidden}}
+@media (prefers-reduced-motion:reduce){.splash{animation-timing-function:steps(1,jump-none)}}
 .note{font-size:14px;color:var(--on);min-height:1em;margin:0 0 8px}
 </style></head><body><main>%BODY%</main></body></html>"""
 
@@ -183,7 +190,25 @@ document.querySelectorAll("button[data-fav]").forEach(b => b.addEventListener("c
 </script>"""
 
 
-def profile_page(reader: dict, read: list[dict], favorites: list[str], owner: bool, share_url: str = "") -> str:
+def streak(read: list[dict], today: date) -> int:
+    """Days in a row, up to today, with at least one article read. Still alive if the last read was
+    yesterday: today isn't over."""
+    days = {date.fromisoformat(a["read_at"][:10]) for a in read if a.get("read_at")}
+    day = today if today in days else today - timedelta(days=1)
+    n = 0
+    while day in days:
+        n, day = n + 1, day - timedelta(days=1)
+    return n
+
+
+def splash(title: str, lines: list[str]) -> str:
+    """A small white window over the page: fades in, stays 3 seconds, fades out. CSS only."""
+    return (f'<div class="splash" role="status"><div><strong>{title}</strong>'
+            f'{"".join(f"<div>{html.escape(x)}</div>" for x in lines)}</div></div>')
+
+
+def profile_page(reader: dict, read: list[dict], favorites: list[str], owner: bool, share_url: str = "",
+                 today: date | None = None) -> str:
     """A reader's profile. `owner`: their own view (/me), with the star buttons, the public toggle
     and always the list; otherwise the public view (/u/<slug>), where the count and list only show
     if they made them public. Article links go straight to NYT, so a visitor isn't counted as opening."""
@@ -231,7 +256,12 @@ def profile_page(reader: dict, read: list[dict], favorites: list[str], owner: bo
     ask_name = ('<form class="who"><input name="name" maxlength="40" placeholder="Your first name (optional)" '
                 'autocomplete="given-name"><button>Save</button></form>') if owner and not name else ""
     scripts = (CARD_SCRIPT.replace("%ID%", "null") + PROFILE_SCRIPT) if owner else ""
-    body = (f'<div class="profile"><header><h1>{title}</h1>{count}{sub}{ask_name}</header>{top}'
+    intro = ""
+    if not owner:  # the public link opens with a short summary
+        days = streak(read, today or date.today())
+        lines = [f'{n} article{"" if n == 1 else "s"} read', *([f"{days} day streak"] if days else [])] if public else []
+        intro = splash(title, lines)
+    body = (f'{intro}<div class="profile"><header><h1>{title}</h1>{count}{sub}{ask_name}</header>{top}'
             f'<section><h2>Read</h2>{bottom}</section></div>{scripts}')
     return page(body).replace("<main>", '<main style="max-width:540px">', 1)
 
@@ -340,7 +370,8 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
                                              store.favorites(reader_id), owner=True, share_url=share))
             elif route == "u" and (other := store.reader_by_slug(push_id)) is not None:
                 rid = other["reader_id"]
-                self._send(200, profile_page(other, store.articles_read(rid), store.favorites(rid), owner=False))
+                self._send(200, profile_page(other, store.articles_read(rid), store.favorites(rid), owner=False,
+                                             today=date.fromisoformat(store.now()[:10])))
             elif route == "p" and (push := store.push(push_id)) is not None:
                 reader_id, new = self._reader_id(), None
                 if reader_id is None:

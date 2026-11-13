@@ -296,6 +296,31 @@ def test_profile_favorites_and_public_history(setup):
         server.shutdown()
 
 
+
+def test_streak_counts_days_in_a_row():
+    from datetime import date
+    read = lambda *days: [{"read_at": f"2026-11-{d:02d}T09:00:00"} for d in days]
+    today = date(2026, 11, 13)
+    assert cards.streak(read(13, 12, 11, 9), today) == 3
+    assert cards.streak(read(12, 11), today) == 2  # nothing yet today: still alive
+    assert cards.streak(read(11), today) == 0
+    assert cards.streak([], today) == 0
+
+
+def test_public_profile_opens_with_a_summary():
+    from datetime import date
+    read = [{"news_id": "a", "title": "A", "url": "u", "read_at": "2026-11-13T09:00:00"},
+            {"news_id": "b", "title": "B", "url": "u", "read_at": "2026-11-13T10:00:00"}]
+    reader = {"name": "Justin", "history_public": 1}
+    html = cards.profile_page(reader, read, [], owner=False, today=date(2026, 11, 13))
+    assert 'class="splash"' in html and "<div>2 articles read</div><div>1 day streak</div>" in html
+    private = cards.profile_page({**reader, "history_public": 0}, read, [], owner=False, today=date(2026, 11, 13))
+    assert 'class="splash"' in private and "articles read" not in private and "streak" not in private
+    assert 'class="splash"' not in cards.profile_page(reader, read, [], owner=True)
+    lapsed = cards.profile_page(reader, read, [], owner=False, today=date(2026, 11, 20))
+    assert "<div>2 articles read</div></div>" in lapsed and "streak" not in lapsed  # a 0 streak isn't shown
+
+
 def test_card_asks_for_volume_until_chosen(setup):
     n, store, sent, _db = setup
     n.run_slot(pd.Timestamp("2026-11-12 12:00"))
