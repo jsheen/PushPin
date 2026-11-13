@@ -185,11 +185,11 @@ def streak(read: list[dict], today: date) -> int:
     return n
 
 
-def splash(title: str, lines: list[str], bold: tuple[str, ...] = ()) -> str:
+def splash(title: str, lines: list[str], underline: tuple[str, ...] = ()) -> str:
     """A large white window in place of the page: fades in and stays until a tap, click or key,
-    then fades out as the page fades in. Lines in `bold` are bold. Without JavaScript it's skipped."""
+    then fades out as the page fades in. Lines in `underline` are underlined. Without JavaScript it's skipped."""
     return (f'<div class="splash" role="button" tabindex="0" aria-label="Continue"><div><strong>{title}</strong>'
-            f'{"".join(f"<div><b>{html.escape(x)}</b></div>" if x in bold else f"<div>{html.escape(x)}</div>" for x in lines)}</div><p class="tap">Tap to continue</p></div>'
+            f'{"".join(f"<div><u>{html.escape(x)}</u></div>" if x in underline else f"<div>{html.escape(x)}</div>" for x in lines)}</div><p class="tap">Tap to continue</p></div>'
             + SPLASH_SCRIPT)
 
 
@@ -303,8 +303,8 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
     scripts = (OWNER_SCRIPT + PROFILE_SCRIPT) if owner else ""
     intro = ""
     if not owner:  # the public link opens with a short summary
-        lines = [f'{n} article{"" if n == 1 else "s"} read', *([f"{days} day streak!"] if days else [])] if public else []
-        intro = splash(title, lines, bold=(f"{days} day streak!",))
+        lines = [f'{n} article{"" if n == 1 else "s"} read', *([f"{days} day streak"] if days else [])] if public else []
+        intro = splash(title, lines, underline=(f"{days} day streak",))
     if owner:  # the pinned push first; until they choose, the pushes-a-day question next
         intro = ((pin_panel(pinned, fav_ids) if pinned else "")
                  + ("" if reader.get("volume") else volume_picker(None, caps)))

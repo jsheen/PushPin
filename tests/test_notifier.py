@@ -313,8 +313,8 @@ def test_public_profile_opens_with_a_summary():
             {"news_id": "b", "title": "B", "url": "u", "read_at": "2026-11-13T10:00:00"}]
     reader = {"name": "Justin", "history_public": 1}
     html = cards.profile_page(reader, read, [], owner=False, today=date(2026, 11, 13))
-    assert 'class="splash"' in html and "<div>2 articles read</div><div><b>1 day streak!</b></div>" in html
-    assert html.count("1 day streak!") == 1 and 'Streak <span class="n">1</span>' in html  # box, then the header
+    assert 'class="splash"' in html and "<div>2 articles read</div><div><u>1 day streak</u></div>" in html
+    assert "streak!" not in html and 'Streak <span class="n">1</span>' in html  # box, then the header
     private = cards.profile_page({**reader, "history_public": 0}, read, [], owner=False, today=date(2026, 11, 13))
     assert 'class="splash"' in private and "articles read" not in private and "day streak" not in private and "Streak <span" not in private
     own = cards.profile_page(reader, read, [], owner=True, today=date(2026, 11, 13))
