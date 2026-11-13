@@ -336,6 +336,35 @@ def test_pinned_push_can_go_in_the_creme_unread(setup):
         server.shutdown()
 
 
+def test_landing_lists_pinned_articles_not_yet_read(setup):
+    n, store, sent, _db = setup
+    n.run_slot(pd.Timestamp("2026-11-12 12:00"))
+    n.run_slot(pd.Timestamp("2026-11-12 17:00"))
+    first, second = (a[4].rsplit("/", 1)[1] for a in sent)
+    server = cards.serve_cards(store, 0)
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    get, post = phone(base)
+    stranger_get, _ = phone(base)
+    try:
+        assert "<h2>Pinned" not in get(f"/p/{first}")  # the one on top isn't listed again
+        landing = get(f"/p/{second}")
+        pinned = landing.split("<h2>Pinned")[1].split("</section>")[0]
+        assert '<span class="n">1</span>' in pinned and f'data-read="{first}"' in pinned and f'data-read="{second}"' not in pinned
+        assert 'class="star"' in pinned  # straight into the Crème from the list too
+        me = get("/me")
+        assert me.count('<li><div><a') == 2 and 'Pinned <span class="n">2</span>' in me
+        post(f"/read/{first}")  # read: moves from Pinned to Read
+        me = get("/me")
+        assert 'Pinned <span class="n">1</span>' in me and f'data-read="{second}"' in me and 'Read <span class="n">1</span>' in me
+        post(f"/public", b"on")
+        slug = re.search(r"/u/([^\"]+)", me).group(1)
+        assert "Pinned" not in stranger_get(f"/u/{slug}")  # pins stay private
+        post(f"/read/{second}")
+        assert "<h2>Pinned" not in get("/me")
+    finally:
+        server.shutdown()
+
+
 def test_profile_asks_for_volume_until_chosen(setup):
     n, store, sent, _db = setup
     n.run_slot(pd.Timestamp("2026-11-12 12:00"))

@@ -269,6 +269,19 @@ class Store:
             WHERE i.kind = 'read' AND i.reader_id = :r
             GROUP BY s.news_id ORDER BY read_at DESC""", r=reader_id)
 
+    def pinned_unread(self, reader_id: str | None) -> list[dict]:
+        """Articles this reader tapped a push for but hasn't tapped Read on yet, most recently
+        pinned first: news_id, title, url, push_id (a push of it, for recording the read)."""
+        if not reader_id or not self._has_scores():
+            return []
+        return self._rows("""SELECT s.news_id, MAX(s.title) AS title, MAX(s.url) AS url, MAX(i.push_id) AS push_id,
+                MAX(i.created_at) AS pinned_at
+            FROM interactions i JOIN scores s ON s.push_id = i.push_id AND s.sent
+            WHERE i.kind = 'open' AND i.reader_id = :r AND s.news_id NOT IN (
+                SELECT s2.news_id FROM interactions i2 JOIN scores s2 ON s2.push_id = i2.push_id AND s2.sent
+                WHERE i2.kind = 'read' AND i2.reader_id = :r)
+            GROUP BY s.news_id ORDER BY pinned_at DESC""", r=reader_id)
+
     def pinned(self, reader_id: str, news_id: str) -> bool:
         """Whether this reader tapped (or read) a push of this article."""
         if not self._has_scores():

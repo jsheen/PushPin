@@ -53,8 +53,10 @@ top (headline and abstract) and two choices:
 - **☆ Put in Crème** makes it their **Crème**, the one article they liked most. Any pinned
   article can be the Crème, read or not; picking another replaces it.
 
-Below the pinned article is the rest of the profile, the same page as `/me`: the Crème, how
-many articles they've read (tapped Read on) and the list, where ☆ also picks the Crème, and
+Below the pinned article is the rest of the profile, the same page as `/me`: the Crème, then
+**Pinned**, every other article they tapped a push for but haven't read yet (tapping one's
+headline reads it, ☆ makes it the Crème; only the reader sees this list), how many articles
+they've read (tapped Read on) and the list, where ☆ also picks the Crème, and
 **Pushes a day** (Light, Medium or Heavy, see below; asked right under the pinned article until
 they choose). A **Make my reading public** checkbox shows the count and list on their public
 link, `/u/<slug>`, which uses a separate random id, not the reader cookie. Visitors always see the

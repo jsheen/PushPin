@@ -14,7 +14,8 @@ The first push a phone opens, or the /start page (linked from the welcome push,
 `pushpin.notifier --welcome`), sets a cookie with a random reader id, and everything the reader
 does is stored under it. What they do on NYT isn't tracked.
 
-/me is the same profile without a pinned article: their top article on top (the Crème), how many
+/me is the same profile without a pinned article: their top article on top (the Crème), the
+articles they pinned but haven't read yet (each with Read and ☆), how many
 articles they've read (tapped Read on) with the list, which they can make public, and how many
 pushes a day they want (light, medium or heavy). /u/<slug> is the profile for anyone with the
 link: the Crème always, the count and list only when public.
@@ -70,7 +71,7 @@ border-radius:8px;background:var(--btn);color:var(--fg)}
 .profile h2{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:0 0 12px}
 .profile .list li{display:flex;gap:12px;align-items:flex-start}.profile .list li>div{flex:1;min-width:0}
 .profile .list a{color:var(--fg)}.profile .list a:hover{color:var(--link)}
-.profile .empty{color:var(--muted)}
+.profile .empty{color:var(--muted)}.profile h2 .n{color:var(--fg);margin-left:6px;letter-spacing:0}
 .profile section>.list>li:last-child{border-bottom:0}
 .star{font:inherit;font-size:20px;line-height:1;padding:2px 4px;border:0;background:none;color:var(--muted);cursor:pointer}
 .star[aria-pressed=true]{color:var(--on)}
@@ -239,9 +240,11 @@ def pin_panel(push: dict, creme: set[str]) -> str:
 
 
 def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: bool, share_url: str = "",
-                 today: date | None = None, pinned: dict | None = None, caps: dict | None = None) -> str:
+                 today: date | None = None, pinned: dict | None = None, caps: dict | None = None,
+                 unread: list[dict] | None = None) -> str:
     """A reader's profile. `owner`: their own view (/me, or /p/<push_id> with that push's article
-    `pinned` on top), with the star buttons, the public toggle, pushes a day and always the list;
+    `pinned` on top), with the articles pinned but not read yet (`unread`, each with Read and a
+    star), the star buttons, the public toggle, pushes a day and always the list;
     otherwise the public view (/u/<slug>), where the count and list only show if they made them
     public. Article links go straight to NYT, so a visitor isn't counted as opening or reading."""
     e = html.escape
@@ -254,7 +257,8 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
         on = a["news_id"] in fav_ids
         button = (f'<button class="star" data-fav="{e(a["news_id"])}" aria-pressed="{"true" if on else "false"}" '
                   f'aria-label="Add to Crème">{"★" if on else "☆"}</button>') if star else ""
-        return (f'<li><div><a href="{e(a["url"] or "#")}">{e(a["title"] or "Untitled")}</a>'
+        read_tap = f' data-read="{e(a["push_id"])}"' if a.get("push_id") else ""  # a pinned one: tapping reads it
+        return (f'<li><div><a href="{e(a["url"] or "#")}"{read_tap}>{e(a["title"] or "Untitled")}</a>'
                 f'</div>{button}</li>')
 
     slots = "".join(item(a, owner) for a in favs)
@@ -263,6 +267,10 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
     elif not favs:
         slots = '<li class="empty">Nothing picked yet.</li>'
     top = f'<section><h2>Crème</h2><ul class="list">{slots}</ul></section>'
+    waiting = [a for a in (unread or []) if not pinned or a["news_id"] != pinned["news_id"]] if owner else []
+    if waiting:  # only the owner sees what they pinned; the one on top isn't listed twice
+        top += (f'<section><h2>Pinned <span class="n">{len(waiting)}</span></h2><ul class="list">'
+                f'{"".join(item(a, True) for a in waiting)}</ul></section>')
 
     n = len(read)
     first = date.fromisoformat(min(a["read_at"] for a in read)[:10]) if read else None
@@ -350,7 +358,8 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
             proto = self.headers.get("x-forwarded-proto") or "http"
             share = f"{proto}://{self.headers.get('host') or 'localhost'}/u/{store.slug(reader_id)}"
             return profile_page(store.reader(reader_id), store.articles_read(reader_id), store.favorites(reader_id),
-                                owner=True, share_url=share, pinned=pinned, caps=caps)
+                                owner=True, share_url=share, pinned=pinned, caps=caps,
+                                unread=store.pinned_unread(reader_id))
 
         def _route(self) -> tuple[str, str]:
             route, _, push_id = self.path.split("?")[0].lstrip("/").partition("/")
