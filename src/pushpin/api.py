@@ -1,4 +1,4 @@
-"""pushNYT serving API: click scores and push decisions for one training run.
+"""pushPin serving API: click scores and push decisions for one training run.
 
 Serves the run's precomputed test-set predictions (predictions.parquet), so it covers the
 impressions of that run's test day. Scoring arbitrary live requests would need the per-user
@@ -41,8 +41,8 @@ from prometheus_client import (
 )
 from pydantic import BaseModel, Field
 
-from pushnyt.data import SLOTS
-from pushnyt.objective import objective_parts
+from pushpin.data import SLOTS
+from pushpin.objective import objective_parts
 
 
 class ScoreRequest(BaseModel):
@@ -54,7 +54,7 @@ class PushRequest(ScoreRequest):
     friction: float = Field(0.2, ge=0, le=1, description="0 = pure click model, 1 = least-seen subcategory")
 
 
-log = logging.getLogger("pushnyt.api")
+log = logging.getLogger("pushpin.api")
 
 
 class Metrics:
@@ -62,22 +62,22 @@ class Metrics:
 
     def __init__(self, run: str, test_auc: float | None):
         self.registry = r = CollectorRegistry()
-        self.requests = Counter("pushnyt_requests_total", "Requests by endpoint and status",
+        self.requests = Counter("pushpin_requests_total", "Requests by endpoint and status",
                                 ["endpoint", "status"], registry=r)
-        self.latency = Histogram("pushnyt_request_seconds", "Request latency by endpoint", ["endpoint"],
+        self.latency = Histogram("pushpin_request_seconds", "Request latency by endpoint", ["endpoint"],
                                  buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5), registry=r)
-        self.decisions = Counter("pushnyt_push_decisions_total", "Send policy decisions on /push",
+        self.decisions = Counter("pushpin_push_decisions_total", "Send policy decisions on /push",
                                  ["decision"], registry=r)
-        self.p_click = Histogram("pushnyt_push_p_click", "Calibrated P(click) of the chosen push",
+        self.p_click = Histogram("pushpin_push_p_click", "Calibrated P(click) of the chosen push",
                                  buckets=(0.02, 0.04, 0.06, 0.08, 0.1, 0.12, 0.15, 0.2, 0.3), registry=r)
-        self.novelty = Histogram("pushnyt_push_novelty", "Novelty of the chosen push",
+        self.novelty = Histogram("pushpin_push_novelty", "Novelty of the chosen push",
                                  buckets=(0.5, 0.8, 0.9, 0.95, 0.99, 1.0), registry=r)
-        self.friction = Histogram("pushnyt_push_friction", "Friction requested on /push",
+        self.friction = Histogram("pushpin_push_friction", "Friction requested on /push",
                                   buckets=(0, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0), registry=r)
-        info = Gauge("pushnyt_model_info", "Loaded run (value is always 1)", ["run"], registry=r)
+        info = Gauge("pushpin_model_info", "Loaded run (value is always 1)", ["run"], registry=r)
         info.labels(run=run).set(1)
         if test_auc is not None:
-            Gauge("pushnyt_model_test_auc", "Test AUC of the loaded run", registry=r).set(test_auc)
+            Gauge("pushpin_model_test_auc", "Test AUC of the loaded run", registry=r).set(test_auc)
 
 
 def create_app(run_dir: str | Path, send_cfg: dict | None = None) -> FastAPI:
@@ -94,7 +94,7 @@ def create_app(run_dir: str | Path, send_cfg: dict | None = None) -> FastAPI:
         user_id=("user_id", "first"), time=("time", "first"), slot=("slot", "first"),
         n_candidates=("news_id", "size")).reset_index()
 
-    app = FastAPI(title="pushNYT", description="Push notification scoring and selection")
+    app = FastAPI(title="pushPin", description="Push notification scoring and selection")
     stats = Metrics(run_dir.name, metrics.get("auc"))
 
     @app.middleware("http")
@@ -180,9 +180,9 @@ def create_app(run_dir: str | Path, send_cfg: dict | None = None) -> FastAPI:
 def main() -> None:
     import uvicorn
 
-    config_path = Path(os.environ.get("PUSHNYT_OBJECTIVE_CONFIG", "configs/objective.yml"))
+    config_path = Path(os.environ.get("PUSHPIN_OBJECTIVE_CONFIG", "configs/objective.yml"))
     send_cfg = yaml.safe_load(config_path.read_text())["send"] if config_path.exists() else None
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    app = create_app(os.environ.get("PUSHNYT_RUN_DIR", "outputs/full"), send_cfg)
+    app = create_app(os.environ.get("PUSHPIN_RUN_DIR", "outputs/full"), send_cfg)
     # access_log off: the monitor middleware already writes one structured line per request
     uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", "8000")), access_log=False)

@@ -3,7 +3,7 @@
 # Usage: ./docker-shell.sh [--no-build]
 set -euo pipefail
 
-IMAGE_NAME="pushnyt-train:latest"
+IMAGE_NAME="pushpin-train:latest"
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [[ "${1:-}" != "--no-build" ]]; then
@@ -16,7 +16,7 @@ ENV_ARGS=()
 [[ -f "$BASE_DIR/.env" ]] && ENV_ARGS=(--env-file "$BASE_DIR/.env")
 
 docker run --rm -it \
-  --name pushnyt-shell \
+  --name pushpin-shell \
   --shm-size=2g \
   ${ENV_ARGS[@]+"${ENV_ARGS[@]}"} \
   -e DATA_DIR=/app/data \

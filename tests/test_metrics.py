@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 from sklearn.metrics import roc_auc_score
 
-from pushnyt.train import _weighted_auc, bootstrap_ci, check_quality, impression_aucs
+from pushpin.train import _weighted_auc, bootstrap_ci, check_quality, impression_aucs
 
 
 def test_weighted_auc_matches_sklearn_with_ties():

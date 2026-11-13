@@ -4,7 +4,7 @@ Separate per-run CIs overlap even when one model is reliably better, because mos
 width is shared test-set noise. Here each replicate resamples whole impressions once and
 scores both runs on that same sample, so the CI is for the difference itself.
 
-Usage: pushnyt-compare outputs/ablation-no-llm outputs/ablation-with-llm
+Usage: pushpin-compare outputs/ablation-no-llm outputs/ablation-with-llm
 Writes <b>/compare_vs_<a name>.json.
 """
 
@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import roc_auc_score
 
-from pushnyt.train import _weighted_auc, impression_aucs
+from pushpin.train import _weighted_auc, impression_aucs
 
 KEYS = ["impression_id", "news_id"]
 

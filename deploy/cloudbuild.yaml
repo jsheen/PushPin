@@ -6,17 +6,17 @@ steps:
     name: gcr.io/cloud-builders/docker
     env: ["DOCKER_BUILDKIT=1"]
     args: ["build", "-f", "Dockerfile.objective",
-           "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/pushnyt/objective:${_TAG}", "."]
+           "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/pushpin/objective:${_TAG}", "."]
     waitFor: ["-"]
   - id: train       # scorer (torch, xgboost, chroma, fastapi)
     name: gcr.io/cloud-builders/docker
     env: ["DOCKER_BUILDKIT=1"]
     args: ["build", "-f", "Dockerfile",
-           "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/pushnyt/train:${_TAG}", "."]
+           "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/pushpin/train:${_TAG}", "."]
     waitFor: ["-"]
 images:
-  - "${_REGION}-docker.pkg.dev/$PROJECT_ID/pushnyt/objective:${_TAG}"
-  - "${_REGION}-docker.pkg.dev/$PROJECT_ID/pushnyt/train:${_TAG}"
+  - "${_REGION}-docker.pkg.dev/$PROJECT_ID/pushpin/objective:${_TAG}"
+  - "${_REGION}-docker.pkg.dev/$PROJECT_ID/pushpin/train:${_TAG}"
 substitutions:
   _REGION: us-east1
   _TAG: latest

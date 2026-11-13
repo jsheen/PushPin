@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.special import expit
 
-from pushnyt.calibration import apply_platt, calibration_metrics, fit_platt
+from pushpin.calibration import apply_platt, calibration_metrics, fit_platt
 
 
 def test_platt_fixes_overconfidence_and_keeps_the_ranking():

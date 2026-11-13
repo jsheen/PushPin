@@ -5,9 +5,9 @@
 apiVersion: serving.knative.dev/v1
 kind: Service
 metadata:
-  name: pushnyt-cards
+  name: pushpin-cards
   labels:
-    app: pushnyt
+    app: pushpin
 spec:
   template:
     metadata:
@@ -16,21 +16,21 @@ spec:
         autoscaling.knative.dev/maxScale: "5"
         run.googleapis.com/cloudsql-instances: ${SQL_INSTANCE}   # mounts the socket at /cloudsql/${SQL_INSTANCE}
     spec:
-      serviceAccountName: pushnyt-run@${PROJECT}.iam.gserviceaccount.com
+      serviceAccountName: pushpin-run@${PROJECT}.iam.gserviceaccount.com
       containerConcurrency: 40
       timeoutSeconds: 30
       containers:
-        - image: ${REGION}-docker.pkg.dev/${PROJECT}/pushnyt/objective:${TAG}
-          args: ["python -m pushnyt.cards"]   # the image's entrypoint is bash -c
+        - image: ${REGION}-docker.pkg.dev/${PROJECT}/pushpin/objective:${TAG}
+          args: ["python -m pushpin.cards"]   # the image's entrypoint is bash -c
           ports:
             - containerPort: 8080
           env:
             - name: DATABASE_URL
               valueFrom:
-                secretKeyRef: {name: pushnyt-database-url, key: latest}
+                secretKeyRef: {name: pushpin-database-url, key: latest}
             - name: CARDS_STATS_TOKEN   # lets the scorer's autoscaler (KEDA, on GKE) read the reader count
               valueFrom:
-                secretKeyRef: {name: pushnyt-stats-token, key: latest}
+                secretKeyRef: {name: pushpin-stats-token, key: latest}
           resources:
             limits: {cpu: "1", memory: 512Mi}
           startupProbe:

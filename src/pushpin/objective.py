@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from pushnyt.plots import plot_tradeoff, plot_volume
+from pushpin.plots import plot_tradeoff, plot_volume
 
 
 def _rank(values, groups: np.ndarray) -> np.ndarray:

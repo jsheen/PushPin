@@ -1,7 +1,7 @@
 [project]
-name = "pushnyt"
+name = "pushpin"
 version = "0.1.0"
-description = "Training pipeline and push objective for the pushNYT model"
+description = "Training pipeline and push objective for the pushPin model"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 # Core deps are all the objective image needs; the training image adds the `train` extra.
@@ -38,27 +38,27 @@ dev = [
 ]
 
 [project.scripts]
-pushnyt-train = "pushnyt.train:main"
-pushnyt-embed = "pushnyt.embed:main"
-pushnyt-objective = "pushnyt.objective:main"
-pushnyt-api = "pushnyt.api:main"
-pushnyt-exploration = "pushnyt.exploration:main"
-pushnyt-fatigue = "pushnyt.fatigue:main"
-pushnyt-profile = "pushnyt.profile:main"
-pushnyt-compare = "pushnyt.compare:main"
-pushnyt-live-parity = "pushnyt.live:main"
-pushnyt-nyt-sim = "pushnyt.nyt:main"
-pushnyt-scorer = "pushnyt.scorer_api:main"
-pushnyt-push-job = "pushnyt.push_job:main"
-pushnyt-notifier = "pushnyt.notifier:main"
-pushnyt-cards = "pushnyt.cards:main"
+pushpin-train = "pushpin.train:main"
+pushpin-embed = "pushpin.embed:main"
+pushpin-objective = "pushpin.objective:main"
+pushpin-api = "pushpin.api:main"
+pushpin-exploration = "pushpin.exploration:main"
+pushpin-fatigue = "pushpin.fatigue:main"
+pushpin-profile = "pushpin.profile:main"
+pushpin-compare = "pushpin.compare:main"
+pushpin-live-parity = "pushpin.live:main"
+pushpin-nyt-sim = "pushpin.nyt:main"
+pushpin-scorer = "pushpin.scorer_api:main"
+pushpin-push-job = "pushpin.push_job:main"
+pushpin-notifier = "pushpin.notifier:main"
+pushpin-cards = "pushpin.cards:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/pushnyt"]
+packages = ["src/pushpin"]
 
 # Pull CPU-only torch wheels inside Linux containers (avoids ~2GB of CUDA libs).
 # Remove this block (or point at a cu12x index) when building a GPU image.

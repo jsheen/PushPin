@@ -19,9 +19,9 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from pushnyt.data import explode_impressions, load_behaviors, load_news
-from pushnyt.features import history_matrix, subcat_novelty
-from pushnyt.plots import plot_exploration
+from pushpin.data import explode_impressions, load_behaviors, load_news
+from pushpin.features import history_matrix, subcat_novelty
+from pushpin.plots import plot_exploration
 
 BUCKETS = ["Never shown", "Rarely shown", "Familiar"]
 

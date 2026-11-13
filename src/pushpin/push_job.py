@@ -1,8 +1,8 @@
 """The push job: at each slot, pick and gate one push per user from newly published articles.
 
 It never computes features itself. It talks to a *scorer*, either in the same process
-(`nyt.LocalScorer`, used by `pushnyt-nyt-sim`) or over HTTP (`HttpScorer`, which calls the
-`pushnyt-scorer` service; see scorer_api.py). Both answer the same four calls:
+(`nyt.LocalScorer`, used by `pushpin-nyt-sim`) or over HTTP (`HttpScorer`, which calls the
+`pushpin-scorer` service; see scorer_api.py). Both answer the same four calls:
 
   info()                  -> {"log_end": ...}  end of the user-state log
   users(n, seed)          -> sample of users to push to
@@ -15,7 +15,7 @@ library), so it runs in the small objective image. With docker compose:
   docker compose up scorer -d          # loads the model and MIND user state, then serves :8000
   docker compose run --rm push-job     # calls http://scorer:8000 by service name
 
-Writes <out>/: scores.parquet, pushes.parquet, daily.csv, summary.json (same as pushnyt-nyt-sim).
+Writes <out>/: scores.parquet, pushes.parquet, daily.csv, summary.json (same as pushpin-nyt-sim).
 """
 
 import argparse
@@ -29,8 +29,8 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from pushnyt.objective import push_scores, send_decisions
-from pushnyt.plots import plot_reach
+from pushpin.objective import push_scores, send_decisions
+from pushpin.plots import plot_reach
 
 SLOT_HOURS = (8, 13, 19)  # morning, afternoon, evening push times (New York time)
 LOOKBACK_HOURS = 13       # the first slot's candidates: articles since the previous evening
@@ -176,7 +176,7 @@ def write_outputs(out: Path, scores: pd.DataFrame, pushes: pd.DataFrame, summary
 
 
 class HttpScorer:
-    """The scorer interface over HTTP, against a running pushnyt-scorer service."""
+    """The scorer interface over HTTP, against a running pushpin-scorer service."""
 
     def __init__(self, url: str, timeout: float = 600):
         self.url, self.timeout = url.rstrip("/"), timeout
@@ -207,7 +207,7 @@ class HttpScorer:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Push job: score users through a pushnyt-scorer service")
+    parser = argparse.ArgumentParser(description="Push job: score users through a pushpin-scorer service")
     parser.add_argument("--scorer", default="http://scorer:8000", help="scorer service URL")
     parser.add_argument("--nyt", type=Path, default=Path("data/nyt-recent.csv"), help="the news feed")
     parser.add_argument("--users", type=int, default=1000)

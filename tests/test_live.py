@@ -4,9 +4,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pushnyt.data import load_behaviors
-from pushnyt.live import load_scorer, parity
-from pushnyt.train import train
+from pushpin.data import load_behaviors
+from pushpin.live import load_scorer, parity
+from pushpin.train import train
 
 
 @pytest.fixture

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy pushNYT's push pipeline to Google Cloud, mixed: the scorer on GKE, the card server on
+# Deploy pushPin's push pipeline to Google Cloud, mixed: the scorer on GKE, the card server on
 # Cloud Run, each notifier slot as a Cloud Run job started by Cloud Scheduler, data in Cloud SQL.
 #
 # DRY RUN BY DEFAULT: without --apply it only prints the commands, so nothing is created and
@@ -24,13 +24,13 @@ APPLY=0
 
 PROJECT=${PROJECT:-$(gcloud config get-value project 2>/dev/null)}
 REGION=${REGION:-us-east1}
-BUCKET=${BUCKET:-pushnyt-data}
+BUCKET=${BUCKET:-pushnyt-data}  # the bucket predates the pushPin rename
 RUN=${RUN:-ablation-with-llm}
 TAG=${TAG:-$(git rev-parse --short HEAD)}
-CLUSTER=pushnyt
-SQL=pushnyt-db
+CLUSTER=pushpin
+SQL=pushpin-db
 SQL_INSTANCE=$PROJECT:$REGION:$SQL
-RUN_SA=pushnyt-run@$PROJECT.iam.gserviceaccount.com
+RUN_SA=pushpin-run@$PROJECT.iam.gserviceaccount.com
 KEDA_VERSION=2.17.0
 export PROJECT REGION BUCKET RUN TAG SQL_INSTANCE
 
@@ -51,15 +51,15 @@ lookup() {   # a value that only exists once the resource does: the real one wit
 }
 
 cards_url() {
-  lookup "gcloud run services describe pushnyt-cards --region $REGION --format 'value(status.url)'" \
-    "https://pushnyt-cards-<hash>.$REGION.run.app"
+  lookup "gcloud run services describe pushpin-cards --region $REGION --format 'value(status.url)'" \
+    "https://pushpin-cards-<hash>.$REGION.run.app"
 }
 
 scorer_url() {
   if [[ $APPLY == 1 ]]; then
     local ip=""
     for _ in $(seq 1 60); do   # the internal load balancer takes a minute or two to get its address
-      ip=$(kubectl -n pushnyt get svc scorer -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+      ip=$(kubectl -n pushpin get svc scorer -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
       [[ -n $ip ]] && break
       sleep 10
     done
@@ -88,8 +88,8 @@ setup)
   run gcloud services enable run.googleapis.com container.googleapis.com sqladmin.googleapis.com \
     artifactregistry.googleapis.com cloudbuild.googleapis.com cloudscheduler.googleapis.com \
     secretmanager.googleapis.com
-  run gcloud artifacts repositories create pushnyt --repository-format=docker --location=$REGION
-  run gcloud iam service-accounts create pushnyt-run --display-name "'pushNYT Cloud Run'"
+  run gcloud artifacts repositories create pushpin --repository-format=docker --location=$REGION
+  run gcloud iam service-accounts create pushpin-run --display-name "'pushPin Cloud Run'"
   for role in roles/cloudsql.client roles/secretmanager.secretAccessor roles/run.invoker; do
     run gcloud projects add-iam-policy-binding $PROJECT --member serviceAccount:$RUN_SA --role $role --condition=None
   done
@@ -99,14 +99,14 @@ setup)
   SECRETS+=("$password" "$stats")
   run gcloud sql instances create $SQL --database-version=POSTGRES_16 --edition=enterprise \
     --tier=db-f1-micro --region=$REGION --storage-size=10
-  run gcloud sql databases create pushnyt --instance=$SQL
-  run gcloud sql users create pushnyt --instance=$SQL --password=$password
+  run gcloud sql databases create pushpin --instance=$SQL
+  run gcloud sql users create pushpin --instance=$SQL --password=$password
 
   echo "# Secrets: the database URL (via the Cloud SQL socket), the ntfy topic, the /stats token"
-  url="postgresql+psycopg://pushnyt:$password@/pushnyt?host=/cloudsql/$SQL_INSTANCE"
-  run "printf %s '$url' | gcloud secrets create pushnyt-database-url --data-file=-"
-  run "printf %s '$topic' | gcloud secrets create pushnyt-ntfy-topic --data-file=-"
-  run "printf %s '$stats' | gcloud secrets create pushnyt-stats-token --data-file=-"
+  url="postgresql+psycopg://pushpin:$password@/pushpin?host=/cloudsql/$SQL_INSTANCE"
+  run "printf %s '$url' | gcloud secrets create pushpin-database-url --data-file=-"
+  run "printf %s '$topic' | gcloud secrets create pushpin-ntfy-topic --data-file=-"
+  run "printf %s '$stats' | gcloud secrets create pushpin-stats-token --data-file=-"
 
   echo "# GKE Autopilot (the free tier covers one cluster's management fee) and KEDA"
   run gcloud container clusters create-auto $CLUSTER --region=$REGION
@@ -120,7 +120,7 @@ setup)
     run gcloud storage cp outputs/$RUN/$f gs://$BUCKET/outputs/$RUN/$f
   done
   run gcloud storage buckets add-iam-policy-binding gs://$BUCKET --role roles/storage.objectViewer \
-    --member "principal://iam.googleapis.com/projects/$number/locations/global/workloadIdentityPools/$PROJECT.svc.id.goog/subject/ns/pushnyt/sa/scorer"
+    --member "principal://iam.googleapis.com/projects/$number/locations/global/workloadIdentityPools/$PROJECT.svc.id.goog/subject/ns/pushpin/sa/scorer"
   ;;
 
 images)
@@ -133,15 +133,15 @@ deploy)
   if [[ $APPLY == 1 ]]; then
     tmp=$(mktemp) && render deploy/cloudrun/cards.yaml > "$tmp" && gcloud run services replace "$tmp" --region $REGION
   fi
-  run gcloud run services add-iam-policy-binding pushnyt-cards --region $REGION --member allUsers --role roles/run.invoker
+  run gcloud run services add-iam-policy-binding pushpin-cards --region $REGION --member allUsers --role roles/run.invoker
   CARDS_URL=$(cards_url); export CARDS_URL
 
   echo "# 2. Scorer on GKE, behind an internal load balancer, scaled by KEDA from the reader count"
   run gcloud container clusters get-credentials $CLUSTER --region=$REGION
   for f in namespace serviceaccount scorer-deployment scorer-service; do apply_file deploy/k8s/$f.yaml; done
-  token=$(lookup "gcloud secrets versions access latest --secret pushnyt-stats-token" "<stats-token>")
+  token=$(lookup "gcloud secrets versions access latest --secret pushpin-stats-token" "<stats-token>")
   SECRETS+=("$token")
-  run "kubectl -n pushnyt create secret generic cards-stats --from-literal=token=$token --dry-run=client -o yaml | kubectl apply -f -"
+  run "kubectl -n pushpin create secret generic cards-stats --from-literal=token=$token --dry-run=client -o yaml | kubectl apply -f -"
   apply_file deploy/k8s/scorer-scaledobject.yaml
   SCORER_URL=$(scorer_url); export SCORER_URL
 
@@ -152,47 +152,47 @@ deploy)
   fi
 
   echo "# 4. Cloud Scheduler: start the job at each slot hour, New York time"
-  uri="https://run.googleapis.com/v2/projects/$PROJECT/locations/$REGION/jobs/pushnyt-notifier:run"
+  uri="https://run.googleapis.com/v2/projects/$PROJECT/locations/$REGION/jobs/pushpin-notifier:run"
   verb=create
-  [[ $APPLY == 1 ]] && gcloud scheduler jobs describe pushnyt-slots --location $REGION >/dev/null 2>&1 && verb=update
-  run gcloud scheduler jobs $verb http pushnyt-slots --location $REGION --schedule "'0 8,12,17,21 * * *'" \
+  [[ $APPLY == 1 ]] && gcloud scheduler jobs describe pushpin-slots --location $REGION >/dev/null 2>&1 && verb=update
+  run gcloud scheduler jobs $verb http pushpin-slots --location $REGION --schedule "'0 8,12,17,21 * * *'" \
     --time-zone America/New_York --uri $uri --http-method POST --oauth-service-account-email $RUN_SA
-  echo "# try a slot now: gcloud run jobs execute pushnyt-notifier --region $REGION --wait"
+  echo "# try a slot now: gcloud run jobs execute pushpin-notifier --region $REGION --wait"
   ;;
 
 pause)
-  run kubectl -n pushnyt annotate scaledobject scorer autoscaling.keda.sh/paused-replicas=0 --overwrite
-  run gcloud scheduler jobs pause pushnyt-slots --location $REGION
+  run kubectl -n pushpin annotate scaledobject scorer autoscaling.keda.sh/paused-replicas=0 --overwrite
+  run gcloud scheduler jobs pause pushpin-slots --location $REGION
   run gcloud sql instances patch $SQL --activation-policy NEVER
   ;;
 
 resume)
   run gcloud sql instances patch $SQL --activation-policy ALWAYS
-  run kubectl -n pushnyt annotate scaledobject scorer autoscaling.keda.sh/paused-replicas-
-  run gcloud scheduler jobs resume pushnyt-slots --location $REGION
+  run kubectl -n pushpin annotate scaledobject scorer autoscaling.keda.sh/paused-replicas-
+  run gcloud scheduler jobs resume pushpin-slots --location $REGION
   ;;
 
 status)
   APPLY=1
   echo "# project $PROJECT, region $REGION"
-  run "gcloud run services list --region $REGION --filter metadata.labels.app=pushnyt 2>/dev/null || true"
+  run "gcloud run services list --region $REGION --filter metadata.labels.app=pushpin 2>/dev/null || true"
   run "gcloud run jobs list --region $REGION 2>/dev/null || true"
   run "gcloud scheduler jobs list --location $REGION 2>/dev/null || true"
   run "gcloud sql instances list 2>/dev/null || true"
   run "gcloud container clusters list 2>/dev/null || true"
-  run "kubectl -n pushnyt get deploy,svc,scaledobject 2>/dev/null || true"
+  run "kubectl -n pushpin get deploy,svc,scaledobject 2>/dev/null || true"
   ;;
 
 down)
   echo "# deletes the cluster, Cloud SQL (and its data), the Cloud Run service and job, the schedule,"
   echo "# the secrets and the image registry. The bucket is kept."
-  run gcloud scheduler jobs delete pushnyt-slots --location $REGION --quiet
-  run gcloud run jobs delete pushnyt-notifier --region $REGION --quiet
-  run gcloud run services delete pushnyt-cards --region $REGION --quiet
+  run gcloud scheduler jobs delete pushpin-slots --location $REGION --quiet
+  run gcloud run jobs delete pushpin-notifier --region $REGION --quiet
+  run gcloud run services delete pushpin-cards --region $REGION --quiet
   run gcloud container clusters delete $CLUSTER --region $REGION --quiet
   run gcloud sql instances delete $SQL --quiet
-  for s in pushnyt-database-url pushnyt-ntfy-topic pushnyt-stats-token; do run gcloud secrets delete $s --quiet; done
-  run gcloud artifacts repositories delete pushnyt --location $REGION --quiet
+  for s in pushpin-database-url pushpin-ntfy-topic pushpin-stats-token; do run gcloud secrets delete $s --quiet; done
+  run gcloud artifacts repositories delete pushpin --location $REGION --quiet
   ;;
 
 *)

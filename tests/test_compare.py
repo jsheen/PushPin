@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pushnyt.compare import load_pair, paired_bootstrap
+from pushpin.compare import load_pair, paired_bootstrap
 
 
 def _rows(seed=0, n_imp=300, per=10):

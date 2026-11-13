@@ -33,7 +33,7 @@ class ArticleStore:
             found = dict(zip(res["ids"], res["embeddings"]))
             if len(found) < len(chunk):
                 raise KeyError(f"{len(chunk) - len(found)} ids are not in the vector database; "
-                               "run pushnyt-embed / pushnyt-profile first")
+                               "run pushpin-embed / pushpin-profile first")
             yield i, np.asarray([found[x] for x in chunk], dtype=np.float32)
 
     def vectors(self, ids: list[str]) -> np.ndarray:

@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from pushnyt.fatigue import fatigue_index
+from pushpin.fatigue import fatigue_index
 
 BINS, LABELS = [-1, 0, 2, np.inf], ["0", "1–2", "3+"]
 

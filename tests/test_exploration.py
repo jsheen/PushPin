@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from pushnyt.exploration import exploration_events, familiarity
+from pushpin.exploration import exploration_events, familiarity
 
 T0 = np.datetime64("2019-11-09T00:00")
 

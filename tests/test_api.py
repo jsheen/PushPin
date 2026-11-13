@@ -6,7 +6,7 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from pushnyt.api import create_app
+from pushpin.api import create_app
 
 
 @pytest.fixture
@@ -79,16 +79,16 @@ def test_metrics_track_requests_and_push_decisions(client):
     client.post("/push", json={"impression_id": 2, "friction": 0})   # held
     client.post("/score", json={"impression_id": 999})                # 404
     text = client.get("/metrics").text
-    assert 'pushnyt_push_decisions_total{decision="send"} 1.0' in text
-    assert 'pushnyt_push_decisions_total{decision="hold"} 1.0' in text
-    assert 'pushnyt_requests_total{endpoint="/score",status="404"} 1.0' in text
-    assert 'pushnyt_model_info{run=' in text and "pushnyt_model_test_auc 0.66" in text
+    assert 'pushpin_push_decisions_total{decision="send"} 1.0' in text
+    assert 'pushpin_push_decisions_total{decision="hold"} 1.0' in text
+    assert 'pushpin_requests_total{endpoint="/score",status="404"} 1.0' in text
+    assert 'pushpin_model_info{run=' in text and "pushpin_model_test_auc 0.66" in text
 
 
 def test_each_request_logs_one_json_line(client, caplog):
-    with caplog.at_level("INFO", logger="pushnyt.api"):
+    with caplog.at_level("INFO", logger="pushpin.api"):
         client.post("/push", json={"impression_id": 1, "friction": 0.2})
         client.get("/users/U1/impressions")
-    lines = [json.loads(r.message) for r in caplog.records if r.name == "pushnyt.api"]
+    lines = [json.loads(r.message) for r in caplog.records if r.name == "pushpin.api"]
     assert lines[0]["endpoint"] == "/push" and lines[0]["status"] == 200 and "send" in lines[0]
     assert lines[1]["endpoint"] == "/users/{user_id}/impressions"  # route template, not the raw path

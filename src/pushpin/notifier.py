@@ -22,11 +22,11 @@ shifted so the notifier's first day maps to the day after the log; the shift is 
 so it stays the same across restarts.
 
 Modes:
-  python -m pushnyt.notifier                    # loop: sleep until each slot, run it (local)
-  python -m pushnyt.notifier --once             # run one slot now and exit (a Cloud Run job / CronJob)
-  python -m pushnyt.notifier --once --dry-run   # score and log, send nothing
-  python -m pushnyt.notifier --test             # send a test notification
-  python -m pushnyt.notifier --welcome          # send the welcome push: pick light / medium / heavy
+  python -m pushpin.notifier                    # loop: sleep until each slot, run it (local)
+  python -m pushpin.notifier --once             # run one slot now and exit (a Cloud Run job / CronJob)
+  python -m pushpin.notifier --once --dry-run   # score and log, send nothing
+  python -m pushpin.notifier --test             # send a test notification
+  python -m pushpin.notifier --welcome          # send the welcome push: pick light / medium / heavy
 """
 
 import argparse
@@ -46,10 +46,10 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import yaml
 
-from pushnyt.cards import open_store
-from pushnyt.objective import push_scores, send_decisions
-from pushnyt.push_job import HttpScorer
-from pushnyt.store import ARTICLE_COLUMNS, Store
+from pushpin.cards import open_store
+from pushpin.objective import push_scores, send_decisions
+from pushpin.push_job import HttpScorer
+from pushpin.store import ARTICLE_COLUMNS, Store
 
 NEW_USER_PREFIX = "new-"  # MIND ids look like U12345, so these never collide
 
@@ -76,7 +76,7 @@ def parse_rss(xml: bytes, tz: ZoneInfo) -> pd.DataFrame:
 def fetch_feeds(urls: list[str], tz: ZoneInfo) -> pd.DataFrame:
     frames = []
     for url in urls:
-        req = urllib.request.Request(url, headers={"user-agent": "pushnyt-notifier"})
+        req = urllib.request.Request(url, headers={"user-agent": "pushpin-notifier"})
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 frames.append(parse_rss(resp.read(), tz))
@@ -274,7 +274,7 @@ def wait_for(scorer: HttpScorer, timeout: float = 900) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Push NYT articles to your phone and log clicks")
     parser.add_argument("--config", type=Path, default=Path("configs/notifier.yml"))
-    parser.add_argument("--scorer", default=os.environ.get("PUSHNYT_SCORER_URL", "http://scorer:8000"))
+    parser.add_argument("--scorer", default=os.environ.get("PUSHPIN_SCORER_URL", "http://scorer:8000"))
     parser.add_argument("--once", action="store_true", help="run one slot now and exit")
     parser.add_argument("--dry-run", action="store_true", help="score and log, but don't send")
     parser.add_argument("--test", action="store_true", help="send a test notification and exit")
@@ -288,7 +288,7 @@ def main() -> None:
     if not topic and not args.dry_run:
         raise SystemExit("set NTFY_TOPIC (in .env) to the topic your phone subscribes to, or use --dry-run")
     if args.test:
-        send_ntfy(config["ntfy_server"], topic, "pushNYT test", "If you can read this, delivery works.",
+        send_ntfy(config["ntfy_server"], topic, "pushPin test", "If you can read this, delivery works.",
                   "https://www.nytimes.com", tags=["white_check_mark"])
         print("sent")
         return
@@ -297,7 +297,7 @@ def main() -> None:
             tunnel_url(os.environ["TUNNEL_METRICS_URL"]) if os.environ.get("TUNNEL_METRICS_URL") else None)
         if not base:
             raise SystemExit("no card address: set CLICK_BASE_URL or run the tunnel")
-        send_ntfy(config["ntfy_server"], topic, "Welcome to pushNYT",
+        send_ntfy(config["ntfy_server"], topic, "Welcome to pushPin",
                   "Tap to choose how many stories a day: light, medium or heavy.", f"{base}/start",
                   tags=["wave"])
         print(f"sent; it opens {base}/start")

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Start the API image on a tiny fixture run and check that /health, /push, and /metrics respond.
 # Used by CI before images are released; also runnable locally.
-# Usage: scripts/smoke-api.sh [image]   (default pushnyt-api:latest)
+# Usage: scripts/smoke-api.sh [image]   (default pushpin-api:latest)
 set -euo pipefail
 
-IMAGE="${1:-pushnyt-api:latest}"
-NAME="pushnyt-api-smoke"
+IMAGE="${1:-pushpin-api:latest}"
+NAME="pushpin-api-smoke"
 PORT=18000
 RUN_DIR="$(mktemp -d)"
 trap 'docker logs "$NAME" 2>/dev/null | tail -20; docker rm -f "$NAME" >/dev/null 2>&1 || true; rm -rf "$RUN_DIR"' EXIT
@@ -23,7 +23,7 @@ open("outputs/smoke/metrics.json", "w").write(json.dumps({"auc": 0.66}))
 PY
 docker run --rm -v "$RUN_DIR":/app/outputs/smoke "$IMAGE" "python outputs/smoke/make_fixture.py"
 
-docker run -d --name "$NAME" -p "$PORT:8000" -e PUSHNYT_RUN_DIR=outputs/smoke \
+docker run -d --name "$NAME" -p "$PORT:8000" -e PUSHPIN_RUN_DIR=outputs/smoke \
   -v "$RUN_DIR":/app/outputs/smoke:ro "$IMAGE" >/dev/null
 for _ in $(seq 1 60); do
   curl -fsS "localhost:$PORT/health" >/dev/null 2>&1 && break
@@ -33,5 +33,5 @@ done
 curl -fsS "localhost:$PORT/health"; echo
 curl -fsS -X POST "localhost:$PORT/push" -H 'content-type: application/json' \
   -d '{"impression_id": 1, "friction": 0.2}' | grep -q '"send"'
-curl -fsS "localhost:$PORT/metrics" | grep -q 'pushnyt_push_decisions_total{decision='
+curl -fsS "localhost:$PORT/metrics" | grep -q 'pushpin_push_decisions_total{decision='
 echo "smoke test passed: /health, /push, /metrics"

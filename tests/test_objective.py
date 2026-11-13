@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pushnyt.objective import push_scores, send_decisions, tradeoff
+from pushpin.objective import push_scores, send_decisions, tradeoff
 
 
 @pytest.fixture

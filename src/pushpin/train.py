@@ -11,19 +11,19 @@ import xgboost as xgb
 import yaml
 from sklearn.metrics import log_loss, roc_auc_score
 
-from pushnyt.calibration import apply_platt, calibration_metrics, fit_platt
-from pushnyt.data import SLOTS, load_behaviors, load_entity_embeddings, load_news
-from pushnyt.features import (
+from pushpin.calibration import apply_platt, calibration_metrics, fit_platt
+from pushpin.data import SLOTS, load_behaviors, load_entity_embeddings, load_news
+from pushpin.features import (
     FEATURES,
     LLM_FEATURES,
     VECTOR_FEATURES,
     build_features,
     temporal_features,
 )
-from pushnyt.plots import plot_calibration, plot_importance
-from pushnyt.profile import load_profiles
-from pushnyt.risk import RETURN_FEATURES, fit_return_model
-from pushnyt.vectordb import ArticleStore
+from pushpin.plots import plot_calibration, plot_importance
+from pushpin.profile import load_profiles
+from pushpin.risk import RETURN_FEATURES, fit_return_model
+from pushpin.vectordb import ArticleStore
 
 
 def set_seed(seed: int) -> None:
@@ -160,7 +160,7 @@ def train(config: dict) -> None:
     (output_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))
     importance.rename("gain").to_csv(output_dir / "feature_importance.csv")
     return_importance.rename("gain").to_csv(output_dir / "return_feature_importance.csv")
-    # handoff to the push objective (pushnyt-objective), which runs in its own container
+    # handoff to the push objective (pushpin-objective), which runs in its own container
     test_df.assign(news_id=news["news_id"].to_numpy()[test_df["news"]], p_click=scores, p_click_raw=raw,
                    p_return=p_return.reindex(test_df["impression_id"]).to_numpy())[
         ["impression_id", "user_id", "time", "slot", "news_id", "label", "p_click", "p_click_raw",
@@ -169,7 +169,7 @@ def train(config: dict) -> None:
     check_quality(metrics, config.get("evaluation", {}))  # after saving, so a failed run can be inspected
     plot_importance(importance, output_dir / "feature_importance.png")
     plot_importance(return_importance, output_dir / "return_feature_importance.png",
-                    title="pushNYT XGBoost return model: feature importance")
+                    title="pushPin XGBoost return model: feature importance")
     plot_calibration(y, raw, scores, output_dir / "calibration.png")
 
 

@@ -30,8 +30,8 @@ from sklearn.decomposition import TruncatedSVD
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.preprocessing import normalize
 
-from pushnyt.data import explode_impressions
-from pushnyt.vectordb import ArticleStore
+from pushpin.data import explode_impressions
+from pushpin.vectordb import ArticleStore
 
 EMBEDDING_FEATURES = ["emb_sim_mean", "emb_sim_max", "emb_sim_top5", "emb_n_close", "emb_retrieval_rank"]
 CONTRAST_FEATURES = ["emb_sim_clicked_max", "emb_sim_skipped_max", "emb_contrast"]

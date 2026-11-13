@@ -1,4 +1,4 @@
-# Notifier: real pushes to your phone through ntfy (see src/pushnyt/notifier.py).
+# Notifier: real pushes to your phone through ntfy (see src/pushpin/notifier.py).
 # Secrets live in .env, not here: NTFY_TOPIC (your private topic name) and optionally
 # CLICK_BASE_URL (where your phone can reach this container's click tracker).
 timezone: America/New_York

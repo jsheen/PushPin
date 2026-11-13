@@ -22,9 +22,9 @@ Cloud Scheduler ─(8, 12, 17, 21)─▶ notifier job (Cloud Run) ──VPC─�
 - **Stateless slots.** Each slot can be a fresh process. The scorer ignores articles it already
   has, and the notifier sends each slot's candidates with its `/score` request. So any scorer
   replica can answer, including one that just started.
-- **Two separate entry points.** The card server (`python -m pushnyt.cards`) and a single slot
-  (`python -m pushnyt.notifier --once`) run on their own.
-- **One database layer for both backends.** `src/pushnyt/store.py` uses SQL that works on both
+- **Two separate entry points.** The card server (`python -m pushpin.cards`) and a single slot
+  (`python -m pushpin.notifier --once`) run on their own.
+- **One database layer for both backends.** `src/pushpin/store.py` uses SQL that works on both
   SQLite and Postgres, and the tests run on both.
 - **A reader count for the autoscaler.** The card server's `/stats` endpoint returns the number
   of readers, protected by a token, for KEDA to read.
@@ -42,7 +42,7 @@ scripts/deploy-gcp.sh resume
 scripts/deploy-gcp.sh down      # delete everything it created (keeps the bucket)
 ```
 
-It uses gcloud's current project (`PROJECT`), `us-east1` (`REGION`), the `pushnyt-data` bucket
+It uses gcloud's current project (`PROJECT`), `us-east1` (`REGION`), the `pushnyt-data` bucket (named before the rename)
 (`BUCKET`), the `ablation-with-llm` run (`RUN`), and the current commit as the image tag (`TAG`).
 `NTFY_TOPIC` comes from `.env`. The ntfy topic, the database URL and the `/stats` token go into
 Secret Manager and are masked in the printed commands.

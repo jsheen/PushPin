@@ -20,9 +20,9 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from pushnyt.data import load_behaviors
-from pushnyt.features import temporal_features
-from pushnyt.plots import plot_fatigue
+from pushpin.data import load_behaviors
+from pushpin.features import temporal_features
+from pushpin.plots import plot_fatigue
 
 VIEWS = {
     "impr_last_24h": ("Impressions in the previous 24 hours", [-1, 0, 1, 2, 4, np.inf], ["0", "1", "2", "3–4", "5+"]),

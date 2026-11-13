@@ -3,8 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: pushnyt-train:latest
-    container_name: pushnyt-train
+    image: pushpin-train:latest
+    container_name: pushpin-train
     env_file:
       - path: .env
         required: false
@@ -16,7 +16,7 @@ services:
       - ./configs:/app/configs
       - ./data:/app/data
       - ./outputs:/app/outputs
-    command: ["pushnyt-train --config configs/train.yml"]
+    command: ["pushpin-train --config configs/train.yml"]
     shm_size: "2gb"   # PyTorch DataLoader workers need shared memory
 
   # Push objective: re-ranks a run's predictions.parquet. Needs only outputs/, not data/.
@@ -24,23 +24,23 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.objective
-    image: pushnyt-objective:latest
-    container_name: pushnyt-objective
+    image: pushpin-objective:latest
+    container_name: pushpin-objective
     volumes:
       - ./src:/app/src
       - ./configs:/app/configs
       - ./outputs:/app/outputs
-    command: ["pushnyt-objective --config configs/objective.yml"]
+    command: ["pushpin-objective --config configs/objective.yml"]
 
-  # Serving API on http://localhost:8000 (docs at /docs). PUSHNYT_RUN_DIR picks the run to serve.
+  # Serving API on http://localhost:8000 (docs at /docs). PUSHPIN_RUN_DIR picks the run to serve.
   api:
     build:
       context: .
       dockerfile: Dockerfile.api
-    image: pushnyt-api:latest
-    container_name: pushnyt-api
+    image: pushpin-api:latest
+    container_name: pushpin-api
     environment:
-      - PUSHNYT_RUN_DIR=${PUSHNYT_RUN_DIR:-outputs/recency-depth-no-emb}
+      - PUSHPIN_RUN_DIR=${PUSHPIN_RUN_DIR:-outputs/recency-depth-no-emb}
     volumes:
       - ./src:/app/src
       - ./configs:/app/configs:ro    # send policy from configs/objective.yml
@@ -58,11 +58,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: pushnyt-train:latest
-    container_name: pushnyt-scorer
+    image: pushpin-train:latest
+    container_name: pushpin-scorer
     environment:
       - DATA_DIR=/app/data
-      - PUSHNYT_RUN_DIR=${PUSHNYT_SCORER_RUN:-outputs/ablation-with-llm}
+      - PUSHPIN_RUN_DIR=${PUSHPIN_SCORER_RUN:-outputs/ablation-with-llm}
       - MALLOC_ARENA_MAX=2          # fewer glibc arenas: less fragmentation from torch/xgboost threads
       - OMP_NUM_THREADS=2
       - TOKENIZERS_PARALLELISM=false
@@ -76,7 +76,7 @@ services:
       - ./configs:/app/configs
       - ./data:/app/data
       - ./outputs:/app/outputs:ro
-    command: ["pushnyt-scorer"]
+    command: ["pushpin-scorer"]
     expose:
       - "8000"   # reachable from other containers on the network only
     shm_size: "2gb"
@@ -91,7 +91,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.objective
-    image: pushnyt-objective:latest
+    image: pushpin-objective:latest
     volumes:
       - ./src:/app/src
       - ./configs:/app/configs
@@ -100,7 +100,7 @@ services:
     depends_on:
       scorer:
         condition: service_healthy
-    command: ["pushnyt-push-job --scorer http://scorer:8000 --out outputs/nyt-sim-http"]
+    command: ["pushpin-push-job --scorer http://scorer:8000 --out outputs/nyt-sim-http"]
 
   # Real pushes to phones (ntfy). Three services, matching the cloud layout (deploy/):
   #   notifier  the schedule: sleeps until each slot, scores, pushes   (cloud: Cloud Run job + Scheduler)
@@ -109,20 +109,20 @@ services:
   # Set NTFY_TOPIC in .env and subscribe to it in the ntfy app.
   # Both write to outputs/notifier/pushes.db, or to DATABASE_URL if set (e.g. the `db` service).
   #   docker compose up -d scorer notifier cards tunnel
-  #   docker compose run --rm notifier "python -m pushnyt.notifier --test"            # delivery check
-  #   docker compose run --rm notifier "python -m pushnyt.notifier --once --dry-run"  # one slot, no send
+  #   docker compose run --rm notifier "python -m pushpin.notifier --test"            # delivery check
+  #   docker compose run --rm notifier "python -m pushpin.notifier --once --dry-run"  # one slot, no send
   # Every candidate, its covariates and clicks go to outputs/notifier/pushes.db (SQLite).
   notifier:
     build:
       context: .
       dockerfile: Dockerfile.objective
-    image: pushnyt-objective:latest
-    container_name: pushnyt-notifier
+    image: pushpin-objective:latest
+    container_name: pushpin-notifier
     env_file:
       - path: .env
         required: false
     environment:
-      - PUSHNYT_SCORER_URL=http://scorer:8000
+      - PUSHPIN_SCORER_URL=http://scorer:8000
       - TUNNEL_METRICS_URL=http://tunnel:2000   # card links use the tunnel's address unless CLICK_BASE_URL is set
     volumes:
       - ./src:/app/src
@@ -133,11 +133,11 @@ services:
         condition: service_healthy
     mem_limit: 400m
     restart: unless-stopped
-    command: ["python -m pushnyt.notifier"]
+    command: ["python -m pushpin.notifier"]
 
   cards:
-    image: pushnyt-objective:latest
-    container_name: pushnyt-cards
+    image: pushpin-objective:latest
+    container_name: pushpin-cards
     env_file:
       - path: .env
         required: false
@@ -149,47 +149,47 @@ services:
       - "127.0.0.1:8090:8090"   # for checking locally; phones go through the tunnel
     mem_limit: 256m
     restart: unless-stopped
-    command: ["python -m pushnyt.cards"]
+    command: ["python -m pushpin.cards"]
 
   # Public https address for the cards: a Cloudflare quick tunnel (free, no account). Its address
   # (https://<random>.trycloudflare.com) changes whenever it restarts, which breaks the card links of
   # pushes sent before; the notifier looks it up from the metrics endpoint at each send.
   tunnel:
     image: cloudflare/cloudflared:2025.11.1
-    container_name: pushnyt-tunnel
+    container_name: pushpin-tunnel
     command: ["tunnel", "--no-autoupdate", "--metrics", "0.0.0.0:2000", "--url", "http://cards:8090"]
     mem_limit: 128m
     restart: unless-stopped
 
   # Local Postgres, the same database engine as Cloud SQL, for trying the cloud setup on the Mac:
   #   docker compose --profile postgres up -d db
-  #   DATABASE_URL=postgresql+psycopg://pushnyt:pushnyt@db:5432/pushnyt  (from containers)
-  #   PUSHNYT_TEST_DATABASE_URL=postgresql+psycopg://pushnyt:pushnyt@localhost:5433/pushnyt uv run pytest tests/test_notifier.py
+  #   DATABASE_URL=postgresql+psycopg://pushpin:pushpin@db:5432/pushpin  (from containers)
+  #   PUSHPIN_TEST_DATABASE_URL=postgresql+psycopg://pushpin:pushpin@localhost:5433/pushpin uv run pytest tests/test_notifier.py
   db:
     image: postgres:16.6-alpine
-    container_name: pushnyt-db
+    container_name: pushpin-db
     profiles: ["postgres"]
     environment:
-      - POSTGRES_USER=pushnyt
-      - POSTGRES_PASSWORD=pushnyt   # local only; Cloud SQL's password lives in Secret Manager
-      - POSTGRES_DB=pushnyt
+      - POSTGRES_USER=pushpin
+      - POSTGRES_PASSWORD=pushpin   # local only; Cloud SQL's password lives in Secret Manager
+      - POSTGRES_DB=pushpin
     ports:
       - "127.0.0.1:5433:5432"
     volumes:
-      - pushnyt-db:/var/lib/postgresql/data
+      - pushpin-db:/var/lib/postgresql/data
     mem_limit: 256m
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "pushnyt"]
+      test: ["CMD", "pg_isready", "-U", "pushpin"]
       interval: 5s
       retries: 10
 
   # Interactive dev shell: `docker compose run --rm shell`
   shell:
     extends: train
-    container_name: pushnyt-shell
+    container_name: pushpin-shell
     stdin_open: true
     tty: true
     command: ["bash"]
 
 volumes:
-  pushnyt-db:
+  pushpin-db:

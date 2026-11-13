@@ -2,9 +2,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pushnyt.nyt import map_subcategories
-from pushnyt.push_job import slot_times
-from pushnyt.vectordb import ExactStore
+from pushpin.nyt import map_subcategories
+from pushpin.push_job import slot_times
+from pushpin.vectordb import ExactStore
 
 
 def test_exact_store_returns_nearest_in_order_and_respects_size():
@@ -17,7 +17,7 @@ def test_exact_store_returns_nearest_in_order_and_respects_size():
 
 
 def test_map_subcategories_picks_nearest_centroid(monkeypatch):
-    monkeypatch.setattr("pushnyt.nyt.MIN_SUBCAT_ARTICLES", 1)
+    monkeypatch.setattr("pushpin.nyt.MIN_SUBCAT_ARTICLES", 1)
     mind = np.array([[1, 0], [1, 0.1], [0, 1]], np.float32)
     names, sims = map_subcategories(np.array([[0.2, 1.0], [1.0, 0.0]], np.float32), mind,
                                     np.array([0, 0, 1]), np.array(["sports", "food"]))
@@ -32,7 +32,7 @@ def test_slot_times_three_per_day():
 
 
 def test_daily_report_counts_per_day():
-    from pushnyt.push_job import daily_report
+    from pushpin.push_job import daily_report
     t1, t2 = pd.Timestamp("2024-12-02 08:00"), pd.Timestamp("2024-12-03 08:00")
     scores = pd.DataFrame({"slot_time": [t1, t1, t1, t2, t2], "news_id": ["a", "b", "c", "d", "e"]})
     pushes = pd.DataFrame({
@@ -49,7 +49,7 @@ def test_daily_report_counts_per_day():
 def test_local_scorer_add_articles_skips_known():
     from types import SimpleNamespace
 
-    from pushnyt.nyt import LocalScorer
+    from pushpin.nyt import LocalScorer
 
     scorer = LocalScorer.__new__(LocalScorer)  # no MIND load: only the catalog lookup is exercised
     scorer.live = SimpleNamespace(g=SimpleNamespace(news_idx={"A": 0, "B": 1}, subcat=np.array([1, 0]),

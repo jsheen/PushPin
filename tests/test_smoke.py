@@ -6,8 +6,8 @@ import sys
 import pandas as pd
 import yaml
 
-from pushnyt import objective
-from pushnyt.train import train
+from pushpin import objective
+from pushpin.train import train
 
 
 def test_train_then_objective(train_config, tmp_path, monkeypatch):
@@ -29,7 +29,7 @@ def test_train_then_objective(train_config, tmp_path, monkeypatch):
             "eval_min_candidates": 1}
     cfg.write_text(yaml.safe_dump({"run_dir": str(run), "friction": 0.2, "sweep": [0, 0.5, 1], "seed": 0,
                                    "send": send}))
-    monkeypatch.setattr(sys, "argv", ["pushnyt-objective", "--config", str(cfg)])
+    monkeypatch.setattr(sys, "argv", ["pushpin-objective", "--config", str(cfg)])
     objective.main()
     out = run / "objective"
     curve = pd.read_csv(out / "tradeoff.csv")

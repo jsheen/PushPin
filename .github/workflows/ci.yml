@@ -37,10 +37,10 @@ jobs:
           context: .
           file: Dockerfile.api
           load: true
-          tags: pushnyt-api:ci
+          tags: pushpin-api:ci
           cache-from: type=gha,scope=api
       - name: Start the container and hit /health, /push, /metrics
-        run: scripts/smoke-api.sh pushnyt-api:ci
+        run: scripts/smoke-api.sh pushpin-api:ci
 
   docker:
     runs-on: ubuntu-latest

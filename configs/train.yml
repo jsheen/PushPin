@@ -21,7 +21,7 @@ embeddings:
   chroma_dir: chroma       # vector database, under data.dir
   collection: abstracts
   batch_size: 256
-profile:                   # pushnyt-profile: LLM click/skip themes per user and day (see profile.py)
+profile:                   # pushpin-profile: LLM click/skip themes per user and day (see profile.py)
   model: claude-haiku-5-5
   max_clicks: 10           # most recent clicks shown to the LLM
   skips_per_click: 2       # nearest skipped articles retrieved for each click

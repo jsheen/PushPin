@@ -4,8 +4,8 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 
-from pushnyt.features import llm_features
-from pushnyt.profile import (
+from pushpin.features import llm_features
+from pushpin.profile import (
     MAX_THEMES,
     build_prompt,
     clean_themes,

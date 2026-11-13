@@ -18,10 +18,10 @@ There are no labels, so this demonstrates the mechanics; it does not measure acc
 is applied to a different outlet and era, so P(click) is a ranking signal here, not a rate.
 
 `LocalScorer` is the scoring side: it holds the model and user state. The push job itself
-(slots, objective, send policy, reports) is in push_job.py. `pushnyt-nyt-sim` runs both in one
-process; `pushnyt-scorer` serves LocalScorer over HTTP for the networked version.
+(slots, objective, send policy, reports) is in push_job.py. `pushpin-nyt-sim` runs both in one
+process; `pushpin-scorer` serves LocalScorer over HTTP for the networked version.
 
-Usage: pushnyt-nyt-sim outputs/ablation-with-llm [--users 1000] [--start 2024-12-02] [--days 7]
+Usage: pushpin-nyt-sim outputs/ablation-with-llm [--users 1000] [--start 2024-12-02] [--days 7]
 Writes outputs/nyt-sim/: scores.parquet, pushes.parquet, daily.csv, summary.json.
 """
 
@@ -33,10 +33,10 @@ import pandas as pd
 import yaml
 from sklearn.preprocessing import normalize
 
-from pushnyt.data import load_behaviors
-from pushnyt.live import load_scorer
-from pushnyt.push_job import SCORE_COLUMNS, run_week, write_outputs
-from pushnyt.vectordb import ExactStore
+from pushpin.data import load_behaviors
+from pushpin.live import load_scorer
+from pushpin.push_job import SCORE_COLUMNS, run_week, write_outputs
+from pushpin.vectordb import ExactStore
 
 MIN_SUBCAT_ARTICLES = 20  # map only to MIND subcategories with enough articles for a stable centroid
 

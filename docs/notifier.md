@@ -43,7 +43,7 @@ Each slot:
 ## The card
 
 Tapping a notification opens that push's **card**, a small page served by the `cards` service
-(`src/pushnyt/cards.py`) and made public by the `tunnel` service. It shows the headline, the abstract and:
+(`src/pushpin/cards.py`) and made public by the `tunnel` service. It shows the headline, the abstract and:
 
 - **Read on NYT** is a plain nytimes.com link, so iOS opens the NYT app if it's installed and
   Safari otherwise. Reading needs the reader's own NYT login there, as usual. Tapping it isn't
@@ -64,7 +64,7 @@ Each reader picks how many pushes a day they want: **Light** (1), **Medium** (up
 choose, the cap is `daily_cap` (3). The cap is a ceiling: a slot only sends if its top article
 clears the send policy, so a quiet news day sends fewer.
 
-- **At the start:** `python -m pushnyt.notifier --welcome` sends a welcome push that opens
+- **At the start:** `python -m pushpin.notifier --welcome` sends a welcome push that opens
   `/start`, a page with the three buttons. Opening it creates the reader, so pushes from then on
   count for them.
 - **On any card:** until the reader has chosen, the buttons sit above the headline with the
@@ -78,7 +78,7 @@ choice wins; per-reader volume would need a topic per reader.
 
 1. **Topic.** Install **ntfy** from the App Store and allow notifications. Tap **+** and
    subscribe to a topic on `ntfy.sh`. Anyone who knows the topic name can read it, so make it
-   hard to guess (e.g. `pushnyt-` plus the output of `openssl rand -hex 6`).
+   hard to guess (e.g. `pushpin-` plus the output of `openssl rand -hex 6`).
 2. **`.env`.** Add `NTFY_TOPIC=<your topic>`. Leave `CLICK_BASE_URL` unset to use the tunnel.
    Only set it if you host the cards somewhere else, e.g. a fixed domain.
 3. **Images.** The scorer runs in the training image, which needs the `api` extra (FastAPI).
@@ -97,11 +97,11 @@ choice wins; per-reader volume would need a topic per reader.
 docker compose up -d scorer        # loads the model and MIND state; about 2-5 min
 docker compose ps                  # wait until scorer shows (healthy)
 
-docker compose run --rm notifier "python -m pushnyt.notifier --test"            # a test push should reach your phone
-docker compose run --rm notifier "python -m pushnyt.notifier --once --dry-run"  # score one slot now, log it, send nothing
+docker compose run --rm notifier "python -m pushpin.notifier --test"            # a test push should reach your phone
+docker compose run --rm notifier "python -m pushpin.notifier --once --dry-run"  # score one slot now, log it, send nothing
 
 docker compose up -d notifier cards tunnel   # the schedule, the card server, its public address
-docker compose run --rm notifier "python -m pushnyt.notifier --welcome"   # pick light / medium / heavy
+docker compose run --rm notifier "python -m pushpin.notifier --welcome"   # pick light / medium / heavy
 docker compose logs -f notifier cards        # one JSON line per slot, and per open / save / volume
 ```
 
@@ -116,8 +116,8 @@ same engine as Cloud SQL. The `db` service runs one on your Mac:
 
 ```bash
 docker compose --profile postgres up -d db
-echo 'DATABASE_URL=postgresql+psycopg://pushnyt:pushnyt@db:5432/pushnyt' >> .env   # then restart notifier and cards
-PUSHNYT_TEST_DATABASE_URL=postgresql+psycopg://pushnyt:pushnyt@localhost:5433/pushnyt uv run pytest tests/test_notifier.py
+echo 'DATABASE_URL=postgresql+psycopg://pushpin:pushpin@db:5432/pushpin' >> .env   # then restart notifier and cards
+PUSHPIN_TEST_DATABASE_URL=postgresql+psycopg://pushpin:pushpin@localhost:5433/pushpin uv run pytest tests/test_notifier.py
 ```
 
 ## Keeping it running

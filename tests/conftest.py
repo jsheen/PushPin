@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 import yaml
 
-from pushnyt.features import VECTOR_FEATURES
+from pushpin.features import VECTOR_FEATURES
 
 REPO = Path(__file__).resolve().parents[1]
 WORDS = ["election", "senate", "vote", "budget", "storm", "flood", "hurricane", "game", "season",

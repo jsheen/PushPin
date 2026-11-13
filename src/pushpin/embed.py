@@ -6,8 +6,8 @@ from pathlib import Path
 import yaml
 from sentence_transformers import SentenceTransformer
 
-from pushnyt.data import load_news
-from pushnyt.vectordb import ArticleStore
+from pushpin.data import load_news
+from pushpin.vectordb import ArticleStore
 
 
 def embed(config: dict) -> None:

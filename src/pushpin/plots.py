@@ -34,7 +34,7 @@ SECOND = "#eb6834"  # categorical slot 2
 
 
 def plot_importance(importance: pd.Series, path: Path,
-                    title: str = "pushNYT XGBoost click model: feature importance") -> None:
+                    title: str = "pushPin XGBoost click model: feature importance") -> None:
     """Horizontal bar chart of XGBoost gain per feature, colored by feature group."""
     color = {f: c for c, feats in GROUPS.values() for f in feats}
     imp = importance.sort_values()
@@ -80,7 +80,7 @@ def plot_tradeoff(curves: pd.DataFrame, path: Path, friction: float) -> None:
     ax.plot(rand["new_subcat_at_1"], rand["ctr_at_1"], color=TEXT_MUTED, lw=2, ls=(0, (4, 3)),
             marker="o", ms=8, mfc=SURFACE, mew=2, label="Random engagement ranking")
     ax.plot(model["new_subcat_at_1"], model["ctr_at_1"], color=MODEL, lw=2,
-            marker="o", ms=8, mec=SURFACE, mew=2, label="XGBoost engagement (pushNYT)")
+            marker="o", ms=8, mec=SURFACE, mew=2, label="XGBoost engagement (pushPin)")
 
     # selective friction labels on the model curve; the configured friction is emphasized
     for _, r in model[model["friction"].isin({0, 0.1, 0.2, 0.5, 1.0, friction})].iterrows():
@@ -129,7 +129,7 @@ def _style(ax, title: str, subtitle: str) -> None:
 
 def plot_calibration(y: np.ndarray, raw: np.ndarray, calibrated: np.ndarray, path: Path) -> None:
     """Reliability diagram: predicted vs. observed click rate in 20 equal-count bins."""
-    from pushnyt.calibration import reliability
+    from pushpin.calibration import reliability
 
     fig, ax = plt.subplots(figsize=(7, 6), facecolor=SURFACE)
     ax.set_facecolor(SURFACE)

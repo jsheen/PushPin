@@ -1,4 +1,4 @@
-"""pushnyt-profile: LLM themes of what each reader clicks and what they skip.
+"""pushpin-profile: LLM themes of what each reader clicks and what they skip.
 
 For each day D from split.fit_end on, every user with an impression that day gets one profile
 built only from data before D, so it never sees the impressions it is used to score:
@@ -27,8 +27,8 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from pushnyt.data import explode_impressions, load_behaviors, load_news
-from pushnyt.vectordb import ArticleStore
+from pushpin.data import explode_impressions, load_behaviors, load_news
+from pushpin.vectordb import ArticleStore
 
 SYSTEM = """You name the themes in two sets of news articles: articles a reader clicked and \
 articles they were shown but skipped.
@@ -270,7 +270,7 @@ def load_profiles(data_dir: Path, config: dict) -> tuple[pd.DataFrame, np.ndarra
     out_dir = data_dir / pcfg["dir"]
     path = out_dir / "profiles.parquet"
     if not path.exists():
-        raise FileNotFoundError(f"{path} not found; run pushnyt-profile first")
+        raise FileNotFoundError(f"{path} not found; run pushpin-profile first")
     profiles = pd.read_parquet(path)
     paths = theme_paths(out_dir)
     fresh = all(p.exists() and p.stat().st_mtime >= path.stat().st_mtime for p in paths)

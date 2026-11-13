@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from pushnyt.risk import return_labels
+from pushpin.risk import return_labels
 
 T0 = pd.Timestamp("2019-11-09")
 

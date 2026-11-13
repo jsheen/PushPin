@@ -1,5 +1,5 @@
-# Everything pushNYT runs on GKE lives in this namespace.
+# Everything pushPin runs on GKE lives in this namespace.
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: pushnyt
+  name: pushpin

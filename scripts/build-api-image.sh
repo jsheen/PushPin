@@ -2,13 +2,13 @@
 # Build the production API image with one trained run baked in, then check that it serves
 # with no mounted folders: /health reports the run, /push answers for a real impression.
 # Usage: scripts/build-api-image.sh <run folder under outputs/> [image tag]
-#   e.g. scripts/build-api-image.sh ablation-with-llm   -> pushnyt-api:ablation-with-llm
+#   e.g. scripts/build-api-image.sh ablation-with-llm   -> pushpin-api:ablation-with-llm
 set -euo pipefail
 
 RUN="${1:?usage: scripts/build-api-image.sh <run folder under outputs/> [image tag]}"
-TAG="${2:-pushnyt-api:$RUN}"
+TAG="${2:-pushpin-api:$RUN}"
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-NAME="pushnyt-api-baked-smoke"
+NAME="pushpin-api-baked-smoke"
 PORT=18001
 
 for f in predictions.parquet metrics.json config.yml xgb_click.json; do
@@ -22,7 +22,7 @@ docker rm -f "$NAME" >/dev/null 2>&1 || true
 
 # an impression id from the baked predictions, read inside the image (no mounts anywhere)
 IMP=$(docker run --rm "$TAG" "python -c \"import os, pandas as pd; \
-print(pd.read_parquet(os.environ['PUSHNYT_RUN_DIR'] + '/predictions.parquet', columns=['impression_id']).impression_id.iloc[0])\"")
+print(pd.read_parquet(os.environ['PUSHPIN_RUN_DIR'] + '/predictions.parquet', columns=['impression_id']).impression_id.iloc[0])\"")
 
 docker run -d --name "$NAME" -p "$PORT:8000" "$TAG" >/dev/null
 for _ in $(seq 1 60); do

@@ -1,4 +1,4 @@
-# pushNYT
+# pushPin
 
 [![CI](https://github.com/jsheen/pushNYT/actions/workflows/ci.yml/badge.svg)](https://github.com/jsheen/pushNYT/actions/workflows/ci.yml)
 
@@ -6,7 +6,7 @@ Push notification engine that could be utilized by The New York Times product. B
 
 ## Overview
 
-pushNYT predicts whether a reader will click on a given article if it is pushed to them in a
+pushPin predicts whether a reader will click on a given article if it is pushed to them in a
 given time slot, `P(click | user, article, time slot)`. Slots are:
 
 | Slot      | Hours (local) |
@@ -35,37 +35,37 @@ decide what to send and whether to send it. It can also send real pushes to your
 ```
 gs://pushnyt-data ──sync-data.sh──▶ data/
                                      │
-          news.tsv ──pushnyt-embed──▶ data/chroma   (MiniLM abstract embeddings)
+          news.tsv ──pushpin-embed──▶ data/chroma   (MiniLM abstract embeddings)
                                      │
- behaviors.tsv + chroma ──pushnyt-profile──▶ data/llm + chroma  (Claude click/skip themes per user-day)
+ behaviors.tsv + chroma ──pushpin-profile──▶ data/llm + chroma  (Claude click/skip themes per user-day)
                                      │
  behaviors.tsv + news.tsv + entity embeddings + chroma + profiles
                                      │
-                              pushnyt-train            (train container)
+                              pushpin-train            (train container)
                                      │
                                      ▼
           outputs/<run>/  (click model + calibration, return model, metrics, predictions.parquet)
                                      │
-                            pushnyt-objective          (objective container)
+                            pushpin-objective          (objective container)
                                      │
                                      ▼
           outputs/<run>/objective/  (engagement-vs-novelty tradeoff, send policy, chosen pushes)
 
-          outputs/<run>/predictions.parquet ──▶ pushnyt-api  (api container, :8000)
+          outputs/<run>/predictions.parquet ──▶ pushpin-api  (api container, :8000)
 ```
 
 1. **Sync** — `scripts/sync-data.sh` pulls MIND from the project's GCS bucket.
-2. **Embed** — `pushnyt-embed` encodes each abstract (title if empty) with `all-MiniLM-L6-v2`
+2. **Embed** — `pushpin-embed` encodes each abstract (title if empty) with `all-MiniLM-L6-v2`
    into Chroma (`data/chroma`, collection `abstracts`).
-3. **Profile** — `pushnyt-profile` (RAG + LLM): for each user-day, retrieves recent clicks and the
+3. **Profile** — `pushpin-profile` (RAG + LLM): for each user-day, retrieves recent clicks and the
    skipped articles nearest to each, and has Claude Haiku name 2-4 themes the user clicks and
    2-4 they skip (Message Batches API). Themes are embedded into a `profiles` collection.
-4. **Train** — `pushnyt-train` builds features, trains XGBoost with early stopping, calibrates it,
+4. **Train** — `pushpin-train` builds features, trains XGBoost with early stopping, calibrates it,
    fits a return model (churn proxy), and evaluates on a held-out day.
-5. **Objective** — `pushnyt-objective` picks one push per impression (engagement vs. novelty) and
+5. **Objective** — `pushpin-objective` picks one push per impression (engagement vs. novelty) and
    decides whether to send it. Its own lightweight image; no retraining needed to change it.
-6. **Serve** — `pushnyt-api` exposes scores and push decisions over HTTP.
-7. **Analyze** — `pushnyt-exploration` and `pushnyt-fatigue` study behavior across the whole log.
+6. **Serve** — `pushpin-api` exposes scores and push decisions over HTTP.
+7. **Analyze** — `pushpin-exploration` and `pushpin-fatigue` study behavior across the whole log.
 
 **Time-based split.** Impressions before `split.fit_end` only fit complement statistics and user
 history; `[fit_end, train_end)` trains (latest `model.valid_fraction` held out for early
@@ -73,7 +73,7 @@ stopping); `train_end` onward is test. Every per-user feature uses only strictly
 
 ### Features
 
-Defined in `src/pushnyt/features.py`:
+Defined in `src/pushpin/features.py`:
 
 | Group | Features | Idea |
 |-------|----------|------|
@@ -99,7 +99,7 @@ skips them). User- and article-level correlation isn't resampled, so the interva
 little narrow.
 
 **Quality gate.** If test AUC falls below `evaluation.min_auc` (0.644, the lower bound of the
-baseline's 95% CI), `pushnyt-train` exits with an error after saving its artifacts, so a regression
+baseline's 95% CI), `pushpin-train` exits with an error after saving its artifacts, so a regression
 can't pass silently but the failed run can still be inspected.
 
 Test day 2019-11-14 (1.22M candidates, 30,270 impressions), 95% CIs:
@@ -112,7 +112,7 @@ Test day 2019-11-14 (1.22M candidates, 30,270 impressions), 95% CIs:
 | `ablation-with-llm` (all features) | **0.7032** (0.701–0.706) | **0.6766** (0.673–0.680) |
 
 Adding recency and user depth lifts AUC by 0.01; `article_age_hours` ranks third by gain. For the
-LLM features, `pushnyt-compare` scores both runs on the same resampled impressions, so its CI is
+LLM features, `pushpin-compare` scores both runs on the same resampled impressions, so its CI is
 for the difference (1,000 paired replicates):
 
 | Metric | With − without LLM | 95% CI | P(no gain) |
@@ -197,7 +197,7 @@ Plots, tables, caveats and what real opt-out logging would add: [docs/analysis.m
 configs/                # train.yml, objective.yml, notifier.yml
 scripts/                # sync-data.sh, smoke-api.sh (CI), build-api-image.sh, deploy-gcp.sh
 deploy/                 # cloudbuild.yaml, cloudrun/ (cards, notifier job), k8s/ (scorer, KEDA)
-src/pushnyt/
+src/pushpin/
   data.py embed.py vectordb.py      # MIND loaders, slots; abstract embeddings; Chroma wrapper
   profile.py                        # RAG + Claude reader profiles
   features.py train.py compare.py   # features; training; paired bootstrap of two runs
@@ -221,9 +221,9 @@ with access to `gs://pushnyt-data` (`gcloud auth login`).
 
 ```bash
 ./scripts/sync-data.sh                                            # pull data into ./data
-docker compose run --rm train "pushnyt-embed --config configs/train.yml"   # once, or when news.tsv changes
-docker compose run --rm train "pushnyt-profile --estimate"        # LLM profiles: cost estimate only
-docker compose run --rm train "pushnyt-profile"                   # all user-days (ANTHROPIC_API_KEY in .env)
+docker compose run --rm train "pushpin-embed --config configs/train.yml"   # once, or when news.tsv changes
+docker compose run --rm train "pushpin-profile --estimate"        # LLM profiles: cost estimate only
+docker compose run --rm train "pushpin-profile"                   # all user-days (ANTHROPIC_API_KEY in .env)
 docker compose run --rm train                                     # train with configs/train.yml
 docker compose run --rm objective                                 # push objective with configs/objective.yml
 docker compose up -d api                                          # serve on http://localhost:8000
@@ -233,7 +233,7 @@ docker compose run --rm shell                                     # interactive 
 There are three images: `train` (heavy stack, `.[train]`), `objective` (core deps only) and `api`
 (core + FastAPI). They share runs through the mounted `outputs/` folder. `src/`, `configs/`,
 `data/` and `outputs/` are bind-mounted, so only `pyproject.toml` changes need a rebuild.
-Training fails with `run pushnyt-embed first` / `run pushnyt-profile first` if those are missing.
+Training fails with `run pushpin-embed first` / `run pushpin-profile first` if those are missing.
 
 **Memory.** On an 8 GB Mac, Docker's VM has 4 GB; full training peaks at ~3.7 GB (exit code 137
 means it was killed; raise Settings → Resources → Memory).
@@ -241,20 +241,20 @@ means it was killed; raise Settings → Resources → Memory).
 **Options.** Drop features for an ablation, or re-rank at another friction without retraining:
 
 ```bash
-pushnyt-train --config configs/train.yml \
+pushpin-train --config configs/train.yml \
   --exclude emb_sim_mean emb_sim_max emb_sim_top5 emb_n_close emb_retrieval_rank \
   --output-dir outputs/recency-depth-no-emb          # no vector database needed
-pushnyt-compare outputs/ablation-no-llm outputs/ablation-with-llm   # paired bootstrap of two runs
-docker compose run --rm objective "pushnyt-objective --run-dir outputs/recency-depth-no-emb --friction 0.3"
-docker compose run --rm train "pushnyt-exploration"   # outputs/analysis/exploration.*
-docker compose run --rm train "pushnyt-fatigue"       # outputs/analysis/fatigue.*
+pushpin-compare outputs/ablation-no-llm outputs/ablation-with-llm   # paired bootstrap of two runs
+docker compose run --rm objective "pushpin-objective --run-dir outputs/recency-depth-no-emb --friction 0.3"
+docker compose run --rm train "pushpin-exploration"   # outputs/analysis/exploration.*
+docker compose run --rm train "pushpin-fatigue"       # outputs/analysis/fatigue.*
 ```
 
 ## API
 
 ```bash
 docker compose up -d api                                  # serves outputs/recency-depth-no-emb
-PUSHNYT_RUN_DIR=outputs/full docker compose up -d api     # another run
+PUSHPIN_RUN_DIR=outputs/full docker compose up -d api     # another run
 curl -X POST localhost:8000/push -H 'content-type: application/json' \
   -d '{"impression_id": 152636, "friction": 0.2}'
 ```
@@ -279,20 +279,20 @@ caller enforces the daily cap.
 | Question | How |
 |----------|-----|
 | Is it up? | Docker `HEALTHCHECK` on `/health` every 30s; Compose restarts the process if it exits |
-| Erroring or slow? | `pushnyt_requests_total{endpoint,status}` and `pushnyt_request_seconds` on `/metrics` |
-| Model behaving? | Send/hold counts, `p_click` and novelty histograms, `pushnyt_model_info{run}` on `/metrics` |
+| Erroring or slow? | `pushpin_requests_total{endpoint,status}` and `pushpin_request_seconds` on `/metrics` |
+| Model behaving? | Send/hold counts, `p_click` and novelty histograms, `pushpin_model_info{run}` on `/metrics` |
 | What happened on a request? | One JSON log line per request (`docker compose logs api`) |
 
 A shift in send rate or `p_click` with no change in traffic is the early warning that something
 upstream changed. Accuracy needs real push outcomes logged and joined back.
 
 **Production image.** `scripts/build-api-image.sh ablation-with-llm` bakes one run (~20 MB) into
-`pushnyt-api:ablation-with-llm` and smoke-tests it; deploy by tag, roll back by redeploying the
+`pushpin-api:ablation-with-llm` and smoke-tests it; deploy by tag, roll back by redeploying the
 previous tag.
 
-**Request-time scoring.** The API serves precomputed test-day scores. `pushnyt-live-parity
+**Request-time scoring.** The API serves precomputed test-day scores. `pushpin-live-parity
 outputs/<run> --users 100` rescores impressions from each user's earlier events only
-(`src/pushnyt/live.py`) and matches batch exactly at ~110 ms per request. `pushnyt-nyt-sim
+(`src/pushpin/live.py`) and matches batch exactly at ~110 ms per request. `pushpin-nyt-sim
 outputs/ablation-with-llm` uses it to push a week of real NYT articles (`data/nyt-recent.csv`) to
 1,000 MIND users: 918 articles, 4,411 pushes sent (0.63 per user-day), 4.3 ms per request;
 outputs in `outputs/nyt-sim/`. See [docs/live-scoring.md](docs/live-scoring.md) and
@@ -318,8 +318,8 @@ With `NTFY_TOPIC=<your topic>` in `.env` and the ntfy app subscribed to it:
 
 ```bash
 docker compose up -d scorer                  # loads the model and MIND state; about 2-5 min
-docker compose run --rm notifier "python -m pushnyt.notifier --test"            # test push
-docker compose run --rm notifier "python -m pushnyt.notifier --once --dry-run"  # score one slot, send nothing
+docker compose run --rm notifier "python -m pushpin.notifier --test"            # test push
+docker compose run --rm notifier "python -m pushpin.notifier --once --dry-run"  # score one slot, send nothing
 docker compose up -d notifier cards tunnel   # the schedule, the card server, its public address
 ```
 
@@ -352,12 +352,12 @@ The suite runs on a tiny synthetic MIND-style dataset (`tests/conftest.py`), wit
 and covers metrics and the quality gate, calibration, return labels, the objective and send
 policy, no-lookahead guarantees, the analyses, an end-to-end train → objective run, every API
 endpoint, and the notifier store on SQLite and Postgres
-(`PUSHNYT_TEST_DATABASE_URL`).
+(`PUSHPIN_TEST_DATABASE_URL`).
 
 - **CI** (`.github/workflows/ci.yml`, every push and PR): `ruff`, `pytest`, builds of all three
   images, and `scripts/smoke-api.sh` against a fixture run.
 - **Release** (`release.yml`, on a version tag like `git tag v0.2.0 && git push origin v0.2.0`):
-  publishes `ghcr.io/jsheen/pushnyt-{train,objective,api}`.
+  publishes `ghcr.io/jsheen/pushpin-{train,objective,api}`.
 
 Training on real data isn't in CI; the quality gate guards it.
 

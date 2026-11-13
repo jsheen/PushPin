@@ -1,6 +1,6 @@
 """The push card server: what a tapped notification opens.
 
-  python -m pushnyt.cards        # serves on $PORT (default 8090)
+  python -m pushpin.cards        # serves on $PORT (default 8090)
 
 Kept separate from the notifier's schedule so each can run where it fits: locally both are
 containers in docker compose; in the cloud the cards are a Cloud Run service (scales with taps,
@@ -10,7 +10,7 @@ including to zero) while each slot is a Cloud Run job. Both share the database i
 Each card shows the headline and abstract, Read on NYT (a plain nytimes.com link, so iOS opens the
 NYT app if it's installed), 🔖 Save, and how many pushes a day the reader wants (light,
 medium or heavy). The first card a phone opens, or the /start page (linked from the welcome push,
-`pushnyt.notifier --welcome`), sets a cookie with a random reader id, and everything the reader
+`pushpin.notifier --welcome`), sets a cookie with a random reader id, and everything the reader
 does is stored under it. Opening the card is the click; what they do on NYT isn't tracked.
 """
 
@@ -28,10 +28,10 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
-from pushnyt.store import REACTIONS, VOLUMES, Store
+from pushpin.store import REACTIONS, VOLUMES, Store
 
 PAGE = """<!doctype html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1"><title>pushNYT</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>pushPin</title>
 <style>
 :root{--bg:#fff;--fg:#121212;--muted:#666;--line:#e2e2e2;--btn:#f1f1f1;--on:#d0021b;--link:#326891}
 @media (prefers-color-scheme:dark){:root{--bg:#121212;--fg:#eee;--muted:#999;--line:#333;--btn:#262626;
@@ -130,7 +130,7 @@ def card_page(push: dict, reader: dict | None = None, caps: dict | None = None) 
 
 def start_page(reader: dict | None, caps: dict | None = None) -> str:
     """The welcome push's page: pick how many pushes a day, before the first real one."""
-    return page(f"""<h1>pushNYT</h1><p class="abstract">A few NYT stories a day, picked for you. Tap a
+    return page(f"""<h1>pushPin</h1><p class="abstract">A few NYT stories a day, picked for you. Tap a
 push to open its card; that's how it learns what you like.</p>{volume_picker((reader or {}).get("volume"), caps)}
 {CARD_SCRIPT.replace("%ID%", "null")}""")
 
@@ -146,11 +146,11 @@ def reading_list_page(items: list[dict]) -> str:
     return page(f'<h1>Reading list</h1><ul class="list">{rows}</ul>')
 
 
-COOKIE = "pushnyt_reader"
+COOKIE = "pushpin_reader"
 
 
 def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None = None) -> ThreadingHTTPServer:
-    """The phone-facing endpoints. The reader is identified by the `pushnyt_reader` cookie.
+    """The phone-facing endpoints. The reader is identified by the `pushpin_reader` cookie.
     `caps` maps each volume to its daily cap (configs/notifier.yml), shown on the buttons.
 
       GET  /p/<push_id>        the push's card; records the open (and creates the reader on first visit)
@@ -256,7 +256,7 @@ def open_store(config: dict) -> Store:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Serve pushNYT push cards")
+    parser = argparse.ArgumentParser(description="Serve pushPin push cards")
     parser.add_argument("--config", type=Path, default=Path("configs/notifier.yml"))
     args = parser.parse_args()
     config = yaml.safe_load(args.config.read_text())

@@ -7,7 +7,7 @@ State has two parts:
 
 A request is (user, time, candidate articles). Its features come from the same `features_for`
 code as batch training, run on that user's own events plus the request, so the two paths can't
-drift apart. `pushnyt-live-parity` replays the test day request by request and checks that the
+drift apart. `pushpin-live-parity` replays the test day request by request and checks that the
 live features and scores match batch exactly.
 """
 
@@ -23,15 +23,15 @@ import yaml
 from scipy import sparse
 from sklearn.metrics import roc_auc_score
 
-from pushnyt.calibration import apply_platt
-from pushnyt.data import (
+from pushpin.calibration import apply_platt
+from pushpin.data import (
     explode_impressions,
     load_behaviors,
     load_entity_embeddings,
     load_news,
     time_slot,
 )
-from pushnyt.features import (
+from pushpin.features import (
     FEATURES,
     LLM_FEATURES,
     VECTOR_FEATURES,
@@ -41,9 +41,9 @@ from pushnyt.features import (
     fit_globals,
     project_text,
 )
-from pushnyt.profile import load_profiles
-from pushnyt.risk import RETURN_FEATURES
-from pushnyt.vectordb import ArticleStore
+from pushpin.profile import load_profiles
+from pushpin.risk import RETURN_FEATURES
+from pushpin.vectordb import ArticleStore
 
 LOG_COLUMNS = ["impression_id", "user_id", "time", "history", "impressions", "slot"]
 

@@ -6,7 +6,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: scorer
-  namespace: pushnyt
+  namespace: pushpin
   labels: {app: scorer}
 spec:
   replicas: 1   # KEDA (scorer-scaledobject.yaml) takes over: one replica per 10 readers
@@ -33,10 +33,10 @@ spec:
             requests: {cpu: 500m, memory: 512Mi, ephemeral-storage: 4Gi}
       containers:
         - name: scorer
-          image: ${REGION}-docker.pkg.dev/${PROJECT}/pushnyt/train:${TAG}
-          args: ["pushnyt-scorer"]   # the image's entrypoint is bash -c
+          image: ${REGION}-docker.pkg.dev/${PROJECT}/pushpin/train:${TAG}
+          args: ["pushpin-scorer"]   # the image's entrypoint is bash -c
           env:
-            - {name: PUSHNYT_RUN_DIR, value: outputs/${RUN}}
+            - {name: PUSHPIN_RUN_DIR, value: outputs/${RUN}}
             - {name: DATA_DIR, value: /app/data}
             - {name: MALLOC_ARENA_MAX, value: "2"}
             - {name: OMP_NUM_THREADS, value: "2"}

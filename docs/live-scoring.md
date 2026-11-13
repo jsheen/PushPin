@@ -7,14 +7,14 @@ Status (2026-11-03): **phases 1–3 done as an offline replay; no live endpoint 
 - Training now also saves the return model (`xgb_return.json`).
 - `live.py`: `LiveScorer.score(user, time, candidates)` computes features from that user's own
   event log plus the shared state, using the same `features_for` code; `observe()` records an
-  impression's outcome. `pushnyt-live-parity <run>` replays the test day request by request.
+  impression's outcome. `pushpin-live-parity <run>` replays the test day request by request.
   On a 100-user sample (6,740 rows) P(click), novelty and P(return) match batch exactly; median
   latency 112 ms per request. `tests/test_live.py` checks exact parity on synthetic data.
 - Article first-seen time is the one piece of state shared across users: a replay over a user
   sample must still observe every user's impressions.
 - New articles can join the catalog after training (`LiveScorer.add_articles`: text projected
   with the saved TF-IDF/SVD, a training subcategory, a publish time), and `score_many` scores
-  many users in one pass (4 ms per request). `pushnyt-nyt-sim` uses both to push a week of NYT
+  many users in one pass (4 ms per request). `pushpin-nyt-sim` uses both to push a week of NYT
   articles to 1,000 MIND users; see the README (API → Request-time scoring).
 
 The rest of this document is the original plan; phases 4–6 are still open. The wider production
@@ -22,7 +22,7 @@ design (scheduled push jobs, delivery, feedback loop, retraining) is in [product
 
 ## Where things stand
 
-`pushnyt-api` serves **precomputed** scores. `pushnyt-train` scores every test-day candidate in
+`pushpin-api` serves **precomputed** scores. `pushpin-train` scores every test-day candidate in
 batch and writes `predictions.parquet`. The API loads that file (baked into the production image
 by `scripts/build-api-image.sh`) and looks rows up by `impression_id`. It never loads
 `xgb_click.json` and can't answer for a user, article or time that isn't in the file.
@@ -63,7 +63,7 @@ or the live model sees different inputs than it was trained on.
 
 ## Artifacts training doesn't save yet
 
-`pushnyt-train` saves only `xgb_click.json`, `metrics.json` (which includes Platt parameters),
+`pushpin-train` saves only `xgb_click.json`, `metrics.json` (which includes Platt parameters),
 `config.yml` and outputs. Live scoring also needs, frozen from the same training run:
 
 - **TF-IDF vocabulary + SVD components** (`text_vectors`): currently refit on every run, so new
@@ -88,7 +88,7 @@ deployed image is one consistent model version.
              │ (Pub/Sub worker) │              ▼        └────────────┬─────────────┘
              └──────────────────┘     ┌─────────────────┐            │ writes
                                       │ online store    │◀───────────┘
- request ─▶ pushnyt-api (Cloud Run) ─▶│ user state      │
+ request ─▶ pushpin-api (Cloud Run) ─▶│ user state      │
             1. read user + article    │ article state   │
                state                  │ theme vectors   │
             2. compute features       └─────────────────┘

@@ -34,4 +34,4 @@ RUN --mount=type=cache,target=/home/${USER}/.cache/uv,uid=${UID} \
     uv sync --extra train --extra api --extra dev
 
 ENTRYPOINT ["/bin/bash", "-c"]
-CMD ["pushnyt-train --config configs/train.yml"]
+CMD ["pushpin-train --config configs/train.yml"]

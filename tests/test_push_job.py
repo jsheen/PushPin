@@ -9,8 +9,8 @@ import pytest
 import uvicorn
 from fastapi.testclient import TestClient
 
-from pushnyt.push_job import SCORE_COLUMNS, HttpScorer, run_week
-from pushnyt.scorer_api import create_app
+from pushpin.push_job import SCORE_COLUMNS, HttpScorer, run_week
+from pushpin.scorer_api import create_app
 
 OBJECTIVE = {"friction": 0.2, "send": {"threshold": 0.3, "risk_penalty": 0.04, "daily_cap": 2}}
 
@@ -98,8 +98,8 @@ def test_scorer_api_endpoints():
 
 
 def test_local_scorer_implements_the_scorer_interface():
-    from pushnyt.nyt import LocalScorer
-    from pushnyt.push_job import HttpScorer
+    from pushpin.nyt import LocalScorer
+    from pushpin.push_job import HttpScorer
 
     for method in ("info", "users", "add_articles", "score"):
         assert callable(getattr(LocalScorer, method, None)), method

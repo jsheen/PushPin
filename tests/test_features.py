@@ -2,8 +2,8 @@ import numpy as np
 import pandas as pd
 from scipy import sparse
 
-from pushnyt.data import load_behaviors, load_entity_embeddings, load_news
-from pushnyt.features import (
+from pushpin.data import load_behaviors, load_entity_embeddings, load_news
+from pushpin.features import (
     article_first_seen,
     build_features,
     contrast_features,
@@ -112,8 +112,8 @@ def test_build_features_with_vectors(mind_dir, train_config):
 
 
 def test_every_feature_has_a_plot_group():
-    from pushnyt.features import FEATURES
-    from pushnyt.plots import GROUPS
+    from pushpin.features import FEATURES
+    from pushpin.plots import GROUPS
     grouped = [f for _, feats in GROUPS.values() for f in feats]
     assert len(grouped) == len(set(grouped)), "a feature is in two plot groups"
     assert set(FEATURES) <= set(grouped), f"no plot group (drawn grey): {set(FEATURES) - set(grouped)}"

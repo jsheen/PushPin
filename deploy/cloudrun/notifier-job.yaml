@@ -7,9 +7,9 @@
 apiVersion: run.googleapis.com/v1
 kind: Job
 metadata:
-  name: pushnyt-notifier
+  name: pushpin-notifier
   labels:
-    app: pushnyt
+    app: pushpin
 spec:
   template:
     metadata:
@@ -21,22 +21,22 @@ spec:
       taskCount: 1
       template:
         spec:
-          serviceAccountName: pushnyt-run@${PROJECT}.iam.gserviceaccount.com
+          serviceAccountName: pushpin-run@${PROJECT}.iam.gserviceaccount.com
           maxRetries: 1
           timeoutSeconds: 900
           containers:
-            - image: ${REGION}-docker.pkg.dev/${PROJECT}/pushnyt/objective:${TAG}
-              args: ["python -m pushnyt.notifier --once"]
+            - image: ${REGION}-docker.pkg.dev/${PROJECT}/pushpin/objective:${TAG}
+              args: ["python -m pushpin.notifier --once"]
               env:
-                - name: PUSHNYT_SCORER_URL
+                - name: PUSHPIN_SCORER_URL
                   value: ${SCORER_URL}     # the scorer's internal load balancer on GKE
                 - name: CLICK_BASE_URL
                   value: ${CARDS_URL}      # the card service's https address
                 - name: DATABASE_URL
                   valueFrom:
-                    secretKeyRef: {name: pushnyt-database-url, key: latest}
+                    secretKeyRef: {name: pushpin-database-url, key: latest}
                 - name: NTFY_TOPIC
                   valueFrom:
-                    secretKeyRef: {name: pushnyt-ntfy-topic, key: latest}
+                    secretKeyRef: {name: pushpin-ntfy-topic, key: latest}
               resources:
                 limits: {cpu: "1", memory: 512Mi}

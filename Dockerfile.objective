@@ -30,4 +30,4 @@ RUN --mount=type=cache,target=/home/${USER}/.cache/uv,uid=${UID} \
     uv sync
 
 ENTRYPOINT ["/bin/bash", "-c"]
-CMD ["pushnyt-objective --config configs/objective.yml"]
+CMD ["pushpin-objective --config configs/objective.yml"]

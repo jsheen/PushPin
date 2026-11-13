@@ -16,7 +16,7 @@ reaches it by service name at http://scorer:8000; no host port needs publishing.
 Responses are JSON with NaN allowed (features can be missing), which Python's json reads back
 exactly. Startup loads the MIND state and takes a minute or two; /health answers once it's ready.
 
-Usage: PUSHNYT_RUN_DIR=outputs/ablation-with-llm pushnyt-scorer
+Usage: PUSHPIN_RUN_DIR=outputs/ablation-with-llm pushpin-scorer
 """
 
 import json
@@ -28,7 +28,7 @@ import pandas as pd
 from fastapi import FastAPI, Query, Response
 from pydantic import BaseModel
 
-log = logging.getLogger("pushnyt.scorer")
+log = logging.getLogger("pushpin.scorer")
 
 
 class Articles(BaseModel):
@@ -48,7 +48,7 @@ def _json(payload) -> Response:
 
 def create_app(scorer) -> FastAPI:
     """`scorer` is anything with the push-job scorer interface (normally nyt.LocalScorer)."""
-    app = FastAPI(title="pushNYT scorer", description="Live scoring for the push job")
+    app = FastAPI(title="pushPin scorer", description="Live scoring for the push job")
 
     @app.get("/health")
     def health() -> Response:
@@ -83,10 +83,10 @@ def create_app(scorer) -> FastAPI:
 def main() -> None:
     import uvicorn
 
-    from pushnyt.nyt import LocalScorer  # heavy: model, MIND data, embeddings
+    from pushpin.nyt import LocalScorer  # heavy: model, MIND data, embeddings
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    run_dir = Path(os.environ.get("PUSHNYT_RUN_DIR", "outputs/ablation-with-llm"))
+    run_dir = Path(os.environ.get("PUSHPIN_RUN_DIR", "outputs/ablation-with-llm"))
     app = create_app(LocalScorer(run_dir))
     uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", "8000")))
 

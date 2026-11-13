@@ -1,6 +1,6 @@
 # Analysis: objective, calibration, send policy, user behavior
 
-Deep dives behind the numbers in the [README](../README.md). Images are produced by `src/pushnyt/plots.py`.
+Deep dives behind the numbers in the [README](../README.md). Images are produced by `src/pushpin/plots.py`.
 
 ## Push objective
 
@@ -34,7 +34,7 @@ A random pick beats the per-candidate rate because MIND only logs impressions wi
 short impressions have a high click share. So 9.1% is the fair random baseline, and the model
 nearly doubles it. These are feed impressions, so real push click rates would be lower.
 
-**The trade-off.** `pushnyt-objective` sweeps friction and plots, for the single top push per
+**The trade-off.** `pushpin-objective` sweeps friction and plots, for the single top push per
 impression, the click rate against the share of pushes from a never-shown subcategory. The dashed
 curve repeats the same objective with the click model swapped for a random ranking, so the gap
 between the curves is what the model adds at each level of novelty (`recency-depth-no-emb` model):
@@ -65,7 +65,7 @@ right in absolute terms: of all pushes scored 0.10, about 10% should be clicked.
 calibration, and models trained for ranking often lack it (gradient boosting with early stopping
 tends to be over- or under-confident in the tails).
 
-`pushnyt-train` applies **Platt scaling**: it fits `p = sigmoid(a · logit(raw) + b)` on the
+`pushpin-train` applies **Platt scaling**: it fits `p = sigmoid(a · logit(raw) + b)` on the
 held-out early-stopping slice and applies it to the test day. The mapping is strictly increasing,
 so rankings, AUC, and the push objective's choices are unchanged; only the probability scale
 moves. (Isotonic regression is the more flexible alternative, but it creates ties, which would
@@ -99,8 +99,8 @@ or weighting each impression once. Real push logs are the proper source (see
 ## Return model (churn proxy)
 
 The real cost of a bad push is a reader turning notifications off. MIND has no opt-out events, so
-`pushnyt-train` fits a proxy: **P(the user has another impression within 24 hours)**, an XGBoost
-model on user depth and fatigue features (`src/pushnyt/risk.py`). Risk = 1 − P(return).
+`pushpin-train` fits a proxy: **P(the user has another impression within 24 hours)**, an XGBoost
+model on user depth and fatigue features (`src/pushpin/risk.py`). Risk = 1 − P(return).
 
 - Labels are censored near the end of the log, so it trains on impressions before `fit_end`,
   is evaluated on `[fit_end, train_end)` (**AUC 0.743**, 54% return rate), and only scores the test day.
@@ -116,7 +116,7 @@ model on user depth and fatigue features (`src/pushnyt/risk.py`). Risk = 1 − P
 
 ## Send policy
 
-For each impression's top pick (at the configured friction), `pushnyt-objective` sends it only if
+For each impression's top pick (at the configured friction), `pushpin-objective` sends it only if
 
 ```
 calibrated P(click) ≥ threshold + risk_penalty · (1 − P(return))
@@ -163,7 +163,7 @@ so that term is not built here.
 ## Do clicks on unfamiliar subcategories stick?
 
 The novelty term pays a click cost now on the bet that new interests last. MIND can partly test
-that bet. `pushnyt-exploration` takes each user's **first exposure** in the log to each
+that bet. `pushpin-exploration` takes each user's **first exposure** in the log to each
 subcategory, notes whether they clicked it and how unfamiliar it was at that moment, and then asks:
 among users shown that subcategory again later, what share click it?
 
@@ -189,12 +189,12 @@ The follow-up is at most a few days, and a user can only re-click what the feed 
 measure later organic reading of the new subcategories.
 
 ```bash
-docker compose run --rm train "pushnyt-exploration"   # writes outputs/analysis/exploration.{csv,png}
+docker compose run --rm train "pushpin-exploration"   # writes outputs/analysis/exploration.{csv,png}
 ```
 
 ## Fatigue: do users engage less after heavy exposure?
 
-The send policy's daily cap assumes more pushes means less attention to each. `pushnyt-fatigue`
+The send policy's daily cap assumes more pushes means less attention to each. `pushpin-fatigue`
 checks what MIND shows. Heavy users differ from light ones, so each user is compared with **their
 own** usual engagement: for every impression, expected clicks = impression size × the click rate
 for impressions of that size (MIND's logging inflates small ones), scaled by the user's own
@@ -227,7 +227,7 @@ the volume experiment in the roadmap: randomize daily caps for several weeks and
 opt-outs over time.
 
 ```bash
-docker compose run --rm train "pushnyt-fatigue"       # writes outputs/analysis/fatigue.{csv,png}
+docker compose run --rm train "pushpin-fatigue"       # writes outputs/analysis/fatigue.{csv,png}
 ```
 
 ## LLM reader profiles
@@ -258,12 +258,12 @@ To measure the uplift, train with and without the three `llm_*` features, then c
 runs on the same test impressions (results below):
 
 ```bash
-docker compose run --rm train "pushnyt-train --exclude llm_sim_click llm_sim_skip llm_contrast --output-dir outputs/ablation-no-llm"
-docker compose run --rm train "pushnyt-train --output-dir outputs/ablation-with-llm"
-docker compose run --rm train "pushnyt-compare outputs/ablation-no-llm outputs/ablation-with-llm"
+docker compose run --rm train "pushpin-train --exclude llm_sim_click llm_sim_skip llm_contrast --output-dir outputs/ablation-no-llm"
+docker compose run --rm train "pushpin-train --output-dir outputs/ablation-with-llm"
+docker compose run --rm train "pushpin-compare outputs/ablation-no-llm outputs/ablation-with-llm"
 ```
 
-`pushnyt-compare` prints the paired difference and writes it to
+`pushpin-compare` prints the paired difference and writes it to
 `outputs/ablation-with-llm/compare_vs_ablation-no-llm.json`.
 
 ### Results
@@ -281,7 +281,7 @@ click/skip contrast group), with and without the three `llm_*` features:
 | AUC, evening | 0.697 (0.691–0.703) | 0.697 (0.691–0.703) |
 
 Separate CIs overlap almost entirely, but most of their width is test-set noise the two runs
-share. `pushnyt-compare` resamples impressions once per replicate and scores both runs on the same
+share. `pushpin-compare` resamples impressions once per replicate and scores both runs on the same
 sample, so its CI is for the difference (1,000 paired replicates, 30,270 impressions):
 
 | Metric | With − without | 95% CI | P(no gain) |

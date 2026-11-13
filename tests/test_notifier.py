@@ -7,9 +7,9 @@ import pandas as pd
 import pytest
 from sqlalchemy import text
 
-from pushnyt import cards
-from pushnyt import notifier as nt
-from pushnyt.store import Store
+from pushpin import cards
+from pushpin import notifier as nt
+from pushpin.store import Store
 from tests.test_push_job import FakeScorer
 
 TZ = ZoneInfo("America/New_York")
@@ -42,7 +42,7 @@ class FeatureScorer(FakeScorer):
         return rows.assign(sim_text=0.5, user_history_len=7) if features else rows
 
 
-PG_URL = os.environ.get("PUSHNYT_TEST_DATABASE_URL")  # e.g. postgresql+psycopg://pushnyt:pushnyt@localhost:5433/pushnyt
+PG_URL = os.environ.get("PUSHPIN_TEST_DATABASE_URL")  # e.g. postgresql+psycopg://pushpin:pushpin@localhost:5433/pushpin
 
 
 class DB:
@@ -74,7 +74,7 @@ def make_store(location):
 @pytest.fixture(params=["sqlite", "postgres"])
 def setup(request, tmp_path, monkeypatch):
     if request.param == "postgres" and not PG_URL:
-        pytest.skip("set PUSHNYT_TEST_DATABASE_URL to test against Postgres")
+        pytest.skip("set PUSHPIN_TEST_DATABASE_URL to test against Postgres")
     sent = []
     monkeypatch.setattr(nt, "fetch_feeds", lambda urls, tz: nt.parse_rss(rss(ITEMS), tz))
     monkeypatch.setattr(nt, "send_ntfy", lambda *a, **k: sent.append((*a, k)))
