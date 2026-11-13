@@ -1,4 +1,5 @@
 import os
+import re
 import urllib.error
 import urllib.request
 from zoneinfo import ZoneInfo
@@ -66,7 +67,7 @@ def make_store(location):
         engine = create_engine(location)
         with engine.begin() as con:
             con.execute(text("DROP VIEW IF EXISTS labeled"))
-            con.execute(text("DROP TABLE IF EXISTS scores, readers, interactions, articles, meta"))
+            con.execute(text("DROP TABLE IF EXISTS scores, readers, interactions, articles, meta, favorites"))
         engine.dispose()
     return Store(location, click_window_hours=24, tz=TZ)
 
@@ -238,6 +239,61 @@ def test_store_adds_volume_columns_to_an_older_database(tmp_path):
     engine.dispose()
     store = Store(path, click_window_hours=24, tz=TZ)
     assert store.reader("r1")["volume"] is None and store.set_volume("r1", "heavy") and store.volume() == "heavy"
+
+
+
+def test_profile_favorites_and_public_history(setup):
+    n, store, sent, _db = setup
+    for hour in (8, 12, 17, 21):
+        n.cfg["daily_cap"] = 4
+        n.run_slot(pd.Timestamp(f"2026-11-12 {hour}:00"))
+    pushes = [a[4].rsplit("/", 1)[1] for a in sent]
+    assert len(pushes) == 4
+    server = cards.serve_cards(store, 0)
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    get, post = phone(base)
+    stranger_get, stranger_post = phone(base)
+    try:
+        assert "Open a push first" in get("/me")
+        for p in pushes:
+            get(f"/p/{p}")
+        get(f"/p/{pushes[0]}")  # reopening doesn't count twice
+        post("/name", b"Justin")
+        me = get("/me")
+        assert "<strong>4</strong>articles read" in me and "Justin’s reading" in me and me.count('class="star"') == 4
+        ids = re.findall(r'data-fav="([^"]+)"', me)
+        for i in ids[:3]:
+            post(f"/favorite/{i}")
+        with pytest.raises(urllib.error.HTTPError) as e:
+            post(f"/favorite/{ids[3]}")  # a fourth
+        assert e.value.code == 409
+        with pytest.raises(urllib.error.HTTPError) as e:
+            post("/favorite/NYT-never-read")
+        assert e.value.code == 404
+        post(f"/favorite/{ids[0]}", b"off")
+        post(f"/favorite/{ids[3]}")
+        me = get("/me")
+        assert me.count('aria-pressed="true"') == 6  # three favorites, each starred on top and in the list
+
+        link = re.search(r'href="(http://[^"]+/u/([^"]+))"', me)
+        public = stranger_get(f"/u/{link.group(2)}")
+        assert "Justin’s reading" in public and "Reading history is private" in public
+        assert public.count("<li>") == 3 and "articles read" not in public and 'class="star"' not in public
+        assert "/p/" not in public  # links go to NYT: a visitor isn't counted as opening the push
+        with pytest.raises(urllib.error.HTTPError) as e:
+            stranger_post("/public", b"on")  # only the owner (by cookie) can change it
+        assert e.value.code == 403
+
+        post("/public", b"on")
+        public = stranger_get(f"/u/{link.group(2)}")
+        assert "<strong>4</strong>articles read" in public and public.count("<li>") == 3 + 4
+        post("/public", b"off")
+        assert "Reading history is private" in stranger_get(f"/u/{link.group(2)}")
+        with pytest.raises(urllib.error.HTTPError) as e:
+            stranger_get("/u/nobody")
+        assert e.value.code == 404
+    finally:
+        server.shutdown()
 
 
 def test_card_asks_for_volume_until_chosen(setup):

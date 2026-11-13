@@ -12,9 +12,12 @@ Tables:
                 the configured zone) and sent_ts (Unix seconds)
   readers       one row per phone that opened a card or the start page: reader_id, name,
                 created_at, first_push_ts, volume (light / medium / heavy: how many pushes a day
-                they asked for, NULL = not chosen) and volume_at (when they chose it)
+                they asked for, NULL = not chosen), volume_at (when they chose it), slug (the
+                random id in their public profile link, /u/<slug>; never the reader_id, which is
+                their login cookie) and history_public (1 = others see what they've read)
   interactions  one row per (push, reader, kind), kind = open (the card was opened: the click)
                 or save: created_at, minutes_after_push. Unsaving deletes the row.
+  favorites     a reader's (up to three) favorite articles: reader_id, news_id, created_at
   labeled       view, one row per (sent push, reader who could have received it): the push's
                 scores plus reader_id, reader_name, reader_volume, label (1 = opened, 0 = not
                 opened within `click_window_hours`, NULL = pending), saved
@@ -36,6 +39,9 @@ ARTICLE_COLUMNS = ["news_id", "title", "abstract", "section", "url", "published"
 REACTIONS = ("save",)              # toggles on the card
 KINDS = ("open", *REACTIONS)  # everything recorded per reader
 VOLUMES = ("light", "medium", "heavy")  # push volume a reader can ask for (caps in configs/notifier.yml)
+MAX_FAVORITES = 3
+# reader columns added after the first release, created on older databases
+READER_COLUMNS = {"volume": "TEXT", "volume_at": "TEXT", "slug": "TEXT", "history_public": "INTEGER DEFAULT 0"}
 
 # columns whose type pandas can't infer from a batch where they're all empty
 SCORE_TYPES = {"slot_id": BigInteger(), "sent_ts": BigInteger(), "push_id": Text(), "sent_at": Text(),
@@ -46,9 +52,11 @@ SCHEMA = [
     """CREATE TABLE IF NOT EXISTS articles (news_id TEXT PRIMARY KEY, title TEXT, abstract TEXT, section TEXT,
         url TEXT, published TEXT, subcategory TEXT, subcat_sim DOUBLE PRECISION)""",
     """CREATE TABLE IF NOT EXISTS readers (reader_id TEXT PRIMARY KEY, name TEXT, created_at TEXT, first_push_ts BIGINT,
-        volume TEXT, volume_at TEXT)""",
+        volume TEXT, volume_at TEXT, slug TEXT, history_public INTEGER DEFAULT 0)""",
     """CREATE TABLE IF NOT EXISTS interactions (push_id TEXT, reader_id TEXT, kind TEXT, created_at TEXT,
         minutes_after_push DOUBLE PRECISION, PRIMARY KEY (push_id, reader_id, kind))""",
+    """CREATE TABLE IF NOT EXISTS favorites (reader_id TEXT, news_id TEXT, created_at TEXT,
+        PRIMARY KEY (reader_id, news_id))""",
 ]
 
 
@@ -76,9 +84,10 @@ class Store:
             self._exec(statement)
         with self.lock:
             reader_cols = {c["name"] for c in inspect(self.engine).get_columns("readers")}
-        for col in ("volume", "volume_at"):  # databases made before the volume preference
+        for col, sql_type in READER_COLUMNS.items():  # databases made before these columns
             if col not in reader_cols:
-                self._exec(f"ALTER TABLE readers ADD COLUMN {col} TEXT")
+                self._exec(f"ALTER TABLE readers ADD COLUMN {col} {sql_type}")
+        self._exec("CREATE UNIQUE INDEX IF NOT EXISTS readers_slug ON readers (slug)")
         self._labeled_view()
 
     # --- plumbing
@@ -205,7 +214,8 @@ class Store:
     def reader(self, reader_id: str | None) -> dict | None:
         if not reader_id:
             return None
-        rows = self._rows("SELECT reader_id, name, volume FROM readers WHERE reader_id = :r", r=reader_id)
+        rows = self._rows("SELECT reader_id, name, volume, slug, history_public FROM readers WHERE reader_id = :r",
+                          r=reader_id)
         return rows[0] if rows else None
 
     def new_reader(self, first_push_ts: int | None) -> str:
@@ -255,6 +265,60 @@ class Store:
         return self._rows("""SELECT i.push_id, s.title, s.section, i.created_at AS saved_at
             FROM interactions i JOIN scores s ON s.push_id = i.push_id AND s.sent
             WHERE i.kind = 'save' AND i.reader_id = :r ORDER BY i.created_at DESC""", r=reader_id)
+
+
+    # --- profile: articles read, favorites, public history
+
+    def articles_read(self, reader_id: str | None) -> list[dict]:
+        """Every article this reader opened a push card for, most recent first: news_id, title,
+        section, url, read_at. Opening the card is what's recorded, not reading on NYT."""
+        if not reader_id or not self._has_scores():
+            return []
+        return self._rows("""SELECT s.news_id, MAX(s.title) AS title, MAX(s.section) AS section, MAX(s.url) AS url,
+                MIN(i.created_at) AS read_at
+            FROM interactions i JOIN scores s ON s.push_id = i.push_id AND s.sent
+            WHERE i.kind = 'open' AND i.reader_id = :r
+            GROUP BY s.news_id ORDER BY read_at DESC""", r=reader_id)
+
+    def favorites(self, reader_id: str | None) -> list[str]:
+        """This reader's favorite news_ids, in the order they were picked."""
+        if not reader_id:
+            return []
+        return [r["news_id"] for r in self._rows(
+            "SELECT news_id FROM favorites WHERE reader_id = :r ORDER BY created_at, news_id", r=reader_id)]
+
+    def set_favorite(self, reader_id: str, news_id: str, on: bool = True) -> str:
+        """Pick (or drop) an article the reader has read as a favorite.
+        Returns "ok", "unknown" (not an article they've read) or "full" (already three)."""
+        params = {"r": reader_id, "n": news_id}
+        if not on:
+            self._exec("DELETE FROM favorites WHERE reader_id = :r AND news_id = :n", params)
+            return "ok"
+        if news_id not in {a["news_id"] for a in self.articles_read(reader_id)}:
+            return "unknown"
+        current = self.favorites(reader_id)
+        if news_id in current:
+            return "ok"
+        if len(current) >= MAX_FAVORITES:
+            return "full"
+        self._exec("INSERT INTO favorites VALUES (:r, :n, :at) ON CONFLICT DO NOTHING", {**params, "at": self.now()})
+        return "ok"
+
+    def set_history_public(self, reader_id: str, public: bool) -> bool:
+        return self._exec("UPDATE readers SET history_public = :p WHERE reader_id = :r",
+                          {"p": int(public), "r": reader_id}).rowcount > 0
+
+    def slug(self, reader_id: str) -> str:
+        """The reader's public profile id, made on first use."""
+        self._exec("UPDATE readers SET slug = :s WHERE reader_id = :r AND slug IS NULL",
+                   {"s": secrets.token_urlsafe(6), "r": reader_id})
+        return self._rows("SELECT slug FROM readers WHERE reader_id = :r", r=reader_id)[0]["slug"]
+
+    def reader_by_slug(self, slug: str) -> dict | None:
+        if not slug:
+            return None
+        rows = self._rows("SELECT reader_id, name, slug, history_public FROM readers WHERE slug = :s", s=slug)
+        return rows[0] if rows else None
 
 
 class _NoLock:
