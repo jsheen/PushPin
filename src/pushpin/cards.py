@@ -455,10 +455,10 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
             if (method, what) == ("GET", "me"):
                 reply(200, profile_json(reader_id, self._base()))
                 return
-            elif (method, what) == ("POST", "open") and store.push(arg) is not None:
-                store.interact(arg, reader_id, "open")
+            elif (method, what) == ("POST", "open") and store.interact(arg, reader_id, "open"):
                 print(json.dumps({"event": "open", "push_id": arg, "reader": reader_id, "app": True}))
                 push = store.push(arg, reader_id)
+                push.pop("for_reader")
                 push["read"] = bool(push["read"])  # 0/1 from SQLite
                 reply(200, {"push": push, "profile": profile_json(reader_id, self._base())})
                 return

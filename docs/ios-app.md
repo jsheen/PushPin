@@ -12,8 +12,16 @@ the card server stores what readers do. Three things are added for it:
 Account deletion (`DELETE /api/account`, an App Store rule) removes the reader, their devices,
 pins, reads and Crème. Pushes stay: they're sent to everyone, not to one reader.
 
-Pushes are still chosen once per slot for one cold-start user and sent to every reader, as with
-the single ntfy topic. Scoring each reader separately is the next step once there are several.
+**Every app reader gets their own pushes.** At each slot the notifier makes one batched scorer
+call with a request per audience:
+- each app reader with a device: their own scorer user (`readers.scorer_user`, a cold start the
+  first time), their own past pushes and taps as feedback events, their own daily cap from their
+  own Light/Medium/Heavy choice, and their own "already pushed" list. Their push goes to their
+  devices only, and only they can open it.
+- the ntfy topic, as before: one shared pick for everyone subscribed (`scores.for_reader` is NULL).
+
+`scores.for_reader` records which audience each row was scored for. In the `labeled` view, an app
+reader is labeled on their own pushes only, never on the broadcast.
 
 ## Settings
 

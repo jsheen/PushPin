@@ -47,18 +47,20 @@ VOLUMES = ("light", "medium", "heavy")  # push volume a reader can ask for (caps
 MAX_FAVORITES = 1  # the Crème: a reader's one top article
 # reader columns added after the first release, created on older databases
 READER_COLUMNS = {"volume": "TEXT", "volume_at": "TEXT", "slug": "TEXT", "history_public": "INTEGER DEFAULT 0",
-                  "apple_sub": "TEXT"}
+                  "apple_sub": "TEXT", "scorer_user": "TEXT"}
 
 # columns whose type pandas can't infer from a batch where they're all empty
 SCORE_TYPES = {"slot_id": BigInteger(), "sent_ts": BigInteger(), "push_id": Text(), "sent_at": Text(),
-               "is_top": Boolean(), "passes_policy": Boolean(), "sent": Boolean(), "dry_run": Boolean()}
+               "is_top": Boolean(), "passes_policy": Boolean(), "sent": Boolean(), "dry_run": Boolean(),
+               "for_reader": Text()}
 
 SCHEMA = [
     "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)",
     """CREATE TABLE IF NOT EXISTS articles (news_id TEXT PRIMARY KEY, title TEXT, abstract TEXT, section TEXT,
         url TEXT, published TEXT, subcategory TEXT, subcat_sim DOUBLE PRECISION)""",
     """CREATE TABLE IF NOT EXISTS readers (reader_id TEXT PRIMARY KEY, name TEXT, created_at TEXT, first_push_ts BIGINT,
-        volume TEXT, volume_at TEXT, slug TEXT, history_public INTEGER DEFAULT 0, apple_sub TEXT)""",
+        volume TEXT, volume_at TEXT, slug TEXT, history_public INTEGER DEFAULT 0, apple_sub TEXT,
+        scorer_user TEXT)""",
     """CREATE TABLE IF NOT EXISTS interactions (push_id TEXT, reader_id TEXT, kind TEXT, created_at TEXT,
         minutes_after_push DOUBLE PRECISION, PRIMARY KEY (push_id, reader_id, kind))""",
     """CREATE TABLE IF NOT EXISTS favorites (reader_id TEXT, news_id TEXT, created_at TEXT,
@@ -102,6 +104,11 @@ class Store:
                 self._exec(f"ALTER TABLE readers ADD COLUMN {col} {sql_type}")
         self._exec("CREATE UNIQUE INDEX IF NOT EXISTS readers_slug ON readers (slug)")
         self._exec("CREATE UNIQUE INDEX IF NOT EXISTS readers_apple ON readers (apple_sub)")
+        if self._has_scores():  # databases from before per-reader pushes
+            with self.lock:
+                score_cols = {c["name"] for c in inspect(self.engine).get_columns("scores")}
+            if "for_reader" not in score_cols:
+                self._exec("ALTER TABLE scores ADD COLUMN for_reader TEXT")
         self._labeled_view()
 
     # --- plumbing
@@ -129,14 +136,16 @@ class Store:
         window = int(self.click_window_hours * 3600)  # Unix seconds: independent of the server's time zone
         did = lambda kind: (f"EXISTS (SELECT 1 FROM interactions i WHERE i.push_id = s.push_id "
                             f"AND i.reader_id = r.reader_id AND i.kind = '{kind}')")
-        # A reader is first seen when they open a card, so pushes sent before the first one they
-        # opened are left out: we can't tell whether they were subscribed yet.
+        # Two audiences. Broadcast pushes (for_reader NULL: the ntfy topic) count for every web reader
+        # from when they were first seen (they open a card), since we can't tell whether they were
+        # subscribed before. A push picked for one app reader (for_reader set) counts only for them.
         self._exec("DROP VIEW IF EXISTS labeled")
         self._exec(f"""CREATE VIEW labeled AS SELECT s.*, r.reader_id, r.name AS reader_name,
             r.volume AS reader_volume,
             CASE WHEN {did("open")} THEN 1 WHEN s.sent_ts <= {self._now_epoch()} - {window} THEN 0 END AS label,
             {did("read")} AS read
-            FROM scores s JOIN readers r ON s.sent_ts >= r.first_push_ts
+            FROM scores s JOIN readers r ON (s.for_reader IS NULL AND r.apple_sub IS NULL
+                                             AND s.sent_ts >= r.first_push_ts) OR s.for_reader = r.reader_id
             WHERE s.sent""")
 
     def now(self) -> str:
@@ -170,16 +179,24 @@ class Store:
                              con, params={"since": since.isoformat()})
         return df.assign(published=pd.to_datetime(df["published"]))
 
-    def pushed_ids(self) -> set[str]:
+    @staticmethod
+    def _audience(reader_id: str | None) -> tuple[str, dict]:
+        """SQL picking one audience's pushes: the broadcast (None) or one app reader's."""
+        return ("for_reader IS NULL", {}) if reader_id is None else ("for_reader = :aud", {"aud": reader_id})
+
+    def pushed_ids(self, reader_id: str | None = None) -> set[str]:
+        """Articles already pushed to this audience (the broadcast, or one app reader)."""
         if not self._has_scores():
             return set()
-        return {r["news_id"] for r in self._rows("SELECT news_id FROM scores WHERE sent")}
+        where, params = self._audience(reader_id)
+        return {r["news_id"] for r in self._rows(f"SELECT news_id FROM scores WHERE sent AND {where}", **params)}
 
-    def sent_on(self, day: str) -> int:
+    def sent_on(self, day: str, reader_id: str | None = None) -> int:
         if not self._has_scores():
             return 0
-        return self._rows("SELECT COUNT(*) AS n FROM scores WHERE sent AND substr(slot_time, 1, 10) = :day",
-                          day=day)[0]["n"]
+        where, params = self._audience(reader_id)
+        return self._rows(f"SELECT COUNT(*) AS n FROM scores WHERE sent AND substr(slot_time, 1, 10) = :day "
+                          f"AND {where}", day=day, **params)[0]["n"]
 
     def push_events(self, user_id: str) -> pd.DataFrame:
         """Every push sent for `user_id`, oldest first, with its article and whether anyone opened
@@ -220,7 +237,7 @@ class Store:
         mark = lambda kind: (f"EXISTS (SELECT 1 FROM interactions i WHERE i.push_id = s.push_id "
                              f"AND i.reader_id = :reader AND i.kind = '{kind}')")
         rows = self._rows(f"""SELECT s.push_id, s.news_id, s.title, s.section, s.url, s.sent_ts, a.abstract,
-                {mark("read")} AS read
+                s.for_reader, {mark("read")} AS read
             FROM scores s LEFT JOIN articles a ON a.news_id = s.news_id
             WHERE s.push_id = :push AND s.sent""", push=push_id, reader=reader_id)
         return rows[0] if rows else None
@@ -264,8 +281,25 @@ class Store:
             where, params = where + " AND reader_id = :r", {**params, "r": reader_id}
         return self._exec(f"DELETE FROM devices WHERE {where}", params).rowcount > 0
 
-    def devices(self) -> list[dict]:
-        return self._rows("SELECT token, reader_id, sandbox FROM devices ORDER BY created_at")
+    def devices(self, reader_id: str | None = None) -> list[dict]:
+        """Device tokens: all of them, or one reader's."""
+        if reader_id is None:
+            return self._rows("SELECT token, reader_id, sandbox FROM devices ORDER BY created_at")
+        return self._rows("SELECT token, reader_id, sandbox FROM devices WHERE reader_id = :r ORDER BY created_at",
+                          r=reader_id)
+
+    def app_readers(self, new_user_id) -> list[dict]:
+        """App readers with somewhere to push (a device): reader_id, volume, scorer_user. Each gets
+        their own pushes, scored as their own user; `new_user_id()` names a reader's scorer user the
+        first time (a cold start for the scorer)."""
+        rows = self._rows("""SELECT reader_id, volume, scorer_user FROM readers r
+            WHERE EXISTS (SELECT 1 FROM devices d WHERE d.reader_id = r.reader_id) ORDER BY created_at, reader_id""")
+        for row in rows:
+            if row["scorer_user"] is None:
+                row["scorer_user"] = new_user_id()
+                self._exec("UPDATE readers SET scorer_user = :u WHERE reader_id = :r",
+                           {"u": row["scorer_user"], "r": row["reader_id"]})
+        return rows
 
     def delete_reader(self, reader_id: str) -> bool:
         """Delete an account and everything stored under it (App Store rule for apps with
@@ -288,8 +322,10 @@ class Store:
 
     def volume(self) -> str | None:
         """The most recently chosen push volume across readers (the demo has one reader; with one
-        ntfy topic, everyone subscribed gets the same pushes), or None if nobody has chosen."""
-        rows = self._rows("SELECT volume FROM readers WHERE volume IS NOT NULL ORDER BY volume_at DESC LIMIT 1")
+        ntfy topic, everyone subscribed gets the same pushes), or None if nobody has chosen. App
+        readers choose for themselves (`app_readers`), so they don't count here."""
+        rows = self._rows("SELECT volume FROM readers WHERE volume IS NOT NULL AND apple_sub IS NULL "
+                          "ORDER BY volume_at DESC LIMIT 1")
         return rows[0]["volume"] if rows else None
 
     def interact(self, push_id: str, reader_id: str, kind: str) -> bool:
@@ -297,6 +333,8 @@ class Store:
         False if the push, reader or kind is unknown."""
         push = self.push(push_id)
         if push is None or kind not in KINDS or self.reader(reader_id) is None:
+            return False
+        if push["for_reader"] not in (None, reader_id):  # picked for another app reader
             return False
         minutes = (time.time() - push["sent_ts"]) / 60 if push["sent_ts"] is not None else None
         new = self._exec("INSERT INTO interactions VALUES (:p, :r, :k, :at, :m) ON CONFLICT DO NOTHING",

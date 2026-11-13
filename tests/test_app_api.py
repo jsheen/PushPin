@@ -117,19 +117,80 @@ class FakeApns:
     dead = staticmethod(apple.Apns.dead)
 
 
-def test_notifier_pushes_to_app_devices_and_drops_dead_ones(setup):  # noqa: F811
+def app_reader(store, sub, token, volume=None, sandbox=False):
+    reader, _ = store.reader_for_apple(sub, 0)
+    store.add_device(reader, token, sandbox=sandbox)
+    if volume:
+        store.set_volume(reader, volume)
+    return reader
+
+
+def test_each_app_reader_gets_their_own_pushes(setup):  # noqa: F811
+    n, store, sent, db = setup
+    n.cfg["volume_caps"] = {"light": 1, "medium": 2, "heavy": 4}
+    alice = app_reader(store, "a", "aa" * 32, volume="light", sandbox=True)
+    bob = app_reader(store, "b", "bb" * 32, volume="heavy")
+    store.add_device(bob, "cc" * 32)  # Bob's second device
+    n.apns = FakeApns({"cc" * 32: (410, "Unregistered")})
+
+    noon = pd.Timestamp("2026-11-12 12:00")
+    r = n.run_slot(noon)
+    # one scorer call, a separate cold user for the broadcast and for each reader
+    users = [q["user_id"] for q in n.scorer.requests]
+    assert len(set(users)) == 3 and all(u.startswith("new-") for u in users)
+    assert r["sent"] and len(sent) == 1  # the ntfy broadcast, as before
+    assert {x["reader_id"] for x in r["readers"]} == {alice, bob} and all(x["sent"] for x in r["readers"])
+    by_token = {t: (data, sandbox) for t, _title, data, sandbox in n.apns.sent}
+    assert set(by_token) == {"aa" * 32, "bb" * 32, "cc" * 32}  # each reader's devices, nobody else's
+    assert by_token["aa" * 32][1] is True and by_token["bb" * 32][1] is False
+    assert by_token["aa" * 32][0]["push_id"] != by_token["bb" * 32][0]["push_id"]
+    assert by_token["bb" * 32][0] == by_token["cc" * 32][0]  # the same push on both of Bob's devices
+    assert [d["token"] for d in store.devices(bob)] == ["bb" * 32]  # the dead one is gone
+
+    # a push picked for Alice can't be opened by Bob
+    alice_push = by_token["aa" * 32][0]["push_id"]
+    assert not store.interact(alice_push, bob, "open") and store.interact(alice_push, alice, "open")
+
+    # caps are per reader: Alice (light, 1 a day) is done, Bob (heavy) keeps going
+    r2 = n.run_slot(noon + pd.Timedelta(hours=5))
+    after = {x["reader_id"]: x for x in r2["readers"]}
+    assert not after[alice]["sent"] and not after[alice]["under_cap"] and after[bob]["sent"]
+    # and the article Alice already got isn't a candidate for her again
+    alice_sent = db("SELECT news_id FROM scores WHERE sent AND for_reader = :r", r=alice)["news_id"].tolist()
+    assert len(alice_sent) == 1
+    assert alice_sent[0] not in db("SELECT news_id FROM scores WHERE slot_time LIKE '2026-11-12T17%' "
+                                   "AND for_reader = :r", r=alice)["news_id"].tolist()
+
+    # her open feeds back into her own scoring only
+    alice_user = store._rows("SELECT scorer_user FROM readers WHERE reader_id = :r", r=alice)[0]["scorer_user"]
+    bob_user = store._rows("SELECT scorer_user FROM readers WHERE reader_id = :r", r=bob)[0]["scorer_user"]
+    last = {q["user_id"]: q for q in n.scorer.requests[-3:]}
+    assert [e["impressions"][-1] for e in last[alice_user]["events"]] == ["1"]
+    assert [e["impressions"][-1] for e in last[bob_user]["events"]] == ["0"]
+
+    # labels: each app reader is labeled on their own pushes only, never on the broadcast
+    labeled = db("SELECT reader_id, push_id, label FROM labeled")
+    assert set(labeled.loc[labeled["reader_id"] == alice, "push_id"]) == {alice_push}
+    assert labeled.loc[labeled["push_id"] == alice_push, "label"].tolist() == [1]
+    assert len(labeled.loc[labeled["reader_id"] == bob]) == 2
+
+
+def test_app_readers_without_a_device_get_nothing(setup):  # noqa: F811
     n, store, sent, _db = setup
-    reader = store.new_reader(0)
-    store.add_device(reader, "aa" * 32, sandbox=True)
-    store.add_device(reader, "bb" * 32)
-    n.apns = FakeApns({"bb" * 32: (410, "Unregistered")})
-    assert n.run_slot(pd.Timestamp("2026-11-12 12:00"))["sent"]
-    assert len(sent) == 1  # ntfy still gets it
-    (tok_a, title, data, sandbox_a), (tok_b, *_rest, sandbox_b) = n.apns.sent
-    push_id = sent[0][4].rsplit("/", 1)[1]
-    assert data["push_id"] == push_id and data["url"].startswith("http") and title == sent[0][2]
-    assert (tok_a, sandbox_a, tok_b, sandbox_b) == ("aa" * 32, True, "bb" * 32, False)
-    assert [d["token"] for d in store.devices()] == ["aa" * 32]
+    store.reader_for_apple("no-device", 0)
+    n.apns = FakeApns({})
+    r = n.run_slot(pd.Timestamp("2026-11-12 12:00"))
+    assert r["readers"] == [] and n.apns.sent == [] and len(sent) == 1
+
+
+def test_without_ntfy_only_app_readers_are_scored(setup):  # noqa: F811
+    n, store, sent, _db = setup
+    n.topic = None
+    reader = app_reader(store, "solo", "dd" * 32)
+    n.apns = FakeApns({})
+    r = n.run_slot(pd.Timestamp("2026-11-12 12:00"))
+    assert sent == [] and r["readers"][0]["reader_id"] == reader and len(n.apns.sent) == 1
+    assert len(n.scorer.requests) == 1
 
 
 def test_verify_identity_token_checks_signature_audience_and_issuer():
