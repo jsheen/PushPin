@@ -50,11 +50,11 @@ Tapping a notification opens that push's **card**, a small page served by the `c
   tracked.
 - **🔖 Save** adds it to your reading list at `/saved`. Tap again to unsave.
 - **Pushes a day**: Light, Medium or Heavy (see below).
-- **Profile →** opens `/me`, the reader's own page. On top are up to three favorite articles,
-  starred (☆) from the ones they've read. Below that are how many articles they've read (opened
+- **Profile →** opens `/me`, the reader's own page. On top is their **Crème**, the one article
+  they liked most, starred (☆) from the ones they've read; starring another replaces it. Below that are how many articles they've read (opened
   a card for) and the list. A **Make my reading public** checkbox shows the count and list on
   their public link, `/u/<slug>`, which uses a separate random id, not the reader cookie. Visitors
-  always see the favorites, and see the count and list only when public. Links there go straight
+  always see the Crème, and see the count and list only when public. Links there go straight
   to NYT, so a visitor's tap isn't counted as an open.
 
 The first card a phone opens sets a cookie with a random reader ID, and offers an optional
@@ -152,7 +152,7 @@ the Mac is awake and Docker is running:
 |-------|-------------|---------|
 | `scores` | slot × candidate article | `slot_time`, article (`title`, `section`, `subcategory`, `url`, `published`), every model feature, `p_click`, `p_return`, `novelty`, `push_score`, `is_top`, `passes_policy`, `sent`, `push_id`, `sent_at`, `sent_ts` (Unix seconds) |
 | `readers` | phone that opened a card or `/start` | `reader_id` (the cookie), `name` (optional), `created_at`, `first_push_ts`, `volume` (`light` / `medium` / `heavy`, NULL = not chosen), `volume_at`, `slug` (public profile id), `history_public` (1 = count and list public) |
-| `favorites` | reader × favorite article (up to 3) | `reader_id`, `news_id`, `created_at` |
+| `favorites` | reader's Crème (one article) | `reader_id`, `news_id`, `created_at` |
 | `interactions` | push × reader × kind | `kind` (`open` = the click, or `save`), `created_at`, `minutes_after_push`; unsaving deletes the row |
 | `labeled` (view) | sent push × reader | the push's `scores` row plus `reader_id`, `reader_name`, `reader_volume`, `label` (1 = opened, 0 = not opened within 24 h, NULL = pending), `saved` |
 | `articles` | article read from the feeds | text, URL, publish time, mapped MIND subcategory |

@@ -13,7 +13,7 @@ medium or heavy). The first card a phone opens, or the /start page (linked from 
 `pushpin.notifier --welcome`), sets a cookie with a random reader id, and everything the reader
 does is stored under it. Opening the card is the click; what they do on NYT isn't tracked.
 
-/me is the reader's profile: up to three favorite articles on top (its Crème), and below, how many articles
+/me is the reader's profile: their top article on top (the Crème), and below, how many articles
 they've read (opened a card for) with the list, which they can make public. /u/<slug> is the
 same page for anyone with the link: favorites always, the count and list only when public.
 """
@@ -197,8 +197,7 @@ document.querySelectorAll("button[data-fav]").forEach(b => b.addEventListener("c
   const r = await fetch(`/favorite/${encodeURIComponent(b.dataset.fav)}`,
                         {method: "POST", body: on ? "on" : "off"}).catch(() => null);
   if (r && r.ok) { history.replaceState(null, "", "#read"); return location.reload(); }  // reopen the list
-  document.querySelector(".note").textContent = r && r.status === 409
-    ? "Your Crème is full (three). Remove one first." : "Couldn't save that, try again.";
+  document.querySelector(".note").textContent = "Couldn't save that, try again.";
 }));
 </script>"""
 
@@ -262,7 +261,7 @@ def profile_page(reader: dict, read: list[dict], favorites: list[str], owner: bo
     if they made them public. Article links go straight to NYT, so a visitor isn't counted as opening."""
     e = html.escape
     by_id = {a["news_id"]: a for a in read}
-    favs = [by_id[n] for n in favorites if n in by_id]
+    favs = [by_id[n] for n in favorites if n in by_id][-MAX_FAVORITES:]
     fav_ids = {a["news_id"] for a in favs}
     name = reader.get("name")
     public = bool(reader.get("history_public"))
@@ -276,8 +275,7 @@ def profile_page(reader: dict, read: list[dict], favorites: list[str], owner: bo
 
     slots = "".join(item(a, owner) for a in favs)
     if owner:
-        slots += "".join(f'<li class="empty">{"Star an article you’ve read below." if i == len(favs) else "—"}</li>'
-                         for i in range(len(favs), MAX_FAVORITES))
+        slots = slots or '<li class="empty">Star the article you liked most below.</li>'
     elif not favs:
         slots = '<li class="empty">Nothing picked yet.</li>'
     top = f'<section><h2>Crème</h2><ul class="list">{slots}</ul></section>'
@@ -330,7 +328,7 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
       POST /name               body: the reader's first name
       GET  /saved              this reader's reading list; its links open the cards
       GET  /me                 this reader's profile: favorites, articles read, public toggle
-      POST /favorite/<news_id> body "on" or "off": star an article they've read (409 past three)
+      POST /favorite/<news_id> body "on" or "off": make an article they've read their Crème (replaces the last)
       POST /public             body "on" or "off": show the count and list on their public link
       GET  /u/<slug>           a reader's public profile
       GET  /stats              {"readers": n} for autoscaling (KEDA), only with header
@@ -372,11 +370,7 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
                 self._send(403, "open a push first", "text/plain")
                 return
             if route == "favorite":
-                result = store.set_favorite(reader_id, push_id, on=body.strip() != "off")
-                if result == "full":
-                    self._send(409, "three favorites already", "text/plain")
-                    return
-                ok = result == "ok"
+                ok = store.set_favorite(reader_id, push_id, on=body.strip() != "off") == "ok"
             elif route == "public":
                 ok = store.set_history_public(reader_id, body.strip() == "on")
             elif route == "name":

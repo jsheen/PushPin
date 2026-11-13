@@ -262,23 +262,19 @@ def test_profile_favorites_and_public_history(setup):
         me = get("/me")
         assert 'Read <span class="n">4</span>' in me and "articles read" not in me and "Justin’s PushPin" in me and me.count('class="star"') == 4
         ids = re.findall(r'data-fav="([^"]+)"', me)
-        for i in ids[:3]:
-            post(f"/favorite/{i}")
-        with pytest.raises(urllib.error.HTTPError) as e:
-            post(f"/favorite/{ids[3]}")  # a fourth
-        assert e.value.code == 409
+        post(f"/favorite/{ids[0]}")
+        post(f"/favorite/{ids[1]}")  # a second pick replaces the first
+        assert store.favorites(store.reader_by_slug(re.search(r"/u/([^\"]+)", get("/me")).group(1))["reader_id"]) == [ids[1]]
         with pytest.raises(urllib.error.HTTPError) as e:
             post("/favorite/NYT-never-read")
         assert e.value.code == 404
-        post(f"/favorite/{ids[0]}", b"off")
-        post(f"/favorite/{ids[3]}")
         me = get("/me")
-        assert me.count('aria-pressed="true"') == 6  # three favorites, each starred on top and in the list
+        assert me.count('aria-pressed="true"') == 2  # the Crème, starred on top and in the list
 
         link = re.search(r'href="(http://[^"]+/u/([^"]+))"', me)
         public = stranger_get(f"/u/{link.group(2)}")
         assert "Justin’s PushPin" in public and "Reading history is private" in public and "on PushPin" not in public
-        assert public.count("<li>") == 3 and "articles read" not in public and "Started reading" not in public and 'class="star"' not in public
+        assert public.count("<li>") == 1 and "articles read" not in public and "Started reading" not in public and 'class="star"' not in public
         assert "/p/" not in public  # links go to NYT: a visitor isn't counted as opening the push
         with pytest.raises(urllib.error.HTTPError) as e:
             stranger_post("/public", b"on")  # only the owner (by cookie) can change it
@@ -286,7 +282,7 @@ def test_profile_favorites_and_public_history(setup):
 
         post("/public", b"on")
         public = stranger_get(f"/u/{link.group(2)}")
-        assert "Started reading on " in public and "<div>4 articles read</div>" in public and 'Read <span class="n">4</span>' in public and public.count("<li>") == 3 + 4
+        assert "Started reading on " in public and "<div>4 articles read</div>" in public and 'Read <span class="n">4</span>' in public and public.count("<li>") == 1 + 4
         post("/public", b"off")
         assert "Reading history is private" in stranger_get(f"/u/{link.group(2)}")
         with pytest.raises(urllib.error.HTTPError) as e:

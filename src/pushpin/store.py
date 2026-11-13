@@ -17,7 +17,7 @@ Tables:
                 their login cookie) and history_public (1 = others see what they've read)
   interactions  one row per (push, reader, kind), kind = open (the card was opened: the click)
                 or save: created_at, minutes_after_push. Unsaving deletes the row.
-  favorites     a reader's (up to three) favorite articles: reader_id, news_id, created_at
+  favorites     a reader's top article (their Crème; MAX_FAVORITES of them): reader_id, news_id, created_at
   labeled       view, one row per (sent push, reader who could have received it): the push's
                 scores plus reader_id, reader_name, reader_volume, label (1 = opened, 0 = not
                 opened within `click_window_hours`, NULL = pending), saved
@@ -39,7 +39,7 @@ ARTICLE_COLUMNS = ["news_id", "title", "abstract", "section", "url", "published"
 REACTIONS = ("save",)              # toggles on the card
 KINDS = ("open", *REACTIONS)  # everything recorded per reader
 VOLUMES = ("light", "medium", "heavy")  # push volume a reader can ask for (caps in configs/notifier.yml)
-MAX_FAVORITES = 3
+MAX_FAVORITES = 1  # the Crème: a reader's one top article
 # reader columns added after the first release, created on older databases
 READER_COLUMNS = {"volume": "TEXT", "volume_at": "TEXT", "slug": "TEXT", "history_public": "INTEGER DEFAULT 0"}
 
@@ -288,8 +288,8 @@ class Store:
             "SELECT news_id FROM favorites WHERE reader_id = :r ORDER BY created_at, news_id", r=reader_id)]
 
     def set_favorite(self, reader_id: str, news_id: str, on: bool = True) -> str:
-        """Pick (or drop) an article the reader has read as a favorite.
-        Returns "ok", "unknown" (not an article they've read) or "full" (already three)."""
+        """Pick (or drop) an article the reader has read as a favorite. Past MAX_FAVORITES, the
+        oldest pick makes room. Returns "ok", or "unknown" (not an article they've read)."""
         params = {"r": reader_id, "n": news_id}
         if not on:
             self._exec("DELETE FROM favorites WHERE reader_id = :r AND news_id = :n", params)
@@ -299,8 +299,8 @@ class Store:
         current = self.favorites(reader_id)
         if news_id in current:
             return "ok"
-        if len(current) >= MAX_FAVORITES:
-            return "full"
+        for old in current[:len(current) - MAX_FAVORITES + 1]:  # replace the oldest pick(s)
+            self._exec("DELETE FROM favorites WHERE reader_id = :r AND news_id = :n", {"r": reader_id, "n": old})
         self._exec("INSERT INTO favorites VALUES (:r, :n, :at) ON CONFLICT DO NOTHING", {**params, "at": self.now()})
         return "ok"
 
