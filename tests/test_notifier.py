@@ -278,6 +278,7 @@ def test_profile_favorites_and_public_history(setup):
         public = stranger_get(f"/u/{link.group(2)}")
         assert "Justin’s PushPin" in public and "Reading history is private" in public and "on PushPin" not in public
         assert public.count("<li>") == 1 and "articles read" not in public and "Started reading" not in public and 'class="star"' not in public
+        assert "Put your favorite article here" not in public  # the hint is only for the owner
         assert "/p/" not in public  # links go to NYT: a visitor isn't counted as opening the push
         with pytest.raises(urllib.error.HTTPError) as e:
             stranger_post("/public", b"on")  # only the owner (by cookie) can change it
@@ -331,7 +332,7 @@ def test_pinned_push_can_go_in_the_creme_unread(setup):
         post(f"/favorite/{news_id}")  # pinned, never read: still allowed in the Crème
         pin = get(f"/p/{push_id}")
         assert "★ In your Crème" in pin and "Nothing yet. Tap Read" in pin
-        assert "<h2>Crème</h2><ul class=\"list\"><li>" in pin
+        assert "<h2>Crème</h2><p class=\"private\">Put your favorite article here.</p><ul class=\"list\"><li>" in pin
     finally:
         server.shutdown()
 

@@ -263,10 +263,11 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
 
     slots = "".join(item(a, owner) for a in favs)
     if owner:
-        slots = slots or '<li class="empty">Put the article you liked most here: ☆ on a push, or below.</li>'
+        slots = slots or '<li class="empty">Nothing yet. Tap ☆ on an article.</li>'
     elif not favs:
         slots = '<li class="empty">Nothing picked yet.</li>'
-    top = f'<section><h2>Crème</h2><ul class="list">{slots}</ul></section>'
+    hint = '<p class="private">Put your favorite article here.</p>' if owner else ""
+    top = f'<section><h2>Crème</h2>{hint}<ul class="list">{slots}</ul></section>'
     waiting = [a for a in (unread or []) if not pinned or a["news_id"] != pinned["news_id"]] if owner else []
     if waiting:  # only the owner sees what they pinned; the one on top isn't listed twice
         top += (f'<section><h2>Pinned <span class="n">{len(waiting)}</span></h2>'
