@@ -76,12 +76,16 @@ border-radius:8px;background:var(--btn);color:var(--fg)}
 .toggle input{width:18px;height:18px;margin:0}
 .share{font-size:14px;color:var(--muted);margin:0 0 12px;word-break:break-all}.share a{color:var(--link)}
 .splash{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:16px;
-pointer-events:none;z-index:10;opacity:0;animation:splash 3.8s ease forwards}
-.splash>div{background:#fff;color:#121212;border-radius:14px;padding:24px 32px;text-align:center;
-box-shadow:0 10px 40px rgba(0,0,0,.25);line-height:1.5}
-.splash strong{display:block;font:700 22px/1.3 Georgia,"Times New Roman",serif;margin-bottom:4px}
-@keyframes splash{0%{opacity:0}10%,90%{opacity:1}100%{opacity:0;visibility:hidden}}
-@media (prefers-reduced-motion:reduce){.splash{animation-timing-function:steps(1,jump-none)}}
+background:var(--bg);z-index:10;animation:splash-out 5.6s ease forwards}
+.splash>div{background:#fff;color:#121212;border-radius:20px;padding:48px 32px;text-align:center;
+width:min(100%,460px);box-sizing:border-box;box-shadow:0 16px 60px rgba(0,0,0,.3);font-size:24px;line-height:1.5;
+animation:splash-in .6s ease both}
+.splash strong{display:block;font:700 36px/1.2 Georgia,"Times New Roman",serif;margin-bottom:16px}
+.splash+.profile{animation:page-in 5.6s ease both}
+@keyframes splash-in{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:none}}
+@keyframes splash-out{0%,89%{opacity:1}100%{opacity:0;visibility:hidden}}
+@keyframes page-in{0%,89%{opacity:0}100%{opacity:1}}
+@media (prefers-reduced-motion:reduce){.splash,.splash>div,.splash+.profile{animation-timing-function:steps(1,jump-none)}}
 .note{font-size:14px;color:var(--on);min-height:1em;margin:0 0 8px}
 </style></head><body><main>%BODY%</main></body></html>"""
 
@@ -202,7 +206,8 @@ def streak(read: list[dict], today: date) -> int:
 
 
 def splash(title: str, lines: list[str]) -> str:
-    """A small white window over the page: fades in, stays 3 seconds, fades out. CSS only."""
+    """A large white window in place of the page: fades in, stays 5 seconds, then fades out
+    as the page fades in. CSS only."""
     return (f'<div class="splash" role="status"><div><strong>{title}</strong>'
             f'{"".join(f"<div>{html.escape(x)}</div>" for x in lines)}</div></div>')
 
