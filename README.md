@@ -26,7 +26,7 @@ decide what to send and whether to send it. It can also send real pushes to your
 |-----|--------|
 | [docs/analysis.md](docs/analysis.md) | Push objective trade-off, calibration, return model, send policy, exploration and fatigue analyses, LLM profile ablation |
 | [docs/notifier.md](docs/notifier.md) | Real pushes from live NYT RSS via ntfy, the card server, the labeled push database |
-| [docs/deploy-gcp.md](docs/deploy-gcp.md) | Mixed GKE + Cloud Run deployment, `scripts/deploy-gcp.sh`, cost |
+| [docs/deploy-gcp.md](docs/deploy-gcp.md) | Cloud Run + Neon deployment, `scripts/deploy-gcp.sh`, cost |
 | [docs/live-scoring.md](docs/live-scoring.md) | What request-time scoring would still need |
 | [docs/production.md](docs/production.md) | How this would run in production end to end |
 
@@ -196,7 +196,7 @@ Plots, tables, caveats and what real opt-out logging would add: [docs/analysis.m
 ```
 configs/                # train.yml, objective.yml, notifier.yml
 scripts/                # sync-data.sh, smoke-api.sh (CI), build-api-image.sh, deploy-gcp.sh
-deploy/                 # cloudbuild.yaml, cloudrun/ (cards, notifier job), k8s/ (scorer, KEDA)
+deploy/                 # cloudbuild.yaml, cloudrun/ (scorer, cards, notifier job), k8s/ (scorer at scale, KEDA)
 src/pushpin/
   data.py embed.py vectordb.py      # MIND loaders, slots; abstract embeddings; Chroma wrapper
   profile.py                        # RAG + Claude reader profiles
@@ -328,18 +328,18 @@ Pushes are scored for a brand-new user (no history, a cold start; `user_id` in
 fed back. Setup, the database tables and example queries are in
 [docs/notifier.md](docs/notifier.md).
 
-The same services deploy to GCP, each where it fits:
+The same services deploy to GCP:
 
 | Piece | Runs on |
 |-------|---------|
-| Scorer | GKE Autopilot behind an internal load balancer, scaled by KEDA |
+| Scorer | Cloud Run service, private, scales to zero between slots (GKE + KEDA is the at-scale design) |
 | Card server | Cloud Run service (public HTTPS replaces the tunnel) |
 | Notifier slot | Cloud Run job triggered by Cloud Scheduler |
-| Database | Cloud SQL Postgres |
+| Database | Neon Postgres (free tier) |
 | Images | Artifact Registry, built by Cloud Build |
 
 `scripts/deploy-gcp.sh {setup,images,deploy,status,pause,resume,down}` is a dry run unless
-`--apply`. About $50–60/month while running; not yet applied to a real project. See
+`--apply`. About $1/month; not yet applied to a real project. See
 [docs/deploy-gcp.md](docs/deploy-gcp.md).
 
 ## Development

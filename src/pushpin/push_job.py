@@ -178,12 +178,26 @@ def write_outputs(out: Path, scores: pd.DataFrame, pushes: pd.DataFrame, summary
 class HttpScorer:
     """The scorer interface over HTTP, against a running pushpin-scorer service."""
 
-    def __init__(self, url: str, timeout: float = 600):
-        self.url, self.timeout = url.rstrip("/"), timeout
+    def __init__(self, url: str, timeout: float = 600, auth: str | None = None):
+        """auth="gcp": send a Google ID token (from the metadata server) for a private Cloud Run scorer."""
+        self.url, self.timeout, self.auth = url.rstrip("/"), timeout, auth
+        self._token, self._token_at = "", 0.0
+
+    def _headers(self) -> dict:
+        headers = {"content-type": "application/json"}
+        if self.auth == "gcp":
+            if time.time() - self._token_at > 30 * 60:   # tokens last an hour
+                req = urllib.request.Request(
+                    "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/"
+                    f"identity?audience={self.url}", headers={"Metadata-Flavor": "Google"})
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    self._token, self._token_at = resp.read().decode(), time.time()
+            headers["authorization"] = f"Bearer {self._token}"
+        return headers
 
     def _call(self, path: str, payload: dict | None = None):
         data = None if payload is None else json.dumps(payload).encode()
-        req = urllib.request.Request(self.url + path, data=data, headers={"content-type": "application/json"})
+        req = urllib.request.Request(self.url + path, data=data, headers=self._headers())
         with urllib.request.urlopen(req, timeout=self.timeout) as resp:
             return json.loads(resp.read())  # floats round-trip exactly; NaN is allowed (missing features)
 

@@ -1,0 +1,63 @@
+# The scorer on Cloud Run: model + MIND user state, answering the notifier's /articles and /score calls.
+# Private (only the pushpin-run service account may call it) and scaled to zero between slots, so it
+# costs nothing while idle; a slot's first call waits for a cold start (~35 s locally to load the
+# state, plus copying Chroma from the bucket).
+#
+# Data comes from the bucket, mounted read-only (Cloud Storage FUSE). Chroma's SQLite files don't
+# like network filesystems, so data/chroma is copied to the container's in-memory disk (it counts
+# toward the memory limit, ~0.9 GB); everything else is symlinked.
+#
+# At scale this would move back to GKE with KEDA (deploy/k8s/), one replica per 10 readers.
+# ${...} placeholders are filled in by scripts/deploy-gcp.sh; deploy with
+#   gcloud run services replace <filled-in file> --region ${REGION}
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: pushpin-scorer
+  labels:
+    app: pushpin
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: "0"
+        autoscaling.knative.dev/maxScale: "1"   # one state in memory; slots are serial
+        run.googleapis.com/execution-environment: gen2   # needed for the bucket mount
+        run.googleapis.com/startup-cpu-boost: "true"
+    spec:
+      serviceAccountName: pushpin-run@${PROJECT}.iam.gserviceaccount.com
+      containerConcurrency: 4
+      timeoutSeconds: 900
+      containers:
+        - image: ${REGION}-docker.pkg.dev/${PROJECT}/pushpin/train:${TAG}
+          args:   # the image's entrypoint is bash -c
+            - >-
+              mkdir -p /app/data /app/outputs/${RUN} &&
+              for f in /gcs/data/*; do
+                if [ "$(basename "$f")" = chroma ]; then cp -r "$f" /app/data/; else ln -sfn "$f" /app/data/; fi;
+              done &&
+              cp /gcs/outputs/${RUN}/* /app/outputs/${RUN}/ &&
+              exec pushpin-scorer
+          ports:
+            - containerPort: 8000
+          env:
+            - {name: PUSHPIN_RUN_DIR, value: outputs/${RUN}}
+            - {name: DATA_DIR, value: /app/data}
+            - {name: MALLOC_ARENA_MAX, value: "2"}
+            - {name: OMP_NUM_THREADS, value: "1"}
+            - {name: TOKENIZERS_PARALLELISM, value: "false"}
+          volumeMounts:
+            - {name: bucket, mountPath: /gcs}
+          resources:
+            limits: {cpu: "1", memory: 4Gi}
+          startupProbe:   # Cloud Run allows at most 600 s here; it starts in well under that
+            httpGet: {path: /health, port: 8000}
+            periodSeconds: 10
+            failureThreshold: 60
+      volumes:
+        - name: bucket
+          csi:
+            driver: gcsfuse.run.googleapis.com
+            readOnly: true
+            volumeAttributes:
+              bucketName: ${BUCKET}

@@ -305,7 +305,7 @@ def main() -> None:
         return
 
     store = open_store(config)
-    scorer = HttpScorer(args.scorer)
+    scorer = HttpScorer(args.scorer, auth=os.environ.get("PUSHPIN_SCORER_AUTH"))
     wait_for(scorer)
     notifier = Notifier(scorer, store, config, objective, topic, os.environ.get("CLICK_BASE_URL"), args.dry_run,
                         tunnel_metrics=os.environ.get("TUNNEL_METRICS_URL"))

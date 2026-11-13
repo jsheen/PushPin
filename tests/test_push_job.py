@@ -104,3 +104,36 @@ def test_local_scorer_implements_the_scorer_interface():
     for method in ("info", "users", "add_articles", "score"):
         assert callable(getattr(LocalScorer, method, None)), method
         assert callable(getattr(HttpScorer, method, None)), method
+
+
+def test_http_scorer_sends_a_cached_gcp_id_token(monkeypatch):
+    """auth="gcp": a private Cloud Run scorer gets a Bearer token from the metadata server, fetched once."""
+    import io
+    from pushpin import push_job
+
+    calls = []
+
+    def fake_urlopen(req, timeout=None):
+        calls.append(req)
+        body = b"tok-123" if "metadata.google.internal" in req.full_url else b'{"ok": true}'
+        return io.BytesIO(body)
+
+    monkeypatch.setattr(push_job.urllib.request, "urlopen", fake_urlopen)
+    scorer = push_job.HttpScorer("https://scorer.example/", auth="gcp")
+    assert scorer.info() == {"ok": True}
+    assert scorer.info() == {"ok": True}
+    meta = [r for r in calls if "metadata.google.internal" in r.full_url]
+    assert len(meta) == 1 and "audience=https://scorer.example" in meta[0].full_url
+    assert meta[0].get_header("Metadata-flavor") == "Google"
+    assert all(r.get_header("Authorization") == "Bearer tok-123" for r in calls if r not in meta)
+
+
+def test_http_scorer_without_auth_sends_no_token(monkeypatch):
+    import io
+    from pushpin import push_job
+
+    calls = []
+    monkeypatch.setattr(push_job.urllib.request, "urlopen",
+                        lambda req, timeout=None: calls.append(req) or io.BytesIO(b"{}"))
+    push_job.HttpScorer("http://scorer:8000").info()
+    assert len(calls) == 1 and calls[0].get_header("Authorization") is None

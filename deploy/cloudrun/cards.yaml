@@ -14,7 +14,6 @@ spec:
       annotations:
         autoscaling.knative.dev/minScale: "0"
         autoscaling.knative.dev/maxScale: "5"
-        run.googleapis.com/cloudsql-instances: ${SQL_INSTANCE}   # mounts the socket at /cloudsql/${SQL_INSTANCE}
     spec:
       serviceAccountName: pushpin-run@${PROJECT}.iam.gserviceaccount.com
       containerConcurrency: 40
@@ -28,7 +27,7 @@ spec:
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef: {name: pushpin-database-url, key: latest}
-            - name: CARDS_STATS_TOKEN   # lets the scorer's autoscaler (KEDA, on GKE) read the reader count
+            - name: CARDS_STATS_TOKEN   # guards /stats (the reader count; KEDA's input in the GKE setup)
               valueFrom:
                 secretKeyRef: {name: pushpin-stats-token, key: latest}
           resources:
