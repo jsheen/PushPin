@@ -351,6 +351,7 @@ def test_landing_lists_pinned_articles_not_yet_read(setup):
         pinned = landing.split("<h2>Pinned")[1].split("</section>")[0]
         assert '<span class="n">1</span>' in pinned and f'data-read="{first}"' in pinned and f'data-read="{second}"' not in pinned
         assert 'class="star"' in pinned  # straight into the Crème from the list too
+        assert "Always private" in pinned
         me = get("/me")
         assert me.count('<li><div><a') == 2 and 'Pinned <span class="n">2</span>' in me
         post(f"/read/{first}")  # read: moves from Pinned to Read

@@ -71,7 +71,7 @@ border-radius:8px;background:var(--btn);color:var(--fg)}
 .profile h2{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:0 0 12px}
 .profile .list li{display:flex;gap:12px;align-items:flex-start}.profile .list li>div{flex:1;min-width:0}
 .profile .list a{color:var(--fg)}.profile .list a:hover{color:var(--link)}
-.profile .empty{color:var(--muted)}.profile h2 .n{color:var(--fg);margin-left:6px;letter-spacing:0}
+.profile .empty{color:var(--muted)}.profile .private{font-size:14px;color:var(--muted);margin:-6px 0 8px}.profile h2 .n{color:var(--fg);margin-left:6px;letter-spacing:0}
 .profile section>.list>li:last-child{border-bottom:0}
 .star{font:inherit;font-size:20px;line-height:1;padding:2px 4px;border:0;background:none;color:var(--muted);cursor:pointer}
 .star[aria-pressed=true]{color:var(--on)}
@@ -269,7 +269,8 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
     top = f'<section><h2>Crème</h2><ul class="list">{slots}</ul></section>'
     waiting = [a for a in (unread or []) if not pinned or a["news_id"] != pinned["news_id"]] if owner else []
     if waiting:  # only the owner sees what they pinned; the one on top isn't listed twice
-        top += (f'<section><h2>Pinned <span class="n">{len(waiting)}</span></h2><ul class="list">'
+        top += (f'<section><h2>Pinned <span class="n">{len(waiting)}</span></h2>'
+                f'<p class="private">Always private: only you see what you’ve pinned.</p><ul class="list">'
                 f'{"".join(item(a, True) for a in waiting)}</ul></section>')
 
     n = len(read)
