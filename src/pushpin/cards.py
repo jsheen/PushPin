@@ -172,7 +172,7 @@ def volume_picker(current: str | None, caps: dict | None = None, ask: bool = Fal
 def start_page(reader: dict | None, caps: dict | None = None) -> str:
     """The welcome push's page: pick how many pushes a day, before the first real one."""
     return page(f"""<h1>PushPin</h1><p class="abstract">A few NYT stories a day, picked for you. Tap a
-push to pin it, then Read it or keep it; that's how it learns what you like.</p>
+push to pin it, then read it; that's how it learns what you like.</p>
 {volume_picker(None, caps, ask=True)}{OWNER_SCRIPT}""")
 
 
