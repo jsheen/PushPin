@@ -529,7 +529,8 @@ def test_papier_mache_only_with_a_visible_read_list():
     assert 'id="papier-on"' in own and "Each day’s pushes make a picture: read them all to finish it · 7 finished" in own
     head = re.search(r'<div class="readhead">.*?</div>', own).group(0)
     assert 'id="papier-on"' in head and 'class="papier-hint" hidden' in own  # switch in the Read header; hint until on
-    assert "Tap a finished one to share it" in own and "navigator.share({text})" in own  # a finished one shares as text
+    assert "Tap a finished one to share it" in own and "async function sticker(day, kind)" in own  # a finished one shares as a sticker
+    assert "Copy" not in own and "textDino" not in own  # no text version
     assert "snowman(c)" in own and "Lightning bolt" in own  # common symbols, not just dinosaurs
     panel = own[own.index('<div class="readpanel">'):]
     assert panel.index('class="list"') < panel.index('id="papier"')  # one panel, no fold

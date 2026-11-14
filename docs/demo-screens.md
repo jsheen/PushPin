@@ -40,65 +40,19 @@ today's word art".
 
 ## 4. Sharing a picture
 
-Tapping a finished picture opens it as text to paste into any chat: the shape spelled out in
-everything read that day, every title with its whole abstract, from the first title to the final
-period, with 📌 in the top left corner. The shape grows to fit the words, so a busy day makes a
-bigger picture, and only the last line may end a little short. Each picture is unique to its
-reader and day. **Share** opens the phone's share sheet; **Copy** copies it.
+Tapping a finished picture makes it a sticker: everything read that day, every title with its whole
+abstract, written into the shape on a white die-cut with a soft shadow and the PushPin pin in the
+corner, as a PNG with a transparent background. It looks the same in any chat, in light or dark
+mode, and each one is unique to its reader and day. **Share** opens the phone's share sheet with the
+image; **Save image** downloads it. On iOS 17+, long-press it in Photos and choose Add Sticker to
+use it as a sticker in Messages.
 
-<img src="screens/share-sheet.png" width="300" alt="Share sheet on the demo profile: a snowman spelled out in the letters of the day's articles, with Share and Copy buttons">
+<img src="screens/share-sheet.png" width="300" alt="Share sheet on the demo profile: the snowman sticker made of the day's articles, with Share and Save image buttons">
 
 The demo's snowman and Brontosaurus, each made of the four articles read that day:
 
-```
-📌             TheQuietRe
-               turnoftheN
-            ightTrain—Sleepe
-              rcarsareroll
-              ingagainastr
-              avelerstrade
-              airportsfora
-               slowerwaya
-cros             sthecou             ntr
-  y.What      theTideLeaves      Behin
-      d—Bea chcomberscatalog theshe
-         lls,glassanddriftwoodt
-           hateverystormbring
-            sashore.ACityLea
-             rnstoLoveItsRai
-              n—Afteryears
-             offloods,oneci
-           tybuiltparksthatso
-         akupstorms,andnowrainy
-         daysbringpeopleoutside
-         .TheLastTypewriterRepai
-         rmaninOhio—Hehasfixedth
-         ousandsofmachinesandst
-          illkeepsadrawerofrib
-            bonsnobodymakesan
-              ymore.
-```
-
-```
-📌                                           Insideth
-                                           eRacetoMapt
-                                          heOceanFloor
-                                         —Scientistsa
-                                       ndsonarshi
-                                      psarechart
-                    ingthevastseabedthatremain
-                slessknownthanthemoon.WhyEver
-            yoneIsBakingBreadAgain—Sourdoug
-         hstartersarepassedhandtohandashom
-       ebakersrediscoveraslow,patientcraft
-     .TheSecretLifeofSubwayPigeons—Thebird
-   sthatridethetrainsknowtheschedulesbett
-  erthanmanycommutersdo.HowaSmallTownSave
-dItsLibrary—Whenthecountycutitsbudget,res
-                   identsheldbakesa lesan
-                   draisedeno  ught okeep
-                   thed oorso  pen.
-```
+<img src="screens/sticker-snowman.png" width="260" alt="Snowman sticker: four articles' titles and abstracts written into a snowman on a white die-cut, with the PushPin pin">
+<img src="screens/sticker-brontosaurus.png" width="420" alt="Brontosaurus sticker: four articles' titles and abstracts written into a Brontosaurus on a white die-cut, with the PushPin pin">
 
 ## Before the first push: the welcome page
 
@@ -111,5 +65,5 @@ profile.
 
 Run a card server on a copy of the database, so a screenshot doesn't record a real open, and drive
 headless Chrome over the DevTools protocol: device metrics 390 × 844 at 2x with `mobile: true`, dark
-mode. For the share sheet, stub `navigator.share` (headless Chrome hides the button without it) and
-click a `.papier .dino`; the shared text is the dialog's `<pre>`.
+mode. For the share sheet, stub `navigator.canShare` and `navigator.share` (headless Chrome hides the
+button without them) and click a `.papier button.dino`; the sticker is the dialog `<img>`'s data URL.

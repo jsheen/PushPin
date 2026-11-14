@@ -89,11 +89,11 @@ box-shadow:0 1px 2px rgba(0,0,0,.3);transition:transform .25s ease}
 .papier .dino:active{transform:scale(.94)}
 .sharecard{border:0;padding:44px 16px 16px;border-radius:18px;background:var(--bg);color:var(--fg);width:min(92vw,420px);
 box-sizing:border-box;box-shadow:0 24px 80px rgba(0,0,0,.35)}.sharecard::backdrop{background:rgba(0,0,0,.55)}
-.sharecard pre{margin:0 auto;width:fit-content;max-width:100%;padding:12px 16px;border-radius:18px;background:var(--btn);
-font:13px/1.25 ui-monospace,Menlo,monospace;white-space:pre;overflow-x:auto}
+.sharecard img{display:block;max-width:100%;max-height:58vh;margin:0 auto;min-height:120px;object-fit:contain}
+.sharecard .save{flex:1;text-align:center;font-weight:600;padding:12px;border-radius:10px;background:var(--btn);color:var(--fg);text-decoration:none}
 .sharecard .x{position:absolute;top:6px;right:8px;font:28px/1 -apple-system,system-ui,sans-serif;border:0;background:none;color:var(--muted);padding:4px 8px;cursor:pointer}
 .sharecard .row{margin-top:14px}.sharecard .go{background:var(--fg);color:var(--bg)}
-.sharecard:has(.go[hidden]) .copy{background:var(--fg);color:var(--bg)}.papier figcaption{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:center;margin-top:2px}
+.sharecard:has(.go[hidden]) .save{background:var(--fg);color:var(--bg)}.papier figcaption{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:center;margin-top:2px}
 .profile .sub{color:var(--muted);font-size:15px;margin:0}.profile header .toggle{margin:12px 0 6px}
 .profile section{border-top:1px solid var(--line);padding:24px 0 8px}
 .profile h2{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:0 0 12px}
@@ -709,84 +709,63 @@ function draw(canvas, text, built, flip, animate, kind, delay, past) {
   requestAnimationFrame(frame);
 }
 // ---- share card ----
-// Tapping a dinosaur opens it as text to paste in any chat: the dinosaur as its headline's letters
-// on a character grid, with spaces around it and a pin in the top left corner. It lines up in a
-// monospace font; in a chat's proportional one it leans and wobbles, which is part of the charm.
-function textDino(day, kind) {
-  const w = 400, h = 256, on = silhouette(w, h, day.flip, kind);
-  let x0 = w, x1 = 0, y0 = h, y1 = 0;  // crop to the shape
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (on(x, y)) {
+// The sticker: the word art as an image, so it looks the same in any chat. The day's words in
+// serif type on a white die-cut of the shape (the outline grown by a border, like a printed
+// sticker), with a soft shadow, the PushPin pin in the top left corner and a transparent
+// background, as a PNG. In Photos on iOS 17+, long-press it and Add Sticker to use it in Messages.
+const STICKER_INK = '#1a1714';
+let pinImage = null;
+const pinIcon = () => pinImage ??= new Promise(ok => {
+  const im = new Image(); im.onload = () => ok(im); im.onerror = () => ok(null); im.src = '/icon.png';
+});
+async function sticker(day, kind) {
+  const W = 1200, H = 768, shape = silhouette(W, H, day.flip, kind);
+  const {glyphs, fs} = fitted(W, H, day.text, shape, Math.round(W / 4));
+  let x0 = W, x1 = 0, y0 = H, y1 = 0;
+  for (let y = 0; y < H; y += 2) for (let x = 0; x < W; x += 2) if (shape(x, y)) {
     x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
   }
-  // how much of any rectangle is inside the shape, at once (a summed-area table over the crop)
-  const bw = x1 - x0 + 1, bh = y1 - y0 + 1, sat = new Float64Array((bw + 1) * (bh + 1));
-  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++)
-    sat[(y + 1) * (bw + 1) + x + 1] = (on(x0 + x, y0 + y) ? 1 : 0) + sat[y * (bw + 1) + x + 1] + sat[(y + 1) * (bw + 1) + x] - sat[y * (bw + 1) + x];
-  const area = (xa, ya, xb, yb) => sat[yb * (bw + 1) + xb] - sat[ya * (bw + 1) + xb] - sat[yb * (bw + 1) + xa] + sat[ya * (bw + 1) + xa];
-  // a grid cols wide, with characters `tall` times as tall as wide (about 2 in a chat), whose cells
-  // are inside the shape when more than `share` of them is
-  const grid = (cols, share, tall) => {
-    const cw = bw / cols, ch = cw * tall, rows = Math.round(bh / ch), cells = [];
-    let count = 0;
-    for (let r = 0; r < rows; r++) {
-      const row = [], ya = Math.floor(r * ch), yb = Math.min(bh, Math.floor((r + 1) * ch));
-      for (let c = 0; c < cols; c++) {
-        const xa = Math.floor(c * cw), xb = Math.min(bw, Math.floor((c + 1) * cw)), t = (xb - xa) * (yb - ya);
-        const v = t > 0 && area(xa, ya, xb, yb) / t > share;
-        row.push(v); count += v;
-      }
-      cells.push(row);
-    }
-    return {cells, count, cols, share};
-  };
-  // Everything read that day, each once: every title followed by its whole abstract, starting with
-  // the first title and ending on the period, no spaces inside the shape (so it has no holes). The
-  // shape grows to fit the words, not the other way round: from the narrowest width up, grids (how
-  // much of a cell must be inside, how tall a character is) the letters fill, leaving at most part
-  // of the last line blank, and one picked at random among the narrowest few (seeded, so it's the
-  // same each time and differs between readers).
-  const r = rng(day.seed + ':share');
-  const parts = day.parts.map(p => ({title: p.title.replace(/\\s+/g, ''), abstract: p.words.join('')}));
-  const end = parts.length ? parts[parts.length - 1].abstract || parts[parts.length - 1].title : '';
-  const letters = parts.map(p => p.title + (p.abstract ? '—' + p.abstract : '')).join('') + (/[.!?]["”’]?$/.test(end) ? '' : '.');
-  // grids the letters fill, leaving at most part of the last line blank
-  const fits = []; let first = 0, roomy = null;
-  for (let cols = 10; cols <= 200 && !(first && cols > first + 3); cols++)
-    for (const share of [0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5]) for (const tall of [1.8, 1.9, 2, 2.1, 2.2]) {
-      const t = grid(cols, share, tall), lastRow = [...t.cells].reverse().find(row => row.some(Boolean)) || [];
-      if (t.count >= letters.length && t.count - letters.length <= lastRow.filter(Boolean).length) { fits.push(t); first ||= cols; }
-      else if (t.count > letters.length && (!roomy || t.count < roomy.count)) roomy = t;
-    }
-  const thin = fits.filter(t => t.share <= 0.3), pool = thin.length ? thin : fits;  // a low threshold keeps thin parts
-  const g = pool.length ? pool[Math.floor(r() * pool.length)] : roomy;
-  let i = 0;
-  const lines = g.cells.map(row => row.map(v => v ? letters[i++] ?? ' ' : ' ').join('').trimEnd());
-  while (lines.length && !lines[0]) lines.shift();
-  while (lines.length && !lines[lines.length - 1]) lines.pop();
-  // the pin in the top left corner, on the shape's top line: it takes about two columns
-  if (!lines[0].startsWith('  ')) for (let k = 0; k < lines.length; k++) lines[k] = '   ' + lines[k];  // no room: shift it all over
-  lines[0] = '📌' + lines[0].slice(2);
-  return lines.join('\\n');
+  const B = 26, P = B + 34, ox = P - x0, oy = P - y0;  // border, then room for the shadow
+  const out = document.createElement('canvas'); out.width = x1 - x0 + 2 * P; out.height = y1 - y0 + 2 * P;
+  const mask = document.createElement('canvas'); mask.width = W; mask.height = H;
+  dino(mask.getContext('2d'), W, H, day.flip, kind);
+  const cut = document.createElement('canvas'); cut.width = out.width; cut.height = out.height;
+  const cc = cut.getContext('2d');
+  for (let a = 0; a < 48; a++) cc.drawImage(mask, ox + B * Math.cos(a * Math.PI / 24), oy + B * Math.sin(a * Math.PI / 24));
+  cc.drawImage(mask, ox, oy);
+  cc.globalCompositeOperation = 'source-in'; cc.fillStyle = '#fff'; cc.fillRect(0, 0, cut.width, cut.height);
+  const c = out.getContext('2d');
+  c.shadowColor = 'rgba(0,0,0,.28)'; c.shadowBlur = 24; c.shadowOffsetY = 8; c.drawImage(cut, 0, 0);
+  c.shadowColor = 'transparent';
+  c.font = fs + 'px Georgia, "Times New Roman", serif'; c.textBaseline = 'middle'; c.fillStyle = STICKER_INK;
+  for (const g of glyphs) c.fillText(g[0], ox + g[1], oy + g[2]);
+  const im = await pinIcon();
+  if (im) c.drawImage(im, 8, 8, 84, 84);
+  return out;
 }
 let sheet = null;
 function share(day, kind) {
   if (!sheet) {
     sheet = document.createElement('dialog'); sheet.className = 'sharecard';
-    sheet.innerHTML = '<button type="button" class="x" aria-label="Close">×</button><pre></pre>'
-      + '<div class="row"><button type="button" class="go">Share</button><button type="button" class="copy">Copy</button></div>';
+    sheet.innerHTML = '<button type="button" class="x" aria-label="Close">×</button><img alt="">'
+      + '<div class="row"><button type="button" class="go">Share</button><a class="save" download>Save image</a></div>';
     sheet.querySelector('.x').addEventListener('click', () => sheet.close());
     sheet.addEventListener('click', ev => { if (ev.target === sheet) sheet.close(); });  // the backdrop
     document.body.append(sheet);
   }
-  const text = textDino(day, kind), pre = sheet.querySelector('pre'), go = sheet.querySelector('.go'), copy = sheet.querySelector('.copy');
-  pre.textContent = text; pre.setAttribute('aria-label', 'A ' + kind.name + ' drawn in text');
-  const widest = Math.max(...text.split('\\n').map(l => l.length));  // a big day: smaller type, so it all shows
-  pre.style.fontSize = Math.max(5, Math.min(13, (Math.min(innerWidth * 0.92, 420) - 64) / (widest * 0.62))) + 'px';
-  go.hidden = !navigator.share;
-  go.onclick = () => navigator.share({text}).catch(() => null);
-  copy.textContent = 'Copy';
-  copy.onclick = () => navigator.clipboard.writeText(text).then(() => { copy.textContent = 'Copied'; }, () => null);
+  const img = sheet.querySelector('img'), go = sheet.querySelector('.go'), save = sheet.querySelector('.save');
+  img.removeAttribute('src'); img.alt = 'A ' + kind.name + ' sticker made of the day’s articles';
+  go.hidden = true; save.removeAttribute('href');
   sheet.showModal();
+  sticker(day, kind).then(cv => {
+    const url = cv.toDataURL('image/png'), name = 'pushpin-' + day.seed.split(':').pop() + '-' + kind.name.toLowerCase().replace(/[^a-z]+/g, '-') + '.png';
+    img.src = url; save.href = url; save.download = name;
+    cv.toBlob(b => {  // made before the tap on Share, which iOS needs to share a file
+      const payload = {files: [new File([b], name, {type: 'image/png'})]};
+      go.hidden = !(navigator.canShare && navigator.canShare(payload));
+      go.onclick = () => navigator.share(payload).catch(() => null);
+    }, 'image/png');
+  });
 }
 // ---- end share card ----
 const kindOf = herd(data.dataset.seed || '');
