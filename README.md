@@ -12,6 +12,9 @@ embeddings in a [Chroma](https://www.trychroma.com/) vector database, and Claude
 profiles. A push objective then trades engagement against novelty, and a send policy holds back
 pushes for readers at risk of opting out.
 
+Personalization works at two levels. The XGBoost model chooses which article each reader gets,
+and the reader chooses how many pushes they get a day (light, medium or heavy).
+
 ## Results
 
 On a held-out day (1.22M candidates):
