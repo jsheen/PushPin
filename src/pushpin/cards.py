@@ -688,7 +688,6 @@ function draw(canvas, text, built, flip, animate, kind, delay) {
 // Tapping a dinosaur opens it as text to paste in any chat: the dinosaur as its headline's letters
 // on a character grid, with spaces around it and a pin in the top left corner. It lines up in a
 // monospace font; in a chat's proportional one it leans and wobbles, which is part of the charm.
-const COLS = 32;  // the widest that reads well in a chat bubble; wider only when nothing narrower fits
 function textDino(day, kind) {
   const w = 400, h = 256, on = silhouette(w, h, day.flip, kind);
   let x0 = w, x1 = 0, y0 = h, y1 = 0;  // crop to the shape
@@ -716,31 +715,25 @@ function textDino(day, kind) {
     }
     return {cells, count, cols};
   };
-  // Whole sentences only, each once: every title, each followed by its whole abstract, starting with
+  // Everything read that day, each once: every title followed by its whole abstract, starting with
   // the first title and ending on the period, no spaces inside the shape (so it has no holes). The
-  // shape fits the words, not the other way round: out of hundreds of grids (width, how much of a
-  // cell must be inside, how tall a character is), one whose cells match the letters exactly, picked
-  // at random among those (seeded, so it's the same each time and differs between readers). If the
-  // words are more than the widest grid holds, whole sentences of the abstracts are left out (random
-  // ones, only as many as needed), never single words.
+  // shape grows to fit the words, not the other way round: from the narrowest width up, grids (how
+  // much of a cell must be inside, how tall a character is) whose cells match the letters exactly,
+  // and one picked at random among the narrowest few (seeded, so it's the same each time and
+  // differs between readers).
   const r = rng(day.seed + ':share');
-  const parts = day.parts.map(p => ({title: p.title.replace(/\\s+/g, ''),
-    sentences: p.words.join(' ').split(/(?<=[.!?]["”’)]?)\\s+(?=[A-Z0-9“"‘(])/).map(x => x.replace(/\\s+/g, '')).filter(Boolean)}));
-  const last = () => { const p = parts[parts.length - 1]; return p.sentences.length ? p.sentences[p.sentences.length - 1] : p.title; };
-  const join = () => parts.map(p => p.title + (p.sentences.length ? '—' + p.sentences.join('') : '')).join('·')
-    + (/[.!?]["”’]?$/.test(last()) ? '' : '.');
-  const grids = [];
-  for (let cols = 10; cols <= 40; cols++) for (const share of [0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5])
-    for (const tall of [1.8, 1.9, 2, 2.1, 2.2]) grids.push(grid(cols, share, tall));
-  const most = Math.max(...grids.map(t => t.count));
-  const order = parts.flatMap((p, i) => p.sentences.map(x => [i, x, r()])).sort((a, b) => a[2] - b[2]);
-  for (const [i, x] of order) { if (join().length <= most) break; parts[i].sentences = parts[i].sentences.filter(y => y !== x); }
-  const letters = join();
-  // an exact fit (a chat-friendly width first), else the closest grid with room to spare
-  const exact = grids.filter(t => t.count === letters.length), narrow = exact.filter(t => t.cols <= COLS);
-  const pick = narrow.length ? narrow : exact;
-  const g = pick.length ? pick[Math.floor(r() * pick.length)]
-    : grids.filter(t => t.count >= letters.length).sort((a, b) => a.count - b.count)[0] || grids[grids.length - 1];
+  const parts = day.parts.map(p => ({title: p.title.replace(/\\s+/g, ''), abstract: p.words.join('')}));
+  const end = parts.length ? parts[parts.length - 1].abstract || parts[parts.length - 1].title : '';
+  const letters = parts.map(p => p.title + (p.abstract ? '—' + p.abstract : '')).join('·') + (/[.!?]["”’]?$/.test(end) ? '' : '.');
+  const exact = []; let first = 0, roomy = null;
+  for (let cols = 10; cols <= 200 && !(first && cols > first + 3); cols++)
+    for (const share of [0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5]) for (const tall of [1.8, 1.9, 2, 2.1, 2.2]) {
+      const t = grid(cols, share, tall);
+      if (t.count === letters.length) { exact.push(t); first ||= cols; }
+      else if (t.count > letters.length && (!roomy || t.count < roomy.count)) roomy = t;
+    }
+  // no exact fit (rare): the closest grid with room to spare, its last few cells left blank
+  const g = exact.length ? exact[Math.floor(r() * exact.length)] : roomy;
   let i = 0;
   const lines = g.cells.map(row => row.map(v => v ? letters[i++] ?? ' ' : ' ').join('').trimEnd());
   while (lines.length && !lines[0]) lines.shift();
@@ -762,6 +755,8 @@ function share(day, kind) {
   }
   const text = textDino(day, kind), pre = sheet.querySelector('pre'), go = sheet.querySelector('.go'), copy = sheet.querySelector('.copy');
   pre.textContent = text; pre.setAttribute('aria-label', 'A ' + kind.name + ' drawn in text');
+  const widest = Math.max(...text.split('\\n').map(l => l.length));  // a big day: smaller type, so it all shows
+  pre.style.fontSize = Math.max(5, Math.min(13, (Math.min(innerWidth * 0.92, 420) - 64) / (widest * 0.62))) + 'px';
   go.hidden = !navigator.share;
   go.onclick = () => navigator.share({text}).catch(() => null);
   copy.textContent = 'Copy';

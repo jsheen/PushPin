@@ -56,74 +56,80 @@ still to fill; a finished one is just the words.
 ## 4. Sharing a picture
 
 Tapping a finished picture opens it as text, ready to paste into any chat: the shape spelled out
-in the letters of that day's read articles, with plain spaces around it and 📌 in the top left
-corner, on the top line. It starts at the beginning of the day's first title and ends on a period.
-Nothing repeats and nothing is cut mid-sentence: every title appears once, followed by its whole
-abstract. The shape is fitted to the words rather than the other way round. Out of about a
-thousand grids (width up to 40 characters, preferring 32 or less for a chat bubble; how much of a
-cell must be inside the shape; how tall a character is), it picks one whose cells match the
-letters exactly. A grid holds roughly 250 to 350 letters, so on a busy day some abstract sentences
-are left out (random ones, only as many as needed), but never single words. The spaces between
-words are dropped inside the shape so it has no holes. **Share** opens the phone's share sheet
-with the text, and **Copy** copies it. Browsers without a share sheet only show Copy. Unfinished
-pictures can't be shared yet.
+in the letters of everything the reader read that day, with plain spaces around it and 📌 in the
+top left corner, on the top line. Every title appears once, followed by its whole abstract,
+starting at the beginning of the day's first title and ending on a period. Nothing is left out and
+nothing repeats; the shape grows to fit the words instead. From the narrowest width up, it looks
+for grids (how much of a cell must be inside the shape, how tall a character is) whose cells match
+the letters exactly, and picks one of the narrowest. A Medium day of 4 articles comes out about 40
+to 65 characters wide and a Heavy day of 8 about 70 to 85, so a big day wraps in a narrow chat
+bubble. The share sheet shrinks the type so the whole picture shows. The spaces between words are
+dropped inside the shape so it has no holes. **Share** opens the phone's share sheet with the
+text, and **Copy** copies it. Browsers without a share sheet only show Copy. Unfinished pictures
+can't be shared yet.
 
 Each picture is unique. A generator seeded with the reader and the day picks which way the shape
-faces, which of the exactly fitting grids is used and, on a busy day, which sentences are left
-out, and each reader has their own order of shapes. Different days get different pictures, and so
-do two readers who read the same articles on the same day. A repeat isn't strictly impossible, but
-it's vanishingly unlikely. On the demo all 14 finished days are different, and two test readers
-with identical reads differed on every day.
+faces and which of the exactly fitting grids is used, and each reader has their own order of
+shapes. Different days get different pictures, and so do two readers who read the same articles on
+the same day. A repeat isn't strictly impossible, but it's vanishingly unlikely. On the demo all
+14 finished days are different, and two test readers with identical reads differed on every day.
 
 It lines up in a monospace font. In a chat's proportional font the rows shift a little, and that's
 fine.
 
 <img src="screens/share-sheet.png" width="300" alt="Share sheet on the demo profile: a snowman spelled out in the letters of the day's headlines, with Share and Copy buttons">
 
-What the demo's first two pictures share as, the snowman and a Brontosaurus:
+What the demo's first two pictures share as, the snowman and a Brontosaurus, each made of all four
+articles read that day:
 
 ```
-📌            TheQuietRe
-              turnoftheN
-            ightTrain—Slee
-            percarsareroll
-              ingagainas
-             tra  vel ers
-             tradeairport
-              sforaslowe
-rw              ayacro              ss
- thec         ountry.·Wh         atthe
-    Tide    LeavesBehind—B    eachc
-       omberscatalogtheshells,gl
-          assanddriftwoodthat
-           everystormbrings
-           ashore.·ACityLea
-            rnstoLoveItsRa
-              in—Afterye
-            arsoffloods,on
-          ecitybuiltparkstha
-         tsoakupstorms,andnow
-        rainydaysbringpeopleou
-        tside.·TheLastTypewrit
-        erRepairmaninOhio—Heha
-         sfixedthousandsofmach
-         inesandstillkeepsadr
-          awerofribbonsnobod
-            ymakesanymore.
+📌             TheQuietR
+               eturnofth
+            eNightTrain—Sle
+             epercarsarero
+              llingagaina
+              str ave lers
+              tradeairpor
+               tsforaslo
+wer              wayacr             oss
+ theco        untry.·What        theTi
+    deLea   vesBehind—Beach   combe
+        rscatalogtheshells,glass
+           anddriftwoodthate
+           verystormbringsas
+            hore.·ACityLear
+             nstoLoveItsRa
+              in—Afteryear
+           soffloods,onecity
+          builtparksthatsoaku
+         pstorms,andnowrainyda
+        ysbringpeopleoutside.·T
+        heLastTypewriterRepairm
+         aninOhio—Hehasfixedtho
+         usandsofmachinesandst
+          illkeepsadrawerofri
+            bbonsnobodymake
+               sanymore.
 ```
 
 ```
-📌                              Insideth
-                               eRacetoMa
-                             ptheOcean
-                 Floor·W   hyEveryo
-            neIsBakingBreadAgain—
-       Sourdoughstartersarepass
-    edhandtohandashomebakersred
-  iscoveraslow,patientcraft.·Th
- eSecretLifeofSubwayPigeons·Ho
-              waSmallTownS ave
-              dIt sLi  bra ry.
+📌                                             Insidethe
+                                             RacetoMapthe
+                                            OceanFloor—Sc
+                                           ientistsands
+                                         onarshipsa
+                          rechart      ingthevasts
+                   eabedthatremainslessknownthan
+               themoon.·WhyEveryoneIsBakingBre
+           adAgain—Sourdoughstartersarepassed
+        handtohandashomebakersrediscoveraslo
+      w,patientcraft.·TheSecretLifeofSubwayPi
+    geons—Thebirdsthatridethetrainsknowthesc
+  hedulesbetterthanmanycommutersdo.·HowaSma
+ llTownSavedItsLibrary—Whenthecountycutitsb
+udg                 et,residentsheldb akesa
+                    lesandrais   eden ought
+                    okeep thed   oors open.
 ```
 
 ## Before the first push: the welcome page
