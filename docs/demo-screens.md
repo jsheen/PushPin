@@ -36,17 +36,15 @@ pictures, and pushes a day. Its buttons only change the page.
 
 <img src="screens/demo-owner.png" width="300" alt="Demo owner view: today's pinned push with Read, the privacy switch, Pinned 2, Read 63 with the daily pictures, pushes a day">
 
-Each day's pushes make one papier-mâché picture, a common symbol (snowman, heart, star, moon...)
-or a dinosaur, the same shape for everyone that day, written in the titles and abstracts read that
-day, each used once. The type is sized so the text fills the whole shape, thin parts included. A
-picture is revealed from one side as the day's pushes are read; while the day is on, nothing shows
-of the rest, so it's a guess what it will be. Once the day is over, an unfinished picture gets the
-grey outline of what it could have been under the part that was read (Oct 15 · 3/4), and a day
-with nothing read is just the outline (Oct 23 · 0/4). Today is still a guess: Oct 29 has 2 of the
-3 pushes sent so far read (Oct 29 · 2/3). A picture counts only pushes already sent, so it's
-finished once everything sent that day is read; if another push goes out later, it's unfinished
-again until that one is read. Today, with nothing read yet, says "Start reading to make today's
-word art".
+Each day you pin pushes (tap them) makes one papier-mâché picture, a common symbol (snowman,
+heart, star, moon...) or a dinosaur, the same shape for everyone that day, written in the titles
+and abstracts of the ones you read, each used once. It fills in as you read what you pinned: 3
+read and 2 still pinned is 3/5, everything read is finished, and pushes you never tapped don't
+count. While the day is on, nothing shows of the rest, so it's a guess what it will be (today: Oct
+29 · 2/3). Once the day is over, an unfinished picture gets the grey outline of what it could have
+been under the part that was read (Oct 15 · 3/4), and a day with things pinned but nothing read is
+just the outline (Oct 23 · 0/2). Today, with nothing read yet, says "Start reading to make today's
+word art". The type is sized so the text fills the whole shape, thin parts included.
 
 ## 4. Sharing a picture
 
@@ -66,13 +64,13 @@ The demo's snowman and Brontosaurus, each made of the four articles read that da
 <img src="screens/sticker-snowman.png" width="260" alt="Snowman sticker: four articles' titles and abstracts written into a snowman on a white die-cut, with the PushPin pin">
 <img src="screens/sticker-brontosaurus.png" width="420" alt="Brontosaurus sticker: four articles' titles and abstracts written into a Brontosaurus on a white die-cut, with the PushPin pin">
 
-Days that are over and weren't finished share what was missed: Oct 15 (3 of 4 read) and Oct 23
-(nothing read):
+Days that are over and weren't finished share what was missed: Oct 15 (3 of 4 pinned read) and
+Oct 23 (2 pinned, nothing read):
 
 <img src="screens/sticker-unfinished.png" width="420" alt="Unfinished day sticker: the read articles in part of the shape, the rest blank white die-cut">
 <img src="screens/sticker-missed.png" width="200" alt="Missed day sticker: a blank white moon die-cut">
 
-Today's unfinished picture (Oct 29, 2 of 3 read) shares just the part revealed so far:
+Today's unfinished picture (Oct 29, 2 of 3 pinned read) shares just the part revealed so far:
 
 <img src="screens/sticker-today.png" width="300" alt="Today's unfinished sticker: only the part revealed so far, die-cut around it">
 

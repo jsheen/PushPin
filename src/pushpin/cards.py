@@ -855,14 +855,14 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 function build(animate) {
   box.innerHTML = '';
   days.forEach((d, k) => {  // one picture a day, oldest first, made of that day's read headlines
-    const kind = kindFor(d.day), day = dayText(d), done = d.sent > 0 && d.titles.length >= d.sent, built = d.sent ? Math.min(1, d.titles.length / d.sent) : 0;
+    const kind = kindFor(d.day), day = dayText(d), done = d.pinned > 0 && d.read >= d.pinned, built = d.pinned ? Math.min(1, d.read / d.pinned) : 0;
     const past = d.day < (data.dataset.today || '');
     const when = MONTHS[+d.day.slice(5, 7) - 1] + ' ' + +d.day.slice(8, 10);
     const fig = document.createElement('figure'), canvas = document.createElement('canvas'), cap = document.createElement('figcaption');
     canvas.setAttribute('role', 'img');
-    canvas.setAttribute('aria-label', 'A ' + kind.name + ' for ' + when + ', ' + d.titles.length + ' of ' + d.sent + ' pushes read'
+    canvas.setAttribute('aria-label', 'A ' + kind.name + ' for ' + when + ', ' + d.read + ' of ' + d.pinned + ' pinned pushes read'
                         + (d.titles.length ? ': ' + d.titles.join('; ') : ''));
-    cap.textContent = when + (done ? '' : ' · ' + d.titles.length + '/' + d.sent);
+    cap.textContent = when + (done ? '' : ' · ' + d.read + '/' + d.pinned);
     if (built > 0 || past) {  // tap to share it (unfinished: today, the part revealed; a past day, the whole die-cut, blank where missed)
       const tap = document.createElement('button'), named = done || past;
       tap.type = 'button'; tap.className = 'dino'; tap.title = (named ? kind.name + ' · ' : '') + when;
@@ -900,11 +900,11 @@ let t; window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout
 
 
 def papier_days(read: list[dict]) -> list[dict]:
-    """Days from the reads alone, when the pushes sent aren't known: every day with reads, finished."""
+    """Days from the reads alone, when what was pinned isn't known: every day with reads, finished."""
     out: dict[str, dict] = {}
     for a in sorted(read, key=lambda a: a["read_at"] or ""):
-        d = out.setdefault(a["read_at"][:10], {"day": a["read_at"][:10], "sent": 0, "read": 0, "titles": [], "abstracts": []})
-        d["sent"] += 1
+        d = out.setdefault(a["read_at"][:10], {"day": a["read_at"][:10], "pinned": 0, "read": 0, "titles": [], "abstracts": []})
+        d["pinned"] += 1
         d["read"] += 1
         d["titles"].append(a["title"] or "Untitled")
         d["abstracts"].append(a.get("abstract") or "")
@@ -914,17 +914,19 @@ def papier_days(read: list[dict]) -> list[dict]:
 def papier(read: list[dict], days: list[dict] | None = None, today: date | None = None) -> tuple[str, str, str]:
     """Papier-mâché for a Read list the page shows: the switch for the panel's header, the
     instructions (shown when it's on), and the pictures' container with their days and script.
-    One picture a day, made of that day's read headlines and filled in as they're read: reading
-    all of the day's pushes finishes it. The date picks the shape, the same for everyone that day."""
+    One picture a day the reader pinned pushes, made of the ones they read and filled in as they
+    read them: reading everything pinned that day finishes it (3 read and 2 still pinned: 3/5). The
+    date picks the shape, the same for everyone that day."""
     if not read:
         return "", "", ""
     days = days if days is not None else papier_days(read)
-    data = json.dumps([{"day": d["day"], "sent": d["sent"], "titles": d["titles"], "abstracts": d.get("abstracts") or []}
+    data = json.dumps([{"day": d["day"], "pinned": d["pinned"], "read": d["read"], "titles": d["titles"],
+                        "abstracts": d.get("abstracts") or []}
                        for d in days]).replace("</", "<\\/")
-    done = sum(1 for d in days if d["sent"] and d["read"] >= d["sent"])
+    done = sum(1 for d in days if d["pinned"] and d["read"] >= d["pinned"])
     switch = ('<button type="button" class="pm" id="papier-on" aria-pressed="false">'
               '<span class="track"><span class="knob"></span></span>Papier-mâché</button>')
-    hint = (f'<p class="papier-hint" hidden>Each day’s pushes make a picture: read them all to finish it · '
+    hint = (f'<p class="papier-hint" hidden>Each day’s pinned pushes make a picture: read them all to finish it · '
             f'{done} finished · Tap one to share it</p>')
     gallery = (f'<div class="papier" id="papier" hidden></div>'
                f'<script type="application/json" id="papier-data" '
@@ -987,8 +989,8 @@ def demo_data() -> tuple[list[dict], list[dict]]:
     read, a few not finished, nothing read on Oct 23, and the last six days in a row: Read 63, Daily
     streak 6. Returns the reads and the days (Store.days' shape)."""
     read, by_day, k = [], {}, 0
-    for day, sent, n in DEMO_DAYS:
-        d = {"day": f"2026-10-{day:02d}", "sent": sent, "read": n, "titles": [], "abstracts": []}
+    for day, pinned, n in DEMO_DAYS:
+        d = {"day": f"2026-10-{day:02d}", "pinned": pinned, "read": n, "titles": [], "abstracts": []}
         for j in range(n):
             read.append({"news_id": f"DEMO{k}", "title": DEMO_TITLES[k], "abstract": DEMO_ABSTRACTS[k],
                          "url": "https://www.nytimes.com", "section": None, "read_at": f"{d['day']}T{8 + 4 * j:02d}:00"})
@@ -1013,21 +1015,22 @@ def demo_owner_page(share_url: str, caps: dict | None = None) -> str:
                         days=days, caps=caps, inert=True)
 
 
-# today's third push, just tapped (pinned, not read yet: reading it would finish Oct 29's picture),
-# and pushes pinned on earlier days and never read; made up, like the rest
+# today's third push, just tapped (pinned, not read yet: reading it would finish Oct 29's picture);
+# DEMO_PINNED adds the ones pinned on earlier days and never read (Oct 15, 19, 23); made up
 DEMO_PIN = {"push_id": "DEMO-PIN", "news_id": "DEMO-PIN", "section": "Arts", "url": "https://www.nytimes.com", "read": False,
             "title": "The Lantern Makers of the River Festival",
             "abstract": "Each autumn, families fold paper lanterns by hand and set them floating downstream at dusk."}
-DEMO_PINNED = [{"news_id": "DEMO-PIN", "push_id": "DEMO-PIN", "url": "https://www.nytimes.com", "title": DEMO_PIN["title"]},
-               {"news_id": "DEMO-P19", "push_id": "DEMO-P19", "url": "https://www.nytimes.com",
-                "title": "Why Cities Are Planting Tiny Forests"},
-               {"news_id": "DEMO-P15", "push_id": "DEMO-P15", "url": "https://www.nytimes.com",
-                "title": "A Night Bus Driver's Favorite Stops"}]
+DEMO_PINNED = [  # most recently pinned first: today's, then two from Oct 23, two from Oct 19, one from Oct 15
+    {"news_id": "DEMO-PIN", "push_id": "DEMO-PIN", "url": "https://www.nytimes.com", "title": DEMO_PIN["title"]},
+    *({"news_id": f"DEMO-P{k}", "push_id": f"DEMO-P{k}", "url": "https://www.nytimes.com", "title": t} for k, t in enumerate([
+        "The Ferry That Carries Pianos Across the Lake", "A Town Votes on Its Favorite Tree",
+        "Why Cities Are Planting Tiny Forests", "The Last Glassblower on Main Street",
+        "A Night Bus Driver's Favorite Stops"]))]
 
 
-# (day of October, pushes sent, read): 18 days, 14 finished; today (the 29th) has had 3 so far
+# (day of October, pushes pinned, read): 18 days, 14 finished; the unread pins are DEMO_PINNED
 DEMO_DAYS = [(12, 4, 4), (13, 4, 4), (14, 4, 4), (15, 4, 3), (16, 4, 4), (17, 4, 4), (18, 4, 4), (19, 4, 2),
-             (20, 4, 4), (21, 4, 4), (22, 4, 4), (23, 4, 0), (24, 4, 4), (25, 4, 4), (26, 4, 4), (27, 4, 4),
+             (20, 4, 4), (21, 4, 4), (22, 4, 4), (23, 2, 0), (24, 4, 4), (25, 4, 4), (26, 4, 4), (27, 4, 4),
              (28, 4, 4), (29, 3, 2)]
 
 
