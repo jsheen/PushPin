@@ -87,7 +87,7 @@ box-shadow:0 1px 2px rgba(0,0,0,.3);transition:transform .25s ease}
 -webkit-tap-highlight-color:transparent;transition:transform .2s ease}.papier .dino:active{transform:scale(.98)}
 .sharecard{border:0;padding:44px 16px 16px;border-radius:18px;background:var(--bg);color:var(--fg);width:min(92vw,420px);
 box-sizing:border-box;box-shadow:0 24px 80px rgba(0,0,0,.35)}.sharecard::backdrop{background:rgba(0,0,0,.55)}
-.sharecard img{display:block;width:100%;aspect-ratio:4/5;border-radius:6px;background:#f6f1e7;box-shadow:0 2px 10px rgba(0,0,0,.12)}
+.sharecard img{display:block;width:100%;aspect-ratio:1;border-radius:6px;background:#f6f1e7;box-shadow:0 2px 10px rgba(0,0,0,.12)}
 .sharecard .x{position:absolute;top:6px;right:8px;font:28px/1 -apple-system,system-ui,sans-serif;border:0;background:none;color:var(--muted);padding:4px 8px;cursor:pointer}
 .sharecard .row{margin-top:14px}.sharecard .go{background:var(--fg);color:var(--bg)}
 .sharecard .save{flex:1;text-align:center;font-weight:600;padding:12px;border-radius:10px;background:var(--btn);color:var(--fg);text-decoration:none}
@@ -610,50 +610,34 @@ function draw(canvas, words, built, flip, animate, kind) {
   requestAnimationFrame(frame);
 }
 // ---- share card ----
-// Tapping a dinosaur opens its card: a 1080 x 1350 image (4:5, what feeds crop to) on paper, with
-// the newspaper's masthead, the dinosaur made of its headlines, its name and the PushPin mark.
-const PAPER = '#f6f1e7', INK = '#1a1714', SOFT = '#7a7066', PENCIL = '#d8cfc0', RED = '#d0021b';
-const SERIF = 'Georgia, "Times New Roman", serif', SANS = '-apple-system, system-ui, "Helvetica Neue", sans-serif';
+// Tapping a dinosaur opens its card: a 1080 x 1080 square image on paper, with
+// the PushPin mark on top, the newspaper's masthead and the dinosaur made of its headlines.
+const PAPER = '#f6f1e7', INK = '#1a1714', PENCIL = '#d8cfc0', SERIF = 'Georgia, "Times New Roman", serif';
 const paper = data.dataset.paper || '';
 let logo = null;
 const pin = () => logo ??= new Promise(ok => {
   const im = new Image(); im.onload = () => ok(im); im.onerror = () => ok(null); im.src = '/icon.png';
 });
-function spaced(c, text, x, y, track) {  // centered small caps with letter spacing
-  const chars = [...text], wd = chars.reduce((s, ch) => s + c.measureText(ch).width, 0) + track * (chars.length - 1);
-  let cx = x - wd / 2;
-  c.textAlign = 'left';
-  for (const ch of chars) { c.fillText(ch, cx, y); cx += c.measureText(ch).width + track; }
-  c.textAlign = 'center';
-}
-async function card(k, words, built, kind) {
-  const W = 1080, H = 1350, M = 84, cv = document.createElement('canvas');
+async function card(words, built, kind) {
+  const W = 1080, H = 1080, M = 84, cv = document.createElement('canvas');
   cv.width = W; cv.height = H;
   const c = cv.getContext('2d');
   c.fillStyle = PAPER; c.fillRect(0, 0, W, H);
   c.strokeStyle = INK; c.lineWidth = 1.5; c.strokeRect(36, 36, W - 72, H - 72);   // a thin frame
   c.lineWidth = 0.75; c.strokeRect(46, 46, W - 92, H - 92);
+  const im = await pin(), size = 96;                                                 // the PushPin mark
+  if (im) c.drawImage(im, (W - size) / 2, 84, size, size);
   c.fillStyle = INK; c.textAlign = 'center'; c.textBaseline = 'alphabetic';
-  c.font = '700 58px ' + SERIF; c.fillText(paper, W / 2, 158);                      // the masthead
-  c.fillRect(M, 196, W - 2 * M, 3); c.fillRect(M, 205, W - 2 * M, 1);
-  c.fillStyle = SOFT; c.font = '600 22px ' + SANS;
-  spaced(c, 'PAPIER-MÂCHÉ  ·  NO. ' + (k + 1), W / 2, 252, 4.5);
-  const dw = W - 2 * M, dh = Math.round(dw * 0.64), dy = 300;                      // the dinosaur
-  const fs = Math.round(dw / 58), glyphs = layout(dw, dh, words, false, kind, fs);
+  c.font = '700 58px ' + SERIF; c.fillText(paper, W / 2, 268);                      // the masthead
+  c.fillRect(M, 302, W - 2 * M, 3); c.fillRect(M, 311, W - 2 * M, 1);
+  const dw = W - 2 * M, dh = Math.round(dw * 0.64), fs = Math.round(dw / 58);     // the dinosaur
+  const glyphs = layout(dw, dh, words, false, kind, fs);
   c.font = fs + 'px ' + SERIF; c.textAlign = 'left'; c.textBaseline = 'middle';
-  for (const g of glyphs) { c.fillStyle = isBuilt(g, dw, built, false) ? INK : PENCIL; c.fillText(g[0], M + g[1], dy + g[2]); }
-  c.textAlign = 'center'; c.textBaseline = 'alphabetic';
-  c.fillStyle = INK; c.font = 'italic 400 88px ' + SERIF; c.fillText(kind.name, W / 2, dy + dh + 112);
-  c.fillStyle = SOFT; c.font = 'italic 30px ' + SERIF;
-  const n = words.length, num = ['no', 'one', 'two', 'three', 'four', 'five'][n] || n;
-  c.fillText(built >= 1 ? 'made of the ' + num + ' headlines I read' : n + ' of ' + PER + ' headlines read, and counting',
-             W / 2, dy + dh + 166);
-  c.fillStyle = RED; c.fillRect(W / 2 - 24, dy + dh + 204, 48, 2);                  // a short red rule
-  const im = await pin(), size = 52, label = 'PushPin';                             // the mark
-  c.font = '700 34px ' + SERIF;
-  const lw = c.measureText(label).width, gap = 14, total = (im ? size + gap : 0) + lw, x0 = W / 2 - total / 2, fy = H - 118;
-  if (im) c.drawImage(im, x0, fy - size + 12, size, size);
-  c.fillStyle = INK; c.textAlign = 'left'; c.fillText(label, x0 + (im ? size + gap : 0), fy);
+  // centered by its words' box in the space below the rules (the drawing grid has room to spare)
+  let x0 = dw, x1 = 0, y0 = dh, y1 = 0;
+  for (const [ch, x, y] of glyphs) { x0 = Math.min(x0, x); x1 = Math.max(x1, x + c.measureText(ch).width); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+  const dx = Math.round(W / 2 - (x0 + x1) / 2), dy = Math.round((311 + H - 46) / 2 - (y0 + y1) / 2);
+  for (const g of glyphs) { c.fillStyle = isBuilt(g, dw, built, false) ? INK : PENCIL; c.fillText(g[0], dx + g[1], dy + g[2]); }
   return cv;
 }
 let sheet = null;
@@ -670,7 +654,7 @@ function share(k, words, built, kind) {
   img.removeAttribute('src'); img.alt = 'A ' + kind.name + ' made of headlines, from PushPin';
   go.hidden = true; save.removeAttribute('href');
   sheet.showModal();
-  card(k, words, built, kind).then(cv => {
+  card(words, built, kind).then(cv => {
     const url = cv.toDataURL('image/png'), name = 'pushpin-' + kind.name.toLowerCase().replace(/[^a-z]+/g, '-') + '.png';
     img.src = url; save.href = url; save.download = name;
     // made before the tap, so Share runs inside it (iOS only shares from a tap)

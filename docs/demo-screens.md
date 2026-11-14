@@ -47,17 +47,16 @@ the sixth in progress: [demo-profile-full.png](screens/demo-profile-full.png).
 
 ## 4. Sharing a dinosaur
 
-Tapping a dinosaur opens its share card: a 1080 × 1350 image (4:5, the shape social feeds crop
-to) on cream paper. It has a newspaper masthead, the dinosaur made of its headlines, its name in
-italic, and the PushPin mark. **Share** opens the phone's share sheet with the image, and **Save
-image** downloads it. Browsers that can't share files only show Save image. A dinosaur that's
-still in progress is shared as it is, with the unread part in pencil ("3 of 5 headlines read, and
-counting").
+Tapping a dinosaur opens its share card: a 1080 × 1080 square on cream paper. The PushPin pin
+is at the top, then a newspaper masthead, then the dinosaur made of its headlines. **Share** opens
+the phone's share sheet with the image, and **Save image** downloads it. Browsers that can't share
+files only show Save image. A dinosaur that's still in progress is shared as it is, with the unread
+part in pencil.
 
 The masthead is a placeholder, `[Newspaper Name]`, set by `NEWSPAPER` in `src/pushpin/cards.py`.
 
-<img src="screens/share-sheet.png" width="300" alt="Share sheet on the demo profile: the Brontosaurus card with Share and Save image buttons">
-<img src="screens/share-card.png" width="300" alt="The shared image: [Newspaper Name] masthead, Papier-mâché No. 3, a Stegosaurus made of headlines, PushPin mark">
+<img src="screens/share-sheet.png" width="300" alt="Share sheet on the demo profile: a Brontosaurus card with Share and Save image buttons">
+<img src="screens/share-card.png" width="300" alt="The shared image: the PushPin pin, the [Newspaper Name] masthead, a Stegosaurus made of headlines">
 
 ## Before the first push: the welcome page
 
