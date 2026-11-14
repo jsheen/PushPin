@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The reader's profile, like /me on the web: the Crème, what they pinned, what they read,
+/// The reader's profile, like /me on the web: what they pinned, what they read,
 /// how many pushes a day, the public link, and the account.
 struct ProfileView: View {
     @EnvironmentObject private var state: AppState
@@ -20,21 +20,11 @@ struct ProfileView: View {
                         }
                     }
                     Section {
-                        if p.creme.isEmpty {
-                            Text("Star an article to make it your Crème.").foregroundStyle(.secondary)
-                        }
-                        ForEach(p.creme) { a in
-                            ArticleRow(article: a, starred: true)
-                                .swipeActions { Button("Unstar") { Task { await state.setCreme(a.newsId, on: false) } } }
-                        }
-                    } header: { Label("Crème", systemImage: "star.fill") }
-
-                    Section {
                         if p.pinned.isEmpty {
                             Text("Tap a push to pin it here.").foregroundStyle(.secondary)
                         }
                         ForEach(p.pinned) { a in
-                            ArticleRow(article: a) { read(a) }  // no star: the Crème is for read articles
+                            ArticleRow(article: a) { read(a) }
                             .swipeActions { Button("Delete", role: .destructive) { Task { await state.remove(a.newsId) } } }
                         }
                     } header: { Label("Pinned", systemImage: "pin.fill") } footer: {
@@ -43,10 +33,8 @@ struct ProfileView: View {
 
                     Section {
                         ForEach(p.read) { a in
-                            ArticleRow(article: a, starred: p.creme.contains { $0.newsId == a.newsId }) {
+                            ArticleRow(article: a) {
                                 if let url = a.url.flatMap(URL.init(string:)) { openURL(url) }
-                            } star: {
-                                Task { await state.setCreme(a.newsId) }
                             }
                             .swipeActions { Button("Delete", role: .destructive) { Task { await state.remove(a.newsId) } } }
                         }
@@ -99,9 +87,7 @@ struct ProfileView: View {
 
 struct ArticleRow: View {
     let article: Article
-    var starred = false
     var onRead: (() -> Void)?
-    var star: (() -> Void)?
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -112,12 +98,6 @@ struct ArticleRow: View {
                 Text(article.title ?? "Untitled").font(.custom("Georgia", size: 17))
             }
             Spacer()
-            if let star {
-                Button(action: star) {
-                    Image(systemName: starred ? "star.fill" : "star")
-                }
-                .buttonStyle(.borderless)
-            }
             if let onRead {
                 Button("Read", action: onRead).buttonStyle(.borderedProminent).controlSize(.small)
             }

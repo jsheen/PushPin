@@ -90,10 +90,9 @@ def test_app_pins_reads_and_deletes_its_account(api):
     assert status == 200 and opened["push"]["push_id"] == push_id and opened["push"]["read"] is False
     assert [a["push_id"] for a in opened["profile"]["pinned"]] == [push_id]
     news_id = opened["push"]["news_id"]
-    assert call("POST", f"/favorite/{news_id}", {"on": True}, session)[0] == 404  # not read yet: no Crème
     profile = call("POST", f"/read/{push_id}", session=session)[1]
     assert profile["pinned"] == [] and [a["news_id"] for a in profile["read"]] == [news_id] and profile["streak"] == 1
-    assert call("POST", f"/favorite/{news_id}", {"on": True}, session)[1]["creme"][0]["news_id"] == news_id
+    assert call("POST", f"/favorite/{news_id}", {"on": True}, session)[0] == 404 and "creme" not in profile  # no Crème
     assert call("POST", "/volume", {"volume": "heavy"}, session)[1]["reader"]["volume"] == "heavy"
     assert call("POST", "/volume", {"volume": "max"}, session)[0] == 404
     assert call("POST", "/public", {"public": True}, session)[1]["reader"]["public"] is True

@@ -8,10 +8,10 @@ and so is what you did with the push. That gives you labeled push data, which MI
 NYT RSS feeds ──▶ notifier ──HTTP──▶ scorer  (model + MIND user state, from the NYT sim)
                    │
    ntfy.sh ◀───────┤          cards :8090 ◀── tunnel (https://….trycloudflare.com) ◀── a reader taps
-   (push to phones)│            │                                                    Read / Crème / pushes a day
+   (push to phones)│            │                                                    Read / pushes a day
                    ▼            ▼
         outputs/notifier/pushes.db, or Postgres via DATABASE_URL
-        (candidates, covariates, sends, and per reader: opens, reads, Crème, push volume)
+        (candidates, covariates, sends, and per reader: opens, reads, push volume)
 ```
 
 ## The schedule
@@ -50,20 +50,17 @@ top (headline and abstract) and a Read button:
 - **Read** is a plain nytimes.com link, so iOS opens the NYT app if it's installed and Safari
   otherwise. Reading needs the reader's own NYT login there, as usual. The tap is recorded as a
   read (a beacon to `/read/<push_id>`); what they do on NYT isn't.
-- **☆ Put in Crème** appears once they've read it, and makes it their **Crème**, the one
-  article they liked most. Only read articles can be the Crème (the server refuses others);
-  picking another replaces it. After choosing on the welcome page (`/start`), the reader goes
-  on to their profile, `/me`.
 
-Below the pinned article is the rest of the profile, the same page as `/me`: the Crème, then
-**Pinned**, every other article they tapped a push for but haven't read yet (tapping one's
-headline reads it and moves it to Read, as a note there says, with no ☆ until then; only the
-reader sees this list), how many articles
-they've read (tapped Read on) and the list, where ☆ also picks the Crème, and
+After choosing on the welcome page (`/start`), the reader goes on to their profile, `/me`.
+
+Below the pinned article is the rest of the profile, the same page as `/me`: **Pinned**, every
+other article they tapped a push for but haven't read yet (tapping one's headline reads it and
+moves it to Read, as a note there says; only the reader sees this list), how many articles
+they've read (tapped Read on) and the list, and
 **Pushes a day** (Light, Medium or Heavy, see below; always at the bottom, medium until they
 choose). A **Make my reading public** checkbox shows the count and list on their public
-link, `/u/<slug>`, which uses a separate random id, not the reader cookie. Visitors always see the
-Crème, and see the count and list only when public. Links there go straight to NYT, so a
+link, `/u/<slug>`, which uses a separate random id, not the reader cookie. Visitors see the count and
+list only when public. Links there go straight to NYT, so a
 visitor's tap isn't counted as an open or a read. The count, list, streak and "Started reading
 on" date all come from reads, not opens; opens from before reads were recorded (2026-11-13) don't
 count as reads.
@@ -173,7 +170,6 @@ the Mac is awake and Docker is running:
 |-------|-------------|---------|
 | `scores` | slot × candidate article | `slot_time`, article (`title`, `section`, `subcategory`, `url`, `published`), every model feature, `p_click`, `p_return`, `novelty`, `push_score`, `is_top`, `passes_policy`, `sent`, `push_id`, `sent_at`, `sent_ts` (Unix seconds) |
 | `readers` | phone that opened a card or `/start` | `reader_id` (the cookie), `name` (optional), `created_at`, `first_push_ts`, `volume` (`light` / `medium` / `heavy`, NULL = not chosen), `volume_at`, `slug` (public profile id), `history_public` (1 = count and list public) |
-| `favorites` | reader's Crème (one article they've read) | `reader_id`, `news_id`, `created_at` |
 | `interactions` | push × reader × kind | `kind` (`open` = the click that pins it, `read` = Read tapped; older `save` rows are from before saves were dropped), `created_at`, `minutes_after_push` |
 | `labeled` (view) | sent push × reader | the push's `scores` row plus `reader_id`, `reader_name`, `reader_volume`, `label` (1 = opened, 0 = not opened within 24 h, NULL = pending), `read` (1 = tapped Read) |
 | `articles` | article read from the feeds | text, URL, publish time, mapped MIND subcategory |
@@ -231,7 +227,7 @@ feeds, ntfy server and click window. The threshold, risk penalty and friction co
   make; pushes aren't. The model's exposure effect is small (about 2–3% lower engagement after
   5+ impressions a day; see analysis.md), so it won't do much to stop over-pushing on its own.
 - **Cookies are per browser.** A reader who clears cookies, or opens a card in another browser,
-  becomes a new reader. The Crème and reads live in this database, not in the reader's NYT
+  becomes a new reader. Pins and reads live in this database, not in the reader's NYT
   account.
 - **The feeds are RSS.** RSS needs no API key, but it only lists what editors put in each
   section's feed. The NYT Times Wire API would cover every article in one call.

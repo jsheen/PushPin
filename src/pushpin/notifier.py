@@ -96,7 +96,7 @@ def send_ntfy(server: str, topic: str, title: str, message: str, click: str, tag
 
     `actions` are ntfy action buttons. The notifier doesn't use them: an `http` action does run in
     the background (tested on iOS), but its request can't say which subscriber tapped it, so Read
-    and the Crème live on the profile page the tap opens, where the reader cookie identifies them.
+    lives on the profile page the tap opens, where the reader cookie identifies them.
 
     `tags` that are emoji names show before the title ("pushpin" → 📌, on iOS too); the notifier's
     pushes don't use one, so the title is just the headline. `icon` is an image URL, which only
@@ -258,7 +258,7 @@ class Notifier:
         if sent:
             data = {"push_id": push_id, "news_id": str(article.name), "url": article["url"]}
             if reader_id is None:
-                # the tap pins the push and opens the reader's profile (Read, Put in Crème); without
+                # the tap pins the push and opens the reader's profile (with Read); without
                 # a tracker, the article itself
                 base = self.base_url()
                 click = f"{base}/p/{push_id}" if base else article["url"]

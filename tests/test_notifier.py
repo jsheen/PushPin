@@ -67,7 +67,7 @@ def make_store(location):
         engine = create_engine(location)
         with engine.begin() as con:
             con.execute(text("DROP VIEW IF EXISTS labeled"))
-            con.execute(text("DROP TABLE IF EXISTS scores, readers, interactions, articles, meta, favorites, removed, devices"))
+            con.execute(text("DROP TABLE IF EXISTS scores, readers, interactions, articles, meta, removed, devices"))
         engine.dispose()
     return Store(location, click_window_hours=24, tz=TZ)
 
@@ -168,7 +168,7 @@ def test_readers_tracked_separately(setup):
 
         pin = me_get(f"/p/{first}")  # my first tap pins it and creates my reader id
         assert 'class="pin"' in pin and "About Story" in pin and 'Your <img class="pinmark"' in pin and "Your first name" in pin
-        assert 'href="https://www.nytimes.com/' in pin and f'data-read="{first}"' in pin and "Put in Crème" not in pin  # Crème after reading
+        assert 'href="https://www.nytimes.com/' in pin and f'data-read="{first}"' in pin and "Crème" not in pin
         assert "🔖" not in pin and "data-kind" not in pin and "/saved" not in pin  # no Save any more
         assert "Nothing yet. Tap Read" in pin  # pinning isn't reading
         me_post("/name", b"Justin")
@@ -246,7 +246,7 @@ def test_store_adds_volume_columns_to_an_older_database(tmp_path):
 
 
 
-def test_profile_favorites_and_public_history(setup):
+def test_profile_and_public_history(setup):
     n, store, sent, _db = setup
     for hour in (8, 12, 17, 21):
         n.cfg["daily_cap"] = 4
@@ -266,23 +266,16 @@ def test_profile_favorites_and_public_history(setup):
         post(f"/read/{pushes[0]}")
         post("/name", b"Justin")
         me = get("/me")
-        assert 'Read <span class="n">4</span>' in me and "articles read" not in me and 'Justin’s <img class="pinmark" src="/icon.png" alt="PushPin">' in me and me.count('class="star"') == 4
-        ids = re.findall(r'data-fav="([^"]+)"', me)
-        post(f"/favorite/{ids[0]}")
-        post(f"/favorite/{ids[1]}")  # a second pick replaces the first
-        rid = store.reader_by_slug(re.search(r"/u/([^\"]+)", get("/me")).group(1))["reader_id"]
-        assert [f["news_id"] for f in store.favorites(rid)] == [ids[1]]
+        assert 'Read <span class="n">4</span>' in me and "articles read" not in me and 'Justin’s <img class="pinmark" src="/icon.png" alt="PushPin">' in me
+        assert "Crème" not in me and 'class="star"' not in me and "data-fav" not in me  # no Crème any more
         with pytest.raises(urllib.error.HTTPError) as e:
-            post("/favorite/NYT-never-read")
+            post(f"/favorite/{re.search(r'data-del="([^"]+)"', me).group(1)}")
         assert e.value.code == 404
-        me = get("/me")
-        assert me.split('class="volume"')[0].count('aria-pressed="true"') == 2  # the Crème, starred on top and in the list (the volume buttons come after)
 
         link = re.search(r'href="(http://[^"]+/u/([^"]+))"', me)
         public = stranger_get(f"/u/{link.group(2)}")
-        assert 'Justin’s <img class="pinmark"' in public and 'class="readhead"><h2>Read <span class="n">' in public and public.count('class="list"') == 1 and 'id="papier-on"' not in public and "on PushPin" not in public
-        assert public.count("<li>") == 1 and "articles read" not in public and "Started reading" not in public and 'class="star"' not in public
-        assert "Put your favorite article here" not in public  # the hint is only for the owner
+        assert 'Justin’s <img class="pinmark"' in public and 'class="readhead"><h2>Read <span class="n">' in public and public.count('class="list"') == 0 and 'id="papier-on"' not in public and "on PushPin" not in public
+        assert public.count("<li>") == 0 and "articles read" not in public and "Started reading" not in public and "Crème" not in public
         assert "/p/" not in public  # links go to NYT: a visitor isn't counted as opening the push
         with pytest.raises(urllib.error.HTTPError) as e:
             stranger_post("/public", b"on")  # only the owner (by cookie) can change it
@@ -290,10 +283,10 @@ def test_profile_favorites_and_public_history(setup):
 
         post("/public", b"on")
         public = stranger_get(f"/u/{link.group(2)}")
-        assert "Started reading on " in public and '<div class="stat">Read <span class="n">4</span></div>' in public and 'Read <span class="n">4</span>' in public and public.count("<li>") == 1 + 4
+        assert "Started reading on " in public and '<div class="stat">Read <span class="n">4</span></div>' in public and 'Read <span class="n">4</span>' in public and public.count("<li>") == 4
         post("/public", b"off")
         private = stranger_get(f"/u/{link.group(2)}")  # just "Read 4": no titles, no dinosaurs
-        assert 'Read <span class="n">4</span>' in private and private.count('class="list"') == 1 and 'id="papier-on"' not in private
+        assert 'Read <span class="n">4</span>' in private and private.count('class="list"') == 0 and 'id="papier-on"' not in private
         with pytest.raises(urllib.error.HTTPError) as e:
             stranger_get("/u/nobody")
         assert e.value.code == 404
@@ -317,43 +310,20 @@ def test_public_profile_opens_with_a_summary():
     read = [{"news_id": "a", "title": "A", "url": "u", "read_at": "2026-11-13T09:00:00"},
             {"news_id": "b", "title": "B", "url": "u", "read_at": "2026-11-13T10:00:00"}]
     reader = {"name": "Justin", "history_public": 1}
-    html = cards.profile_page(reader, read, [], owner=False, today=date(2026, 11, 13))
+    html = cards.profile_page(reader, read, owner=False, today=date(2026, 11, 13))
     assert 'class="splash"' in html and ('<div class="stat">Read <span class="n">2</span></div>'
                                     '<div class="stat">Daily streak <span class="n">1</span></div></div>') in html
     assert 's.classList.remove("gone")' in html  # a tap on the page brings the card back
     assert "day streak" not in html and 'Daily streak <span class="n">1</span>' in html  # box, then the header
-    private = cards.profile_page({**reader, "history_public": 0}, read, [], owner=False, today=date(2026, 11, 13))
+    private = cards.profile_page({**reader, "history_public": 0}, read, owner=False, today=date(2026, 11, 13))
     assert 'class="splash"' in private and 'class="stat"' not in private  # the box keeps a private list's numbers out
     assert '<h2>Read <span class="n">2</span> <span class="streak">(Daily streak <span class="n">1</span>)</span></h2>' in private
     assert ">A</a>" not in private and 'id="papier-on"' not in private  # the header only: no titles, no dinosaurs
-    own = cards.profile_page(reader, read, [], owner=True, today=date(2026, 11, 13))
+    own = cards.profile_page(reader, read, owner=True, today=date(2026, 11, 13))
     assert 'class="splash"' not in own and own.count("Daily streak <span") == 1
     assert '<h2>Read <span class="n">2</span> <span class="streak">(Daily streak <span class="n">1</span>)</span></h2>' in own
-    lapsed = cards.profile_page(reader, read, [], owner=False, today=date(2026, 11, 20))
+    lapsed = cards.profile_page(reader, read, owner=False, today=date(2026, 11, 20))
     assert '<div class="stat">Read <span class="n">2</span></div></div>' in lapsed and "day streak" not in lapsed and "Daily streak <span" not in lapsed  # a 0 streak isn't shown
-
-
-def test_only_read_articles_go_in_the_creme(setup):
-    n, store, sent, _db = setup
-    n.run_slot(pd.Timestamp("2026-11-12 12:00"))
-    push_id = sent[0][4].rsplit("/", 1)[1]
-    news_id = store.push(push_id)["news_id"]
-    server = cards.serve_cards(store, 0)
-    get, post = phone(f"http://127.0.0.1:{server.server_address[1]}")
-    try:
-        pin = get(f"/p/{push_id}")
-        assert 'class="read"' in pin and 'class="creme"' not in pin  # just pinned: Read, no Crème yet
-        with pytest.raises(urllib.error.HTTPError):
-            post(f"/favorite/{news_id}")  # pinned, never read: not allowed in the Crème
-        assert not store.favorites(store._rows("SELECT reader_id FROM readers")[0]["reader_id"])
-        post(f"/read/{push_id}")
-        assert "☆ Put in Crème" in get(f"/p/{push_id}")  # read: now it can go in
-        post(f"/favorite/{news_id}")
-        pin = get(f"/p/{push_id}")
-        assert "★ In your Crème" in pin
-        assert "<h2>Crème</h2><p class=\"private\">Put your favorite article here.</p><ul class=\"list\"><li>" in pin
-    finally:
-        server.shutdown()
 
 
 def test_landing_lists_pinned_articles_not_yet_read(setup):
@@ -370,7 +340,6 @@ def test_landing_lists_pinned_articles_not_yet_read(setup):
         landing = get(f"/p/{second}")
         pinned = landing.split("<h2>Pinned")[1].split("</section>")[0]
         assert '<span class="n">1</span>' in pinned and f'data-read="{first}"' in pinned and f'data-read="{second}"' not in pinned
-        assert 'class="star"' not in pinned  # no Crème until it's read
         assert "Tap a headline to read it" in pinned and "Always private" in pinned
         me = get("/me")
         assert me.count('<li><div><a') == 2 and 'Pinned <span class="n">2</span>' in me
@@ -402,14 +371,13 @@ def test_reader_can_delete_pinned_and_read_articles(setup):
         me = get("/me")
         assert f'data-del="{news[1]}"' in me and "<h2>Pinned" in me  # the second, pinned and unread
         post(f"/read/{second}")
-        post(f"/favorite/{news[1]}")  # read, in the Crème
         me = get("/me")
-        assert f'data-del="{news[0]}"' in me and f'data-del="{news[1]}"' in me and "It also leaves your Crème." in me
+        assert f'data-del="{news[0]}"' in me and f'data-del="{news[1]}"' in me
         with pytest.raises(urllib.error.HTTPError):
             stranger_post(f"/remove/{news[1]}")  # not theirs
-        post(f"/remove/{news[1]}")  # out of Read and the Crème
+        post(f"/remove/{news[1]}")  # out of Read
         me = get("/me")
-        assert "<h2>Pinned" not in me and "Nothing yet. Tap ☆" in me and f'data-del="{news[1]}"' not in me
+        assert "<h2>Pinned" not in me and f'data-del="{news[1]}"' not in me
         post(f"/remove/{news[0]}")  # out of Read, and the count
         me = get("/me")
         assert "Nothing yet. Tap Read" in me and not store.articles_read(store.reader_by_slug(
@@ -426,7 +394,7 @@ def test_profile_volume_is_at_the_bottom_and_medium_by_default(setup):
     n.run_slot(pd.Timestamp("2026-11-12 12:00"))
     push_id = sent[0][4].rsplit("/", 1)[1]
     reader = store.new_reader(store.push(push_id)["sent_ts"])
-    show = lambda: cards.profile_page(store.reader(reader), [], [], owner=True, pinned=store.push(push_id, reader))
+    show = lambda: cards.profile_page(store.reader(reader), [], owner=True, pinned=store.push(push_id, reader))
     for volume in (None, "heavy"):  # before choosing (medium), and after
         if volume:
             store.set_volume(reader, volume)
@@ -484,7 +452,7 @@ def test_tunnel_url_reads_quicktunnel_endpoint():
 def test_pinned_profile_escapes_html():
     pinned = {"push_id": 'x"</script>', "news_id": "N1", "title": "<b>T</b>", "section": "us",
               "url": "https://www.nytimes.com/a", "abstract": "a & b", "read": 0}
-    page = cards.profile_page({"reader_id": "r", "name": "<i>x</i>", "volume": "light"}, [], [], owner=True,
+    page = cards.profile_page({"reader_id": "r", "name": "<i>x</i>", "volume": "light"}, [], owner=True,
                               pinned=pinned)
     assert "<b>T</b>" not in page and "a &amp; b" in page and "<i>x</i>" not in page
     assert 'data-read="x&quot;&lt;/script&gt;"' in page  # the id can't close a tag or script
@@ -556,7 +524,7 @@ def test_papier_mache_only_with_a_visible_read_list():
     read = [{"news_id": f"N{i}", "title": f"T{i}</script>", "url": "https://x", "read_at": f"2026-11-1{i}T09:00"}
             for i in range(7)]
     reader = {"name": "Jo", "history_public": 0}
-    own = cards.profile_page(reader, read, [], owner=True)
+    own = cards.profile_page(reader, read, owner=True)
     assert 'id="papier-on"' in own and "Every article you read makes a new dinosaur · 7 dinosaurs so far" in own
     head = re.search(r'<div class="readhead">.*?</div>', own).group(0)
     assert 'id="papier-on"' in head and 'class="papier-hint" hidden' in own  # switch in the Read header; hint until on
@@ -566,10 +534,10 @@ def test_papier_mache_only_with_a_visible_read_list():
     assert "<details" not in own and 'class="plus"' not in own
     data = re.search(r'id="papier-data"[^>]*>(.*?)</script>', own).group(1)
     assert data.startswith('["T0<\\/script>"') and "</script>\"" not in data  # oldest first, can't close the tag
-    assert 'id="papier-on"' not in cards.profile_page(reader, read, [], owner=False)  # private list: no dinosaurs
-    assert 'id="papier-on"' in cards.profile_page({**reader, "history_public": 1}, read, [], owner=False)
-    assert 'id="papier-on"' not in cards.profile_page(reader, [], [], owner=True)
-    assert "makes a new dinosaur · 1 dinosaur so far" in cards.profile_page(reader, read[:1], [], owner=True)
+    assert 'id="papier-on"' not in cards.profile_page(reader, read, owner=False)  # private list: no dinosaurs
+    assert 'id="papier-on"' in cards.profile_page({**reader, "history_public": 1}, read, owner=False)
+    assert 'id="papier-on"' not in cards.profile_page(reader, [], owner=True)
+    assert "makes a new dinosaur · 1 dinosaur so far" in cards.profile_page(reader, read[:1], owner=True)
 
 
 def test_demo_page_shows_dinosaurs_and_stores_nothing(setup):
@@ -579,7 +547,7 @@ def test_demo_page_shows_dinosaurs_and_stores_nothing(setup):
         page = urllib.request.urlopen(f"http://127.0.0.1:{server.server_address[1]}/demo").read().decode()
     finally:
         server.shutdown()
-    assert 'id="papier-on"' in page and "29 dinosaurs so far" in page and "Justin’s" in page and "Monarch Butterflies" in page
+    assert 'id="papier-on"' in page and "29 dinosaurs so far" in page and "Justin’s" in page and "Crème" not in page
     assert store.reader_count() == 0 and db("SELECT COUNT(*) AS n FROM interactions")["n"].item() == 0
 
 
@@ -592,9 +560,9 @@ def test_each_reader_gets_their_own_dinosaurs():
     read = [{"news_id": f"N{i}", "title": f"T{i}", "url": "u", "section": None, "read_at": f"2026-11-0{1 + i % 9}"}
             for i in range(10)]
     seed = re.compile(r'id="papier-data" data-seed="([^"]*)"')
-    a = seed.search(cards.profile_page({"reader_id": "aaaa", "history_public": 0}, read, [], owner=True)).group(1)
-    b = seed.search(cards.profile_page({"reader_id": "bbbb", "history_public": 0}, read, [], owner=True)).group(1)
-    public = seed.search(cards.profile_page({"reader_id": "aaaa", "history_public": 1}, read, [], owner=False)).group(1)
+    a = seed.search(cards.profile_page({"reader_id": "aaaa", "history_public": 0}, read, owner=True)).group(1)
+    b = seed.search(cards.profile_page({"reader_id": "bbbb", "history_public": 0}, read, owner=True)).group(1)
+    public = seed.search(cards.profile_page({"reader_id": "aaaa", "history_public": 1}, read, owner=False)).group(1)
     assert a and b and a != b and public == a  # own herd, the same on the public link
     assert "aaaa" not in a  # the id is the reader's cookie: hashed, never on the page
     assert seed.search(cards.demo_page()).group(1) == ""  # the demo keeps the fixed order

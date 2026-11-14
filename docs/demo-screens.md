@@ -21,15 +21,13 @@ learns from) and shows the reader's profile with the article pinned on top:
 - **Read** opens the story on nytimes.com and moves the article to Read.
 - Below it is the reader's profile:
   - the privacy line, the public toggle, and an optional first name;
-  - **Crème**: the one article they've starred as their favorite (★). Tapping ☆ on any read
-    article makes it the Crème instead.
   - **Pinned**: pushes they tapped but haven't read yet. These are always private. Tapping a
     headline reads it and moves it to Read; × deletes it.
   - **Read**: the count and daily streak, shown as papier-mâché dinosaurs: a very small one for
     every article read, made of its headline.
   - how many pushes a day they want.
 
-This sample reader has pinned 9 recent pushes, read 6 of them, and starred one as their Crème.
+This sample reader has pinned 9 recent pushes and read 6 of them.
 The data was set up on a copy of the database, not on a real reader.
 
 <img src="screens/push-tapped.png" width="300" alt="Pinning a push: the pinned article with a Read button, then the reader's profile">
@@ -40,11 +38,10 @@ The data was set up on a copy of the database, not on a real reader.
 It opens on a title card and goes to the profile when tapped.
 
 <img src="screens/demo-splash.png" width="300" alt="Demo title card: Justin's, Read 29, Daily streak 6, Tap to continue">
-<img src="screens/demo-profile.png" width="300" alt="Demo profile: Crème article, Read 29, a grid of very small papier-mâché dinosaurs, one per headline">
+<img src="screens/demo-profile.png" width="300" alt="Demo profile: Read 29, a grid of very small papier-mâché dinosaurs, one per headline">
 
 Every read makes a very small papier-mâché dinosaur out of its headline, with a faint silhouette
-under the words so the shape reads at that size. The full page has all 29:
-[demo-profile-full.png](screens/demo-profile-full.png).
+under the words so the shape reads at that size. All 29 fit on one screen.
 
 ## 4. Sharing a dinosaur
 
@@ -104,5 +101,5 @@ metrics to 390 × 844 at 2x with `mobile: true` and the dark color scheme, open 
 splash. Stub `navigator.share`, because headless Chrome doesn't have it and would hide the button.
 Then click a `.papier .dino`. The shared text is the dialog `<pre>`'s text.
 
-The other screenshots that show dinosaurs (`push-tapped.png` and both demo profiles) were taken the
-same way: dark mode, with the page's full height as the window for the full-page ones.
+The other screenshots that show dinosaurs (`push-tapped.png` and `demo-profile.png`) were taken
+the same way, in dark mode. `push-tapped.png` uses the page's full height as the window.

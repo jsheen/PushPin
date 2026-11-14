@@ -1,7 +1,7 @@
 import Foundation
 
 /// An article in a profile list. Which fields are set depends on the list: Pinned has pushId,
-/// Read has readAt, the Crème has neither.
+/// Read has readAt.
 struct Article: Codable, Identifiable, Hashable {
     let newsId: String
     let title: String?
@@ -34,7 +34,6 @@ struct Profile: Codable {
     let reader: Reader
     let shareUrl: String
     let caps: [String: Int]
-    let creme: [Article]
     let pinned: [Article]
     let read: [Article]
     let streak: Int

@@ -115,10 +115,6 @@ final class AppState: ObservableObject {
         let _: Profile? = await run("POST", "read/\(pushId)")
     }
 
-    func setCreme(_ newsId: String, on: Bool = true) async {
-        let _: Profile? = await run("POST", "favorite/\(newsId)", ["on": on])
-    }
-
     func remove(_ newsId: String) async {
         let _: Profile? = await run("DELETE", "articles/\(newsId)")
     }

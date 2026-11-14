@@ -1,8 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// What a tapped push opens: the story, with a pin dropping onto it. Read opens NYT. Put in
-/// Crème only once it's read: only read articles go in the Crème.
+/// What a tapped push opens: the story, with a pin dropping onto it. Read opens NYT.
 struct PinnedView: View {
     let push: Push
     @EnvironmentObject private var state: AppState
@@ -46,12 +45,6 @@ struct PinnedView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            if push.read {
-                Button("Put in Crème") {
-                    Task { await state.setCreme(push.newsId) }
-                    dismiss()
-                }
-            }
         }
         .padding(24)
         .onAppear {

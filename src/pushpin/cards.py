@@ -8,17 +8,16 @@ including to zero) while each slot is a Cloud Run job. Both share the database i
 (Cloud SQL), or the SQLite file from configs/notifier.yml when it isn't set.
 
 Tapping a push "pins" its article: the open is recorded (the click the model learns from) and the
-reader lands on their profile with that article on top and two choices: Read (a plain nytimes.com
-link, so iOS opens the NYT app if it's installed; the tap is recorded as a read) or Put in Crème.
+reader lands on their profile with that article on top and a Read button (a plain nytimes.com
+link, so iOS opens the NYT app if it's installed; the tap is recorded as a read).
 The first push a phone opens, or the /start page (linked from the welcome push,
 `pushpin.notifier --welcome`), sets a cookie with a random reader id, and everything the reader
 does is stored under it. What they do on NYT isn't tracked.
 
-/me is the same profile without a pinned article: their top article on top (the Crème), the
-articles they pinned but haven't read yet (each with Read, ☆ and × to delete it), how many
-articles they've read (tapped Read on) with the list (× deletes one, from the Crème too), which they can make public, and how many
-pushes a day they want (light, medium or heavy). /u/<slug> is the profile for anyone with the
-link: the Crème always, the count and list only when public.
+/me is the same profile without a pinned article: the articles they pinned but haven't read yet
+(tap to read, × to delete), how many articles they've read (tapped Read on) with the list (×
+deletes one), which they can make public, and how many pushes a day they want (light, medium or
+heavy). /u/<slug> is the profile for anyone with the link: the count and list only when public.
 """
 
 import argparse
@@ -39,7 +38,7 @@ import jwt
 import yaml
 
 from pushpin import apple
-from pushpin.store import DEFAULT_VOLUME, MAX_FAVORITES, VOLUMES, Store
+from pushpin.store import DEFAULT_VOLUME, VOLUMES, Store
 
 # the red pushpin (scripts/make_icons.py): browser tab, home screen, ntfy's notification icon
 ASSETS = Path(__file__).parent / "assets"
@@ -101,8 +100,6 @@ font:13px/1.25 ui-monospace,Menlo,monospace;white-space:pre;overflow-x:auto}
 .profile .list a{color:var(--fg)}.profile .list a:hover{color:var(--link)}
 .profile .empty{color:var(--muted)}.profile .private{font-size:14px;color:var(--muted);margin:-6px 0 8px}.profile h2 .streak{margin-left:4px}.profile h2 .n{color:var(--fg);margin-left:6px;letter-spacing:0}
 .profile section>.list>li:last-child{border-bottom:0}
-.star{font:inherit;font-size:20px;line-height:1;padding:2px 4px;border:0;background:none;color:var(--muted);cursor:pointer}
-.star[aria-pressed=true]{color:var(--on)}
 .del{font:inherit;font-size:20px;line-height:1;padding:2px 4px;border:0;background:none;color:var(--muted);cursor:pointer}
 .del:hover{color:var(--on)}
 .since{font-size:15px;color:var(--muted);margin:2px 0 6px}
@@ -127,7 +124,7 @@ animation:splash-in .6s ease both}
 .profile .readpanel+.toggle{margin-top:4px}
 .note{font-size:14px;color:var(--on);min-height:1em;margin:0 0 8px}
 .pin{margin:0 0 40px}.pin .headline{font:700 26px/1.2 Georgia,"Times New Roman",serif;margin:6px 0 12px}
-.pin .creme[aria-pressed=true]{color:var(--on)}.profile .volume{margin:24px 0 0}
+.profile .volume{margin:24px 0 0}
 </style></head><body><main>%BODY%</main></body></html>"""
 
 OWNER_SCRIPT = """<script>
@@ -185,14 +182,7 @@ if (pub) pub.addEventListener("change", async () => {
   if (!r || !r.ok) { pub.checked = !pub.checked; return; }
   document.querySelector(".share").hidden = !pub.checked;
 });
-document.querySelectorAll("button[data-fav]").forEach(b => b.addEventListener("click", async () => {
-  const on = b.getAttribute("aria-pressed") !== "true";
-  const r = await fetch(`/favorite/${encodeURIComponent(b.dataset.fav)}`,
-                        {method: "POST", body: on ? "on" : "off"}).catch(() => null);
-  if (r && r.ok) return location.reload();
-  document.querySelector(".note").textContent = "Couldn't save that, try again.";
-}));
-// ×: delete an article from the profile (and the Crème), after a confirm
+// ×: delete an article from the profile, after a confirm
 document.querySelectorAll("button[data-del]").forEach(b => b.addEventListener("click", async () => {
   if (!confirm(b.dataset.confirm)) return;
   const r = await fetch(`/remove/${encodeURIComponent(b.dataset.del)}`, {method: "POST", body: "on"}).catch(() => null);
@@ -247,60 +237,45 @@ SPLASH_SCRIPT = """<noscript><style>.splash{display:none}.splash~.profile{opacit
 </script>"""
 
 
-def pin_panel(push: dict, creme: set[str]) -> str:
-    """The article a push tap pinned, on top of the profile: Read, and once it's read, put it in
-    the Crème (only read articles go there)."""
+def pin_panel(push: dict) -> str:
+    """The article a push tap pinned, on top of the profile, with Read."""
     e = html.escape
-    on = push["news_id"] in creme
-    creme_row = (f'<div class="row"><button class="creme" data-fav="{e(push["news_id"])}" '
-                 f'aria-pressed="{"true" if on else "false"}">{"★ In your Crème" if on else "☆ Put in Crème"}'
-                 f'</button></div>') if push.get("read") else ""
     return (f'<section class="pin"><div class="kicker">{e(push["section"] or "")}</div>'
             f'<div class="headline">{e(push["title"] or "")}</div><p class="abstract">{e(push["abstract"] or "")}</p>'
             # a plain link to nytimes.com (not a redirect) lets iOS open it in the NYT app when installed
             f'<a class="read" href="{e(push["url"] or "#")}" data-read="{e(push["push_id"])}">Read</a>'
-            f'{creme_row}</section>')
+            f'</section>')
 
 
-def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: bool, share_url: str = "",
+def profile_page(reader: dict, read: list[dict], owner: bool, share_url: str = "",
                  today: date | None = None, pinned: dict | None = None, caps: dict | None = None,
                  unread: list[dict] | None = None) -> str:
     """A reader's profile. `owner`: their own view (/me, or /p/<push_id> with that push's article
-    `pinned` on top), with the articles pinned but not read yet (`unread`: tap one to read it; no
-    star until it's read), the star buttons, the public toggle, pushes a day and always the list;
+    `pinned` on top), with the articles pinned but not read yet (`unread`: tap one to read it),
+    the delete buttons, the public toggle, pushes a day and always the list;
     otherwise the public view (/u/<slug>), where the count and list only show if they made them
     public. Article links go straight to NYT, so a visitor isn't counted as opening or reading."""
     e = html.escape
-    favs = favorites[-MAX_FAVORITES:]
-    fav_ids = {a["news_id"] for a in favs}
     name = reader.get("name")
     public = bool(reader.get("history_public"))
 
-    def item(a, star, delete=False):
-        on = a["news_id"] in fav_ids
-        button = (f'<button class="star" data-fav="{e(a["news_id"])}" aria-pressed="{"true" if on else "false"}" '
-                  f'aria-label="Add to Crème">{"★" if on else "☆"}</button>') if star else ""
-        if delete:  # the owner's Pinned and Read lists: delete it from the profile, Crème included
-            ask = "Delete this article from your PushPin?" + (" It also leaves your Crème." if on else "")
-            button += (f'<button class="del" data-del="{e(a["news_id"])}" data-confirm="{e(ask)}" '
-                       f'aria-label="Delete">×</button>')
+    def item(a, delete=False):
+        button = ""
+        if delete:  # the owner's Pinned and Read lists: delete it from the profile
+            ask = "Delete this article from your PushPin?"
+            button = (f'<button class="del" data-del="{e(a["news_id"])}" data-confirm="{e(ask)}" '
+                      f'aria-label="Delete">×</button>')
         read_tap = f' data-read="{e(a["push_id"])}"' if a.get("push_id") else ""  # a pinned one: tapping reads it
         return (f'<li><div><a href="{e(a["url"] or "#")}"{read_tap}>{e(a["title"] or "Untitled")}</a>'
                 f'</div>{button}</li>')
 
-    slots = "".join(item(a, owner) for a in favs)
-    if owner:
-        slots = slots or '<li class="empty">Nothing yet. Tap ☆ on an article.</li>'
-    elif not favs:
-        slots = '<li class="empty">Nothing picked yet.</li>'
-    hint = '<p class="private">Put your favorite article here.</p>' if owner else ""
-    top = f'<section><h2>Crème</h2>{hint}<ul class="list">{slots}</ul></section>'
+    top = ""
     waiting = [a for a in (unread or []) if not pinned or a["news_id"] != pinned["news_id"]] if owner else []
     if waiting:  # only the owner sees what they pinned; the one on top isn't listed twice
         top += (f'<section><h2>Pinned <span class="n">{len(waiting)}</span></h2>'
                 f'<p class="private">Always private: only you see what you’ve pinned. '
                 f'Tap a headline to read it and it moves to Read.</p><ul class="list">'
-                f'{"".join(item(a, False, True) for a in waiting)}</ul></section>')
+                f'{"".join(item(a, True) for a in waiting)}</ul></section>')
 
     n = len(read)
     first = date.fromisoformat(min(a["read_at"] for a in read)[:10]) if read else None
@@ -313,7 +288,7 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
     shown = owner or public  # Papier-mâché only uses titles the page already shows
     switch, hint, gallery = papier(read, papier_seed(reader)) if shown else ("", "", "")
     head = f'<div class="readhead"><h2>Read <span class="n">{n}</span>{on_a_roll}</h2>{switch}</div>'
-    articles = (f'<div class="readpanel">{head}{hint}<ul class="list">{"".join(item(a, owner, owner) for a in read)}</ul>'
+    articles = (f'<div class="readpanel">{head}{hint}<ul class="list">{"".join(item(a, owner) for a in read)}</ul>'
                 f'{gallery}</div>' if read
                 else '<h2>Read</h2><p class="empty">Nothing yet. Tap Read on a push to start.</p>')
     if owner:
@@ -339,7 +314,7 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
         stats = [("Read", n), *([("Daily streak", days)] if days else [])] if public else []
         intro = splash(title, stats)
     if owner:  # the pinned push first
-        intro = pin_panel(pinned, fav_ids) if pinned else ""
+        intro = pin_panel(pinned) if pinned else ""
     body = (f'{intro}<div class="profile"><header><h1>{title}</h1>{count}{sub}{ask_name}</header>{top}'
             f'<section>{bottom}</section></div>{scripts}')
     return page(body).replace("<main>", '<main style="max-width:540px">', 1)
@@ -751,9 +726,7 @@ def demo_page() -> str:
             24, 24, 25, 26, 26, 27, 28, 28, 29, 29]
     read = [{"news_id": f"DEMO{i}", "title": t, "url": "https://www.nytimes.com", "section": None,
              "read_at": f"2026-10-{d:02d}T{9 + i % 2 * 9}:00"} for i, (t, d) in enumerate(zip(DEMO_TITLES, days, strict=True))]
-    creme = [{"news_id": "DEMO-CREME", "url": "https://www.nytimes.com",  # made up, like the reads
-              "title": "Monarch Butterflies Return to California’s Coast in Their Biggest Numbers in a Decade"}]
-    return profile_page({"name": "Justin", "history_public": 1}, read, creme, owner=False, today=date(2026, 10, 29))
+    return profile_page({"name": "Justin", "history_public": 1}, read, owner=False, today=date(2026, 10, 29))
 
 
 PIN_MARK = '<img class="pinmark" src="/icon.png" alt="PushPin">'
@@ -767,14 +740,13 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
     `caps` maps each volume to its daily cap (configs/notifier.yml), shown on the buttons.
 
       GET  /p/<push_id>        pins the push: records the open (creating the reader on first visit)
-                               and shows their profile with its article on top: Read / Put in Crème
+                               and shows their profile with its article on top, with Read
       POST /read/<push_id>     Read was tapped on it (sent as a beacon; the link itself goes to NYT)
       GET  /start              the welcome page: choose light / medium / heavy (creates the reader)
       POST /volume             body "light", "medium" or "heavy": pushes a day
       POST /name               body: the reader's first name
-      GET  /me                 this reader's profile: Crème, articles read, public toggle, pushes a day
-      POST /favorite/<news_id> body "on" or "off": make an article they pinned their Crème (replaces the last)
-      POST /remove/<news_id>   delete an article they pinned or read from their profile (and Crème)
+      GET  /me                 this reader's profile: pinned, articles read, public toggle, pushes a day
+      POST /remove/<news_id>   delete an article they pinned or read from their profile
       POST /public             body "on" or "off": show the count and list on their public link
       GET  /u/<slug>           a reader's public profile
       GET  /stats              {"readers": n} for autoscaling (KEDA), only with header
@@ -793,8 +765,7 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
       POST   /api/volume           {"volume": "light" | "medium" | "heavy"}
       POST   /api/name             {"name"}
       POST   /api/public           {"public": true | false}
-      POST   /api/favorite/<news_id>  {"on": true | false}: the Crème
-      DELETE /api/articles/<news_id>  delete from Pinned / Read (and the Crème)
+      DELETE /api/articles/<news_id>  delete from Pinned / Read
       DELETE /api/account          delete the account and its data
     """
 
@@ -807,7 +778,7 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
         reader, read = store.reader(reader_id), store.articles_read(reader_id)
         return {"reader": {"name": reader["name"], "volume": reader["volume"] or DEFAULT_VOLUME, "public": bool(reader["history_public"])},
                 "share_url": f"{base}/u/{store.slug(reader_id)}", "caps": caps or {},
-                "creme": store.favorites(reader_id), "pinned": store.pinned_unread(reader_id), "read": read,
+                "pinned": store.pinned_unread(reader_id), "read": read,
                 "streak": streak(read, date.fromisoformat(store.now()[:10]))}
 
     class Handler(BaseHTTPRequestHandler):
@@ -833,7 +804,7 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
         def _own_profile(self, reader_id: str, pinned: dict | None = None) -> str:
             proto = self.headers.get("x-forwarded-proto") or "http"
             share = f"{proto}://{self.headers.get('host') or 'localhost'}/u/{store.slug(reader_id)}"
-            return profile_page(store.reader(reader_id), store.articles_read(reader_id), store.favorites(reader_id),
+            return profile_page(store.reader(reader_id), store.articles_read(reader_id),
                                 owner=True, share_url=share, pinned=pinned, caps=caps, today=date.fromisoformat(store.now()[:10]),
                                 unread=store.pinned_unread(reader_id))
 
@@ -895,8 +866,6 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
                 ok = store.set_name(reader_id, str(body.get("name") or ""))
             elif (method, what) == ("POST", "public"):
                 ok = store.set_history_public(reader_id, bool(body.get("public")))
-            elif (method, what) == ("POST", "favorite"):
-                ok = store.set_favorite(reader_id, arg, on=body.get("on", True) is not False) == "ok"
             elif (method, what) == ("DELETE", "articles"):
                 ok = store.remove(reader_id, arg)
             elif (method, what) == ("DELETE", "account"):
@@ -935,9 +904,7 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
             if reader_id is None:
                 self._send(403, "open a push first", "text/plain")
                 return
-            if route == "favorite":
-                ok = store.set_favorite(reader_id, push_id, on=body.strip() != "off") == "ok"
-            elif route == "remove":
+            if route == "remove":
                 ok = store.remove(reader_id, push_id)
             elif route == "public":
                 ok = store.set_history_public(reader_id, body.strip() == "on")
@@ -953,7 +920,7 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
                 self._send(404, "unknown push", "text/plain")
                 return
             print(json.dumps({"event": route, "push_id": push_id or None, "reader": reader_id,
-                              **({"on": body.strip() != "off"} if route in ("favorite", "public") else {}),
+                              **({"on": body.strip() != "off"} if route == "public" else {}),
                               **({"volume": body.strip()} if route == "volume" else {})}))
             self._send(200, "ok", "text/plain")
 
@@ -989,7 +956,7 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
                 self._send(200, self._own_profile(reader_id))
             elif route == "u" and (other := store.reader_by_slug(push_id)) is not None:
                 rid = other["reader_id"]
-                self._send(200, profile_page(other, store.articles_read(rid), store.favorites(rid), owner=False,
+                self._send(200, profile_page(other, store.articles_read(rid), owner=False,
                                              today=date.fromisoformat(store.now()[:10])))
             elif route == "p" and (push := store.push(push_id)) is not None:
                 reader_id, new = self._reader_id(), None

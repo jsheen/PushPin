@@ -19,9 +19,7 @@ Tables:
                 (the push was tapped: the click, which "pins" the article; not shown on the
                 profile) or read (Read was tapped on the pinned article: what the profile counts).
                 Rows of kind save are from before saves were dropped.
-  favorites     a reader's top article (their Crème; MAX_FAVORITES of them), any article they
-                pinned: reader_id, news_id, created_at
-  removed       articles a reader deleted from their profile (out of Pinned, Read and the Crème):
+  removed       articles a reader deleted from their profile (out of Pinned and Read):
                 reader_id, news_id, created_at. Their open and read rows stay, so the model's
                 labels don't change; a later push of the article, if tapped, brings it back
   labeled       view, one row per (sent push, reader who could have received it): the push's
@@ -45,7 +43,6 @@ ARTICLE_COLUMNS = ["news_id", "title", "abstract", "section", "url", "published"
 KINDS = ("open", "read")  # recorded per reader: the push tapped (pinned), then Read tapped
 VOLUMES = ("light", "medium", "heavy")  # push volume a reader can ask for (caps in configs/notifier.yml)
 DEFAULT_VOLUME = "medium"  # until a reader chooses (readers.volume stays NULL: not chosen)
-MAX_FAVORITES = 1  # the Crème: a reader's one top article
 # reader columns added after the first release, created on older databases
 READER_COLUMNS = {"volume": "TEXT", "volume_at": "TEXT", "slug": "TEXT", "history_public": "INTEGER DEFAULT 0",
                   "apple_sub": "TEXT", "scorer_user": "TEXT"}
@@ -64,8 +61,7 @@ SCHEMA = [
         scorer_user TEXT)""",
     """CREATE TABLE IF NOT EXISTS interactions (push_id TEXT, reader_id TEXT, kind TEXT, created_at TEXT,
         minutes_after_push DOUBLE PRECISION, PRIMARY KEY (push_id, reader_id, kind))""",
-    """CREATE TABLE IF NOT EXISTS favorites (reader_id TEXT, news_id TEXT, created_at TEXT,
-        PRIMARY KEY (reader_id, news_id))""",
+    "DROP TABLE IF EXISTS favorites",  # the Crème (a reader's one top article), since removed
     """CREATE TABLE IF NOT EXISTS removed (reader_id TEXT, news_id TEXT, created_at TEXT,
         PRIMARY KEY (reader_id, news_id))""",
     # the iOS app's push addresses (APNs device tokens); one reader can have several devices
@@ -307,7 +303,7 @@ class Store:
         accounts). The pushes themselves stay: they were sent to everyone, not to this reader."""
         if self.reader(reader_id) is None:
             return False
-        for table in ("devices", "favorites", "removed", "interactions", "readers"):
+        for table in ("devices", "removed", "interactions", "readers"):
             self._exec(f"DELETE FROM {table} WHERE reader_id = :r", {"r": reader_id})
         return True
 
@@ -348,7 +344,7 @@ class Store:
     def reader_count(self) -> int:
         return self._rows("SELECT COUNT(*) AS n FROM readers")[0]["n"]
 
-    # --- profile: articles read, favorites, public history
+    # --- profile: articles read, public history
 
     def articles_read(self, reader_id: str | None) -> list[dict]:
         """Every article this reader tapped Read on, most recent first: news_id, title, section,
@@ -381,48 +377,12 @@ class Store:
         return bool(self._rows("""SELECT 1 FROM interactions i JOIN scores s ON s.push_id = i.push_id AND s.sent
             WHERE i.reader_id = :r AND s.news_id = :n LIMIT 1""", r=reader_id, n=news_id))
 
-    def has_read(self, reader_id: str, news_id: str) -> bool:
-        """Whether this reader tapped Read on a push of this article."""
-        if not self._has_scores():
-            return False
-        return bool(self._rows("""SELECT 1 FROM interactions i JOIN scores s ON s.push_id = i.push_id AND s.sent
-            WHERE i.reader_id = :r AND s.news_id = :n AND i.kind = 'read' LIMIT 1""", r=reader_id, n=news_id))
-
-    def favorites(self, reader_id: str | None) -> list[dict]:
-        """This reader's favorites (the Crème), in the order they were picked: news_id, title, url."""
-        if not reader_id or not self._has_scores():
-            return []
-        return self._rows(f"""SELECT f.news_id, MAX(s.title) AS title, MAX(s.url) AS url
-            FROM favorites f JOIN scores s ON s.news_id = f.news_id AND s.sent
-            WHERE f.reader_id = :r AND {KEPT} GROUP BY f.news_id, f.created_at ORDER BY f.created_at, f.news_id""", r=reader_id)
-
-    def set_favorite(self, reader_id: str, news_id: str, on: bool = True) -> str:
-        """Pick (or drop) an article the reader has read as a favorite. Past MAX_FAVORITES, the
-        oldest pick makes room. Returns "ok", "unknown" (not an article they pinned) or "unread"
-        (pinned but not read yet: only read articles go in the Crème)."""
-        params = {"r": reader_id, "n": news_id}
-        if not on:
-            self._exec("DELETE FROM favorites WHERE reader_id = :r AND news_id = :n", params)
-            return "ok"
-        if not self.pinned(reader_id, news_id):
-            return "unknown"
-        if not self.has_read(reader_id, news_id):
-            return "unread"
-        current = [f["news_id"] for f in self.favorites(reader_id)]
-        if news_id in current:
-            return "ok"
-        for old in current[:len(current) - MAX_FAVORITES + 1]:  # replace the oldest pick(s)
-            self._exec("DELETE FROM favorites WHERE reader_id = :r AND news_id = :n", {"r": reader_id, "n": old})
-        self._exec("INSERT INTO favorites VALUES (:r, :n, :at) ON CONFLICT DO NOTHING", {**params, "at": self.now()})
-        return "ok"
-
     def remove(self, reader_id: str, news_id: str) -> bool:
-        """Delete an article the reader pinned or read from their profile: it leaves Pinned, Read
-        and the Crème. False if it isn't one of theirs."""
+        """Delete an article the reader pinned or read from their profile: it leaves Pinned and
+        Read. False if it isn't one of theirs."""
         if not self.pinned(reader_id, news_id):
             return False
         params = {"r": reader_id, "n": news_id}
-        self._exec("DELETE FROM favorites WHERE reader_id = :r AND news_id = :n", params)
         self._exec("INSERT INTO removed VALUES (:r, :n, :at) ON CONFLICT DO NOTHING", {**params, "at": self.now()})
         return True
 
