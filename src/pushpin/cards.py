@@ -83,7 +83,15 @@ box-shadow:0 1px 2px rgba(0,0,0,.3);transition:transform .25s ease}
 .pm[aria-pressed=true]{color:var(--fg)}.pm[aria-pressed=true] .track{background:var(--on)}.pm[aria-pressed=true] .knob{transform:translateX(11px)}
 .papier-hint{font-size:14px;color:var(--muted);margin:0 0 14px}
 .papier{opacity:0;transition:opacity .5s ease;margin-top:4px}.papier.on{opacity:1}.papier figure{width:80%;margin:0 0 26px}.papier figure.right{margin-left:auto}
-.papier canvas{display:block;width:100%}.papier figcaption{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:center;margin-top:6px}
+.papier canvas{display:block;width:100%}.papier .dino{display:block;width:100%;padding:0;border:0;background:none;cursor:pointer;
+-webkit-tap-highlight-color:transparent;transition:transform .2s ease}.papier .dino:active{transform:scale(.98)}
+.sharecard{border:0;padding:44px 16px 16px;border-radius:18px;background:var(--bg);color:var(--fg);width:min(92vw,420px);
+box-sizing:border-box;box-shadow:0 24px 80px rgba(0,0,0,.35)}.sharecard::backdrop{background:rgba(0,0,0,.55)}
+.sharecard img{display:block;width:100%;aspect-ratio:4/5;border-radius:6px;background:#f6f1e7;box-shadow:0 2px 10px rgba(0,0,0,.12)}
+.sharecard .x{position:absolute;top:6px;right:8px;font:28px/1 -apple-system,system-ui,sans-serif;border:0;background:none;color:var(--muted);padding:4px 8px;cursor:pointer}
+.sharecard .row{margin-top:14px}.sharecard .go{background:var(--fg);color:var(--bg)}
+.sharecard .save{flex:1;text-align:center;font-weight:600;padding:12px;border-radius:10px;background:var(--btn);color:var(--fg);text-decoration:none}
+.sharecard:has(.go[hidden]) .save{background:var(--fg);color:var(--bg)}.papier figcaption{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:center;margin-top:6px}
 .profile .sub{color:var(--muted);font-size:15px;margin:0}.profile header .toggle{margin:12px 0 6px}
 .profile section{border-top:1px solid var(--line);padding:24px 0 8px}
 .profile h2{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:0 0 12px}
@@ -228,7 +236,7 @@ SPLASH_SCRIPT = """<noscript><style>.splash{display:none}.splash~.profile{opacit
   document.addEventListener("keydown", () => { if (!s.classList.contains("gone")) go(); });
   // once it's gone, a tap on the page (not on a link or control) brings the card back
   document.addEventListener("click", ev => {
-    if (!s.classList.contains("gone") || ev.target.closest("a, button, input, label, summary")) return;
+    if (!s.classList.contains("gone") || ev.target.closest("a, button, input, label, summary, dialog")) return;
     s.classList.remove("gone");
     s.focus();
   });
@@ -338,6 +346,7 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
 # Papier-mâché: the read titles as concrete poetry. Every PAPIER_PER articles read makes a dinosaur
 # out of their titles; the one still being made is filled tail-first, the rest pencilled in.
 PAPIER_PER = 5
+NEWSPAPER = "[Newspaper Name]"  # the masthead on a dinosaur's share card: a placeholder until there's a partner paper
 PAPIER_SCRIPT = """<script>(() => {
 const sw = document.getElementById('papier-on'), box = document.getElementById('papier');
 const data = document.getElementById('papier-data'), titles = JSON.parse(data.textContent), PER = %PER%;
@@ -544,17 +553,15 @@ function dino(c, w, h, flip, kind) {
   c.beginPath(); c.arc(eye[0], eye[1], 2.8, 0, 7); c.fill();
   c.restore();
 }
-function draw(canvas, words, built, flip, animate, kind) {
-  const dpr = window.devicePixelRatio || 1, w = Math.round(canvas.clientWidth), h = Math.round(w * 0.64);
-  canvas.style.height = h + 'px'; canvas.width = w * dpr; canvas.height = h * dpr;
-  const c = canvas.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
+// Lays the words out inside the dinosaur's silhouette, w x h: [char, x, y] for each glyph.
+function layout(w, h, words, flip, kind, fs) {
   const m = document.createElement('canvas'); m.width = w; m.height = h;
   const mc = m.getContext('2d'); dino(mc, w, h, flip, kind);
   const mask = mc.getImageData(0, 0, w, h).data, inside = (x, y) => mask[(y * w + x) * 4 + 3] > 127;
-  const fs = Math.max(6, Math.round(w / 60)), lh = Math.round(fs * 1.1);
-  c.font = fs + 'px Georgia, "Times New Roman", serif'; c.textBaseline = 'middle';
+  const lh = Math.round(fs * 1.1);
+  mc.font = fs + 'px Georgia, "Times New Roman", serif';
   const text = words.join(' · ') + ' · ', widths = {};
-  const width = ch => widths[ch] ??= c.measureText(ch).width;
+  const width = ch => widths[ch] ??= mc.measureText(ch).width;
   const glyphs = []; let i = 0;
   for (let y = Math.round(lh / 2); y < h; y += lh) {
     let x = 0;
@@ -571,10 +578,19 @@ function draw(canvas, words, built, flip, animate, kind) {
       x = end + 1;
     }
   }
+  return glyphs;
+}
+// built from the tail: left to right, or right to left when flipped
+const isBuilt = (g, w, built, flip) => built >= 1 || (flip ? g[1] >= w - w * built : g[1] <= w * built);
+function draw(canvas, words, built, flip, animate, kind) {
+  const dpr = window.devicePixelRatio || 1, w = Math.round(canvas.clientWidth), h = Math.round(w * 0.64);
+  canvas.style.height = h + 'px'; canvas.width = w * dpr; canvas.height = h * dpr;
+  const c = canvas.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const fs = Math.max(6, Math.round(w / 60));
+  const glyphs = layout(w, h, words, flip, kind, fs);
+  c.font = fs + 'px Georgia, "Times New Roman", serif'; c.textBaseline = 'middle';
   const css = getComputedStyle(document.documentElement);
   const ink = css.getPropertyValue('--fg').trim() || '#121212', pencil = css.getPropertyValue('--line').trim() || '#e2e2e2';
-  const reach = w * built;  // built from the tail: left to right, or right to left when flipped
-  const isBuilt = ([, x]) => built >= 1 || (flip ? x >= w - reach : x <= reach);
   const start = performance.now(), sweep = animate ? 900 : 0, fade = animate ? 280 : 0;
   const frame = now => {
     c.clearRect(0, 0, w, h);
@@ -585,7 +601,7 @@ function draw(canvas, words, built, flip, animate, kind) {
       if (t < 1) busy = true;
       if (t <= 0) continue;
       c.globalAlpha = t * t * (3 - 2 * t);  // smoothstep
-      c.fillStyle = isBuilt(g) ? ink : pencil;
+      c.fillStyle = isBuilt(g, w, built, flip) ? ink : pencil;
       c.fillText(g[0], g[1], g[2]);
     }
     c.globalAlpha = 1;
@@ -593,6 +609,79 @@ function draw(canvas, words, built, flip, animate, kind) {
   };
   requestAnimationFrame(frame);
 }
+// ---- share card ----
+// Tapping a dinosaur opens its card: a 1080 x 1350 image (4:5, what feeds crop to) on paper, with
+// the newspaper's masthead, the dinosaur made of its headlines, its name and the PushPin mark.
+const PAPER = '#f6f1e7', INK = '#1a1714', SOFT = '#7a7066', PENCIL = '#d8cfc0', RED = '#d0021b';
+const SERIF = 'Georgia, "Times New Roman", serif', SANS = '-apple-system, system-ui, "Helvetica Neue", sans-serif';
+const paper = data.dataset.paper || '';
+let logo = null;
+const pin = () => logo ??= new Promise(ok => {
+  const im = new Image(); im.onload = () => ok(im); im.onerror = () => ok(null); im.src = '/icon.png';
+});
+function spaced(c, text, x, y, track) {  // centered small caps with letter spacing
+  const chars = [...text], wd = chars.reduce((s, ch) => s + c.measureText(ch).width, 0) + track * (chars.length - 1);
+  let cx = x - wd / 2;
+  c.textAlign = 'left';
+  for (const ch of chars) { c.fillText(ch, cx, y); cx += c.measureText(ch).width + track; }
+  c.textAlign = 'center';
+}
+async function card(k, words, built, kind) {
+  const W = 1080, H = 1350, M = 84, cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const c = cv.getContext('2d');
+  c.fillStyle = PAPER; c.fillRect(0, 0, W, H);
+  c.strokeStyle = INK; c.lineWidth = 1.5; c.strokeRect(36, 36, W - 72, H - 72);   // a thin frame
+  c.lineWidth = 0.75; c.strokeRect(46, 46, W - 92, H - 92);
+  c.fillStyle = INK; c.textAlign = 'center'; c.textBaseline = 'alphabetic';
+  c.font = '700 58px ' + SERIF; c.fillText(paper, W / 2, 158);                      // the masthead
+  c.fillRect(M, 196, W - 2 * M, 3); c.fillRect(M, 205, W - 2 * M, 1);
+  c.fillStyle = SOFT; c.font = '600 22px ' + SANS;
+  spaced(c, 'PAPIER-MÂCHÉ  ·  NO. ' + (k + 1), W / 2, 252, 4.5);
+  const dw = W - 2 * M, dh = Math.round(dw * 0.64), dy = 300;                      // the dinosaur
+  const fs = Math.round(dw / 58), glyphs = layout(dw, dh, words, false, kind, fs);
+  c.font = fs + 'px ' + SERIF; c.textAlign = 'left'; c.textBaseline = 'middle';
+  for (const g of glyphs) { c.fillStyle = isBuilt(g, dw, built, false) ? INK : PENCIL; c.fillText(g[0], M + g[1], dy + g[2]); }
+  c.textAlign = 'center'; c.textBaseline = 'alphabetic';
+  c.fillStyle = INK; c.font = 'italic 400 88px ' + SERIF; c.fillText(kind.name, W / 2, dy + dh + 112);
+  c.fillStyle = SOFT; c.font = 'italic 30px ' + SERIF;
+  const n = words.length, num = ['no', 'one', 'two', 'three', 'four', 'five'][n] || n;
+  c.fillText(built >= 1 ? 'made of the ' + num + ' headlines I read' : n + ' of ' + PER + ' headlines read, and counting',
+             W / 2, dy + dh + 166);
+  c.fillStyle = RED; c.fillRect(W / 2 - 24, dy + dh + 204, 48, 2);                  // a short red rule
+  const im = await pin(), size = 52, label = 'PushPin';                             // the mark
+  c.font = '700 34px ' + SERIF;
+  const lw = c.measureText(label).width, gap = 14, total = (im ? size + gap : 0) + lw, x0 = W / 2 - total / 2, fy = H - 118;
+  if (im) c.drawImage(im, x0, fy - size + 12, size, size);
+  c.fillStyle = INK; c.textAlign = 'left'; c.fillText(label, x0 + (im ? size + gap : 0), fy);
+  return cv;
+}
+let sheet = null;
+function share(k, words, built, kind) {
+  if (!sheet) {
+    sheet = document.createElement('dialog'); sheet.className = 'sharecard';
+    sheet.innerHTML = '<button type="button" class="x" aria-label="Close">×</button><img alt="">'
+      + '<div class="row"><button type="button" class="go">Share</button><a class="save" download>Save image</a></div>';
+    sheet.querySelector('.x').addEventListener('click', () => sheet.close());
+    sheet.addEventListener('click', ev => { if (ev.target === sheet) sheet.close(); });  // the backdrop
+    document.body.append(sheet);
+  }
+  const img = sheet.querySelector('img'), go = sheet.querySelector('.go'), save = sheet.querySelector('.save');
+  img.removeAttribute('src'); img.alt = 'A ' + kind.name + ' made of headlines, from PushPin';
+  go.hidden = true; save.removeAttribute('href');
+  sheet.showModal();
+  card(k, words, built, kind).then(cv => {
+    const url = cv.toDataURL('image/png'), name = 'pushpin-' + kind.name.toLowerCase().replace(/[^a-z]+/g, '-') + '.png';
+    img.src = url; save.href = url; save.download = name;
+    // made before the tap, so Share runs inside it (iOS only shares from a tap)
+    cv.toBlob(b => {
+      const file = new File([b], name, {type: 'image/png'}), payload = {files: [file], title: kind.name};
+      go.hidden = !(navigator.canShare && navigator.canShare(payload));
+      go.onclick = () => navigator.share(payload).catch(() => null);
+    }, 'image/png');
+  });
+}
+// ---- end share card ----
 const kindOf = herd(data.dataset.seed || '');
 function build(animate) {
   box.innerHTML = '';
@@ -600,13 +689,15 @@ function build(animate) {
   for (let k = 0; k < count; k++) {
     const group = titles.slice(k * PER, k * PER + PER), built = group.length / PER;
     const fig = document.createElement('figure'), canvas = document.createElement('canvas');
-    const cap = document.createElement('figcaption');
+    const cap = document.createElement('figcaption'), tap = document.createElement('button');
     canvas.setAttribute('role', 'img');
     const kind = kindOf(k);
     canvas.setAttribute('aria-label', 'A ' + kind.name + ' made of the titles: ' + group.join('; '));
+    tap.type = 'button'; tap.className = 'dino'; tap.setAttribute('aria-label', 'Share the ' + kind.name);
+    tap.append(canvas); tap.addEventListener('click', () => share(k, group, built, kind));
     cap.textContent = (k + 1) + ' · ' + kind.name + (built >= 1 ? '' : ' · ' + group.length + ' of ' + PER + ' read');
     fig.className = k % 2 ? 'right' : 'left';  // a zig-zag down the page, each facing the middle
-    fig.append(canvas, cap); box.append(fig);
+    fig.append(tap, cap); box.append(fig);
     draw(canvas, group, built, k % 2 === 1, animate, kind);
   }
 }
@@ -650,9 +741,11 @@ def papier(read: list[dict], seed: str = "") -> tuple[str, str, str]:
     note = f"{made} dinosaur{'s' if made != 1 else ''} so far" if made else f"{PAPIER_PER - len(read)} more to your first dinosaur"
     switch = ('<button type="button" class="pm" id="papier-on" aria-pressed="false">'
               '<span class="track"><span class="knob"></span></span>Papier-mâché</button>')
-    hint = f'<p class="papier-hint" hidden>Every {PAPIER_PER} articles you read makes a new dinosaur · {note}</p>'
+    hint = (f'<p class="papier-hint" hidden>Every {PAPIER_PER} articles you read makes a new dinosaur · {note}'
+            f' · Tap one to share it</p>')
     gallery = (f'<div class="papier" id="papier" hidden></div>'
-               f'<script type="application/json" id="papier-data" data-seed="{html.escape(seed)}">{data}</script>{PAPIER_SCRIPT}')
+               f'<script type="application/json" id="papier-data" data-seed="{html.escape(seed)}" '
+               f'data-paper="{html.escape(NEWSPAPER)}">{data}</script>{PAPIER_SCRIPT}')
     return switch, hint, gallery
 
 

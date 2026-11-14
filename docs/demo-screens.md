@@ -45,6 +45,20 @@ It opens on a title card and goes to the profile when tapped.
 Every 5 reads makes a papier-mâché dinosaur out of the headlines. The full page has all five, plus
 the sixth in progress: [demo-profile-full.png](screens/demo-profile-full.png).
 
+## 4. Sharing a dinosaur
+
+Tapping a dinosaur opens its share card: a 1080 × 1350 image (4:5, the shape social feeds crop
+to) on cream paper. It has a newspaper masthead, the dinosaur made of its headlines, its name in
+italic, and the PushPin mark. **Share** opens the phone's share sheet with the image, and **Save
+image** downloads it. Browsers that can't share files only show Save image. A dinosaur that's
+still in progress is shared as it is, with the unread part in pencil ("3 of 5 headlines read, and
+counting").
+
+The masthead is a placeholder, `[Newspaper Name]`, set by `NEWSPAPER` in `src/pushpin/cards.py`.
+
+<img src="screens/share-sheet.png" width="300" alt="Share sheet on the demo profile: the Brontosaurus card with Share and Save image buttons">
+<img src="screens/share-card.png" width="300" alt="The shared image: [Newspaper Name] masthead, Papier-mâché No. 3, a Stegosaurus made of headlines, PushPin mark">
+
 ## Before the first push: the welcome page
 
 The welcome push opens `/start`, where the reader picks a volume. Nothing is pressed until they
@@ -58,3 +72,9 @@ Run a card server on a copy of the database so a screenshot doesn't record a rea
 screenshot each page with headless Chrome at `--window-size=390,844 --force-device-scale-factor=2`.
 Put each page in a 390 px-wide `<iframe>`, because headless Chrome won't lay out a window that
 narrow.
+
+The share screens need a tap, so they were driven over the DevTools protocol instead. Set the
+device metrics to 390 × 844 at 2x with `mobile: true` and the light color scheme, open `/demo`, and
+click the splash. Stub `navigator.canShare` to return true, because headless Chrome can't share
+files and would hide the button. Then click a `.papier .dino`. The card image is the dialog
+`<img>`'s data URL, saved as is.
