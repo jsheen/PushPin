@@ -49,37 +49,41 @@ under the words so the shape reads at that size. The full page has all 29:
 ## 4. Sharing a dinosaur
 
 Tapping a dinosaur opens it as text, ready to paste into any chat: 📌 on its own line, then the
-dinosaur drawn in braille characters. **Share** opens the phone's share sheet with the text, and
-**Copy** copies it. Browsers without a share sheet only show Copy.
+dinosaur drawn with its headline's letters on a 32-character grid, with plain spaces around it. The
+spaces between words are dropped inside the body so it has no holes. **Share** opens the phone's
+share sheet with the text, and **Copy** copies it. Browsers without a share sheet only show Copy.
 
-Chat apps use proportional fonts, so ordinary letters wouldn't line up into a shape. Braille
-characters, including the blank one (U+2800), are all one width, and each one holds 2 × 4 dots of
-the dinosaur's outline, 22 characters across.
+It lines up in a monospace font. In a chat's proportional font the rows shift a little, and that's
+fine.
 
-<img src="screens/share-sheet.png" width="300" alt="Share sheet on the demo profile: a Triceratops drawn in braille text, with Share and Copy buttons">
+<img src="screens/share-sheet.png" width="300" alt="Share sheet on the demo profile: a Triceratops spelled out in the letters of The Last Typewriter Repairman in Ohio, with Share and Copy buttons">
 
-What the first two demo dinosaurs share as:
-
-```
-📌
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⣾⣿⣻⣷
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣴⣿⣿⡿⠛⠁
-⠀⠀⠀⠀⠀⠀⢀⣠⣴⣶⣶⣶⣶⣶⣤⣿⣿⡿⠋
-⠀⠀⠀⣠⣶⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠁
-⠀⣠⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡟
-⠚⠛⠛⠉⠉⠉⠉⠙⣿⡿⣿⡿⢿⣿⡟⣿⡇
-⠀⠀⠀⠀⠀⠀⠀⠀⠿⠃⠿⠃⠘⠿⠃⠿⠃
-```
+What two of the demo dinosaurs share as, a Brontosaurus and a Stegosaurus:
 
 ```
 📌
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢰⣿⣿⣿⣿⣿⣿⣦
-⠀⠀⠀⠀⠀⠀⠀⠀⢀⣀⣤⣤⣤⣴⣿⣿⣿⣿⣿⣿⣿⡿
-⠀⠀⠀⠀⢀⣠⣤⣾⣿⣿⣿⣿⣿⣿⣿⣿⠉⠉⠉⠉⠉⠁
-⠀⠀⣠⣴⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠛⠆
-⠐⠛⠛⠋⠉⠉⠻⠿⢿⣿⣿⣿⣿⡇
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⣿⣿⣿⣿⡇
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠻⠿⠛⠿⠃
+                          Whatth
+                         eTideLe
+                       avesBe
+           hind·WhattheTide
+       LeavesBehind·Whatth
+    eTideLeavesBehind·Wha
+  ttheTideLeavesBehind·Wh
+attheTideLeavesBehind·Wh
+           attheT ideLea
+           vesBeh ind·Wh
+```
+
+```
+📌
+             A   C
+         i  tyL ear ns
+toL     oveItsRain·ACit yL
+earnsto LoveItsRain·ACityL
+   earnstoLoveItsRain·ACityL
+       earnstoLoveItsRain·ACityL
+           earnstoLoveIts   Rai
+           n·ACit  yLearn
 ```
 
 ## Before the first push: the welcome page
