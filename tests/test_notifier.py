@@ -606,6 +606,8 @@ def test_demo_owner_view_shows_what_the_reader_sees_and_stores_nothing(setup):
     assert 'class="pin"' in page and "The Lantern Makers of the River Festival" in page  # today's push, pinned on top
     assert 'id="public"' in page and "<h2>Pinned" in page and 'class="volume"' in page and 'id="papier-on"' in page
     assert 'Pinned <span class="n">5</span>' in page  # the pinned one on top isn't listed again
+    assert '<ul class="list today-list">' in page and '<h3 class="past-head">Past reads</h3>' in page  # today's reads, then past ones
+    assert page.index("today-list") < page.index("Past reads") < page.index("What the Tide Leaves Behind")
     assert '/remove/' not in page and '"/public"' not in page and '"/volume"' not in page  # buttons never reach the server
     assert store.reader_count() == 0 and db("SELECT COUNT(*) AS n FROM interactions")["n"].item() == 0
 

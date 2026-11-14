@@ -83,7 +83,9 @@ box-shadow:0 1px 2px rgba(0,0,0,.3);transition:transform .25s ease}
 .papier{opacity:0;transition:opacity .5s ease;margin-top:4px;display:grid;grid-template-columns:repeat(4,1fr);gap:10px 8px}
 .papier.on{opacity:1}.papier[hidden]{display:none}
 .papier-today{margin:0 0 18px}.papier-today h3{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:0 0 6px}
-.papier-today figure{margin:0 auto;width:min(100%,340px)}.papier-today canvas{display:block;width:100%}.papier figure{margin:0}
+.papier-today figure{margin:0 auto;width:min(100%,340px)}.papier-today canvas{display:block;width:100%}
+.readpanel .today-list{margin:0 0 6px}.readpanel .past-head{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:22px 0 2px}
+.readpanel .past-head[hidden]{display:none}.papier figure{margin:0}
 .papier figure canvas{display:block;width:100%}.papier .still,.papier-today .still{cursor:default}.papier .still:hover,.papier-today .still:hover{background:none}
 .papier canvas{display:block;width:100%}.papier .dino,.papier-today .dino{display:block;box-sizing:border-box;width:100%;padding:4px 2px;border:0;border-radius:8px;background:none;cursor:pointer;
 -webkit-tap-highlight-color:transparent;transition:transform .2s ease,background .2s ease}.papier .dino:hover,.papier-today .dino:hover{background:var(--btn)}
@@ -319,7 +321,15 @@ def profile_page(reader: dict, read: list[dict], owner: bool, share_url: str = "
     shown = owner or public  # Papier-mâché only uses titles the page already shows
     switch, hint, gallery, today_art = papier(read, days, today or date.today()) if shown else ("", "", "", "")
     head = f'<div class="readhead"><h2>Read <span class="n">{n}</span>{on_a_roll}</h2>{switch}</div>'
-    articles = (f'<div class="readpanel">{head}{today_art}{hint}<ul class="list">{"".join(item(a, owner) for a in read)}</ul>'
+    # with the pictures available, the list is split: today's reads under Today's read, then Past reads
+    on_day = (today or date.today()).isoformat()
+    now = [a for a in read if (a.get("read_at") or "")[:10] == on_day] if today_art else []
+    before = [a for a in read if a not in now]
+    lists = (f'<ul class="list today-list">{"".join(item(a, owner) for a in now)}</ul>' if now else "")
+    if today_art and before:
+        lists += '<h3 class="past-head">Past reads</h3>'
+    lists += f'<ul class="list">{"".join(item(a, owner) for a in before)}</ul>' if before or not today_art else ""
+    articles = (f'<div class="readpanel">{head}{today_art}{hint}{lists}'
                 f'{gallery}</div>' if read
                 else '<h2>Read</h2><p class="empty">Nothing yet. Tap Read on a push to start.</p>')
     if owner:
@@ -358,7 +368,7 @@ PAPIER_SCRIPT = """<script>(() => {
 const sw = document.getElementById('papier-on'), box = document.getElementById('papier');
 const data = document.getElementById('papier-data');
 let days = JSON.parse(data.textContent);
-const panel = sw.closest('.readpanel'), list = panel.querySelector('.list'), hint = panel.querySelector('.papier-hint');
+const panel = sw.closest('.readpanel'), lists = panel.querySelectorAll('.list, .past-head'), hint = panel.querySelector('.papier-hint');
 let on = false, built = false;
 const E = (c, x, y, rx, ry, r = 0) => { c.beginPath(); c.ellipse(x, y, rx, ry, r, 0, 7); c.fill(); };
 const R = (c, x, y, w, h, r) => { c.beginPath(); c.roundRect(x, y, w, h, r); c.fill(); };
@@ -911,7 +921,7 @@ function today() {
   const d = days.find(x => x.day === TODAY) || {day: TODAY, pinned: 0, read: 0, titles: [], abstracts: []};
   top.innerHTML = '';
   const head = document.createElement('h3');
-  head.textContent = 'Today’s read' + (d.pinned ? ' · ' + d.read + ' of ' + d.pinned : '');
+  head.textContent = 'Today’s read' + (d.pinned ? ' · ' + d.read + ' of ' + d.pinned + ' pinned today' : '');  // older pins count toward their own days
   const [fig, paint] = picture(d, 0, false, false);
   top.append(head, fig); paint();
 }
@@ -925,7 +935,7 @@ function show(animate) {
 function set(value, animate) {
   on = value; built = false;
   sw.setAttribute('aria-pressed', on);
-  box.hidden = hint.hidden = !on; list.hidden = on;
+  box.hidden = hint.hidden = !on; lists.forEach(x => { x.hidden = on; });
   box.classList.remove('on');
   show(animate);
   try { localStorage.setItem('papier', on ? '1' : '0'); } catch (e) {}

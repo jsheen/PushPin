@@ -36,6 +36,7 @@ pictures, and pushes a day. Its buttons only change the page; × takes an articl
 count and the pictures redraw.
 
 <img src="screens/demo-owner.png" width="300" alt="Demo owner view: today's pinned push with Read, the privacy switch, Pinned 2, Read 63 with the daily pictures, pushes a day">
+<img src="screens/demo-owner-list.png" width="300" alt="Demo owner view with Papier-mâché off: Today's read with the word art and today's two articles, then Past reads">
 
 Each day you pin pushes (tap them) makes one papier-mâché picture, a common symbol (snowman,
 heart, star, moon...) or a dinosaur, the same shape for everyone that day, written in the titles
@@ -48,7 +49,9 @@ outline of what it could have been under the part that was read (Oct 15 · 3/4),
 things pinned but nothing read is just the outline (Oct 23 · 0/2). Today, with nothing read yet,
 says "Start reading to make today's word art". The type is sized so the text fills the whole
 shape, thin parts included. At the top of Read, in both the list and the pictures, Today's read
-shows today's word art so far, bigger, with its count (Today's read · 2 of 3).
+shows today's word art so far, bigger, with its count (Today's read · 2 of 3 pinned today; older
+pins count toward their own days), and in the list the articles read today come first, then Past
+reads.
 
 ## 4. Sharing a picture
 
