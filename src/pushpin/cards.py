@@ -688,56 +688,61 @@ function draw(canvas, text, built, flip, animate, kind, delay) {
 // Tapping a dinosaur opens it as text to paste in any chat: the dinosaur as its headline's letters
 // on a character grid, with spaces around it and a pin in the top left corner. It lines up in a
 // monospace font; in a chat's proportional one it leans and wobbles, which is part of the charm.
-const COLS = 32;
+const COLS = 32;  // the widest that reads well in a chat bubble; wider only when nothing narrower fits
 function textDino(day, kind) {
   const w = 400, h = 256, on = silhouette(w, h, day.flip, kind);
   let x0 = w, x1 = 0, y0 = h, y1 = 0;  // crop to the shape
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (on(x, y)) {
     x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
   }
-  const grid = cols => {  // which cells of a cols-wide grid are inside the shape
-    const cw = (x1 - x0 + 1) / cols, ch = cw * 2, rows = Math.round((y1 - y0 + 1) / ch);  // a character is about twice as tall as wide
-    const cell = (c, r) => {  // inside when a good part of the cell is, so legs and spikes keep a letter
-      let n = 0, t = 0;
-      for (let y = Math.floor(y0 + r * ch); y < Math.min(y1 + 1, y0 + (r + 1) * ch); y++)
-        for (let x = Math.floor(x0 + c * cw); x < Math.min(x1 + 1, x0 + (c + 1) * cw); x++) { t++; if (on(x, y)) n++; }
-      return t && n / t > 0.3;
-    };
-    const cells = []; let count = 0;
-    for (let r = 0; r < rows; r++) { const row = []; for (let c = 0; c < cols; c++) { const v = cell(c, r); row.push(v); count += v; } cells.push(row); }
-    return {cells, count};
+  // how much of any rectangle is inside the shape, at once (a summed-area table over the crop)
+  const bw = x1 - x0 + 1, bh = y1 - y0 + 1, sat = new Float64Array((bw + 1) * (bh + 1));
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++)
+    sat[(y + 1) * (bw + 1) + x + 1] = (on(x0 + x, y0 + y) ? 1 : 0) + sat[y * (bw + 1) + x + 1] + sat[(y + 1) * (bw + 1) + x] - sat[y * (bw + 1) + x];
+  const area = (xa, ya, xb, yb) => sat[yb * (bw + 1) + xb] - sat[ya * (bw + 1) + xb] - sat[yb * (bw + 1) + xa] + sat[ya * (bw + 1) + xa];
+  // a grid cols wide, with characters `tall` times as tall as wide (about 2 in a chat), whose cells
+  // are inside the shape when more than `share` of them is
+  const grid = (cols, share, tall) => {
+    const cw = bw / cols, ch = cw * tall, rows = Math.round(bh / ch), cells = [];
+    let count = 0;
+    for (let r = 0; r < rows; r++) {
+      const row = [], ya = Math.floor(r * ch), yb = Math.min(bh, Math.floor((r + 1) * ch));
+      for (let c = 0; c < cols; c++) {
+        const xa = Math.floor(c * cw), xb = Math.min(bw, Math.floor((c + 1) * cw)), t = (xb - xa) * (yb - ya);
+        const v = t > 0 && area(xa, ya, xb, yb) / t > share;
+        row.push(v); count += v;
+      }
+      cells.push(row);
+    }
+    return {cells, count, cols};
   };
-  // Each title and abstract word at most once, no spaces inside the shape (so it has no holes),
-  // starting with the first title and ending on the period. The widest grid the words can fill,
-  // then abstract words from the middle of each abstract dropped (its first and last stay, so each
-  // still starts and ends a sentence) until the letters fill the shape exactly.
-  const parts = day.parts.map(p => ({title: p.title.replace(/\\s+/g, ''), words: p.words.map(x => x.replace(/\\s+/g, ''))}));
-  const join = () => parts.map(p => p.title + (p.words.length ? '—' + p.words.filter(Boolean).join('') : '')).join('·');
-  const pool = [];  // the words that may go: [part, word, random order]
+  // Whole sentences only, each once: every title, each followed by its whole abstract, starting with
+  // the first title and ending on the period, no spaces inside the shape (so it has no holes). The
+  // shape fits the words, not the other way round: out of hundreds of grids (width, how much of a
+  // cell must be inside, how tall a character is), one whose cells match the letters exactly, picked
+  // at random among those (seeded, so it's the same each time and differs between readers). If the
+  // words are more than the widest grid holds, whole sentences of the abstracts are left out (random
+  // ones, only as many as needed), never single words.
   const r = rng(day.seed + ':share');
-  parts.forEach((p, i) => p.words.forEach((_, j) => { if (j > 0 && j < p.words.length - 1) pool.push([i, j, r()]); }));
-  pool.sort((a, b) => a[2] - b[2]);
-  let total = join().length;
-  const least = total - pool.reduce((n, [i, j]) => n + parts[i].words[j].length, 0);
-  let g = null;
-  for (let cols = COLS; cols >= 10 && !g; cols--) { const t = grid(cols); if (t.count <= total && t.count >= least) g = t; }
-  g ??= grid(10);
-  const kept = [];
-  for (const [i, j] of pool) {
-    const n = parts[i].words[j].length;
-    if (total - n >= g.count) { parts[i].words[j] = ''; total -= n; } else kept.push([i, j, n]);
-  }
-  // a few letters over: drop kept middle words that add up to exactly that many (subset sum)
-  const over = total - g.count, best = new Map([[0, []]]);
-  for (const k of kept) for (const [sum, picks] of [...best]) {
-    const next = sum + k[2];
-    if (next <= over && !best.has(next)) best.set(next, [...picks, k]);
-  }
-  for (const [i, j, n] of best.get(over) || []) { parts[i].words[j] = ''; total -= n; }
-  let letters = join();
-  if (letters.length !== g.count) letters = letters.slice(0, g.count - 1).padEnd(g.count - 1, '·') + '.';  // no exact fit: still end on a period
+  const parts = day.parts.map(p => ({title: p.title.replace(/\\s+/g, ''),
+    sentences: p.words.join(' ').split(/(?<=[.!?]["”’)]?)\\s+(?=[A-Z0-9“"‘(])/).map(x => x.replace(/\\s+/g, '')).filter(Boolean)}));
+  const last = () => { const p = parts[parts.length - 1]; return p.sentences.length ? p.sentences[p.sentences.length - 1] : p.title; };
+  const join = () => parts.map(p => p.title + (p.sentences.length ? '—' + p.sentences.join('') : '')).join('·')
+    + (/[.!?]["”’]?$/.test(last()) ? '' : '.');
+  const grids = [];
+  for (let cols = 10; cols <= 40; cols++) for (const share of [0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5])
+    for (const tall of [1.8, 1.9, 2, 2.1, 2.2]) grids.push(grid(cols, share, tall));
+  const most = Math.max(...grids.map(t => t.count));
+  const order = parts.flatMap((p, i) => p.sentences.map(x => [i, x, r()])).sort((a, b) => a[2] - b[2]);
+  for (const [i, x] of order) { if (join().length <= most) break; parts[i].sentences = parts[i].sentences.filter(y => y !== x); }
+  const letters = join();
+  // an exact fit (a chat-friendly width first), else the closest grid with room to spare
+  const exact = grids.filter(t => t.count === letters.length), narrow = exact.filter(t => t.cols <= COLS);
+  const pick = narrow.length ? narrow : exact;
+  const g = pick.length ? pick[Math.floor(r() * pick.length)]
+    : grids.filter(t => t.count >= letters.length).sort((a, b) => a.count - b.count)[0] || grids[grids.length - 1];
   let i = 0;
-  const lines = g.cells.map(row => row.map(v => v ? letters[i++] : ' ').join('').trimEnd());
+  const lines = g.cells.map(row => row.map(v => v ? letters[i++] ?? ' ' : ' ').join('').trimEnd());
   while (lines.length && !lines[0]) lines.shift();
   while (lines.length && !lines[lines.length - 1]) lines.pop();
   // the pin in the top left corner, on the shape's top line: it takes about two columns

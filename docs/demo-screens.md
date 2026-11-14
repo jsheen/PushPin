@@ -56,20 +56,23 @@ still to fill; a finished one is just the words.
 
 Tapping a finished picture opens it as text, ready to paste into any chat: the shape spelled out
 in the letters of that day's read articles, with plain spaces around it and 📌 in the top left
-corner, on the top line. It starts at the beginning of the day's first title and ends on a period,
-and nothing repeats. Every title appears once, followed by its abstract's first and last words and
-as many of the words in between as fit: random middle words are dropped until the letters fill the
-shape exactly. The grid is as wide as the words can fill, up to 32 characters. The spaces between
+corner, on the top line. It starts at the beginning of the day's first title and ends on a period.
+Nothing repeats and nothing is cut mid-sentence: every title appears once, followed by its whole
+abstract. The shape is fitted to the words rather than the other way round. Out of about a
+thousand grids (width up to 40 characters, preferring 32 or less for a chat bubble; how much of a
+cell must be inside the shape; how tall a character is), it picks one whose cells match the
+letters exactly. A grid holds roughly 250 to 350 letters, so on a busy day some abstract sentences
+are left out (random ones, only as many as needed), but never single words. The spaces between
 words are dropped inside the shape so it has no holes. **Share** opens the phone's share sheet
 with the text, and **Copy** copies it. Browsers without a share sheet only show Copy. Unfinished
 pictures can't be shared yet.
 
-Each picture is unique. A generator seeded with the reader and the day picks which abstract words
-are kept and which way the shape faces, and each reader has their own order of shapes. Different
-days get different pictures, and so do two readers who read the same articles on the same day. A
-repeat isn't strictly impossible, but with billions of variants it's vanishingly unlikely. On the
-demo all 18 finished days are different, and two test readers with identical reads differed on
-every day.
+Each picture is unique. A generator seeded with the reader and the day picks which way the shape
+faces, which of the exactly fitting grids is used and, on a busy day, which sentences are left
+out, and each reader has their own order of shapes. Different days get different pictures, and so
+do two readers who read the same articles on the same day. A repeat isn't strictly impossible, but
+it's vanishingly unlikely. On the demo all 18 finished days are different, and two test readers
+with identical reads differed on every day.
 
 It lines up in a monospace font. In a chat's proportional font the rows shift a little, and that's
 fine.
@@ -79,35 +82,36 @@ fine.
 What the demo's first two pictures share as, the snowman and a Brontosaurus:
 
 ```
-📌        Whatthe
-         TideLeave
-          sBehind
-         —Beachcom
-          berscat
-al         ogthe         sh
-  ell    s,glassan    ddr
-     iftwoodthateverys
-        tormbringsa
-        shore.·TheQ
-         uietRetur
-        noftheNight
-      Train—Sleeperca
-      rsarerollingaga
-      inastravelerstr
-      adeforaslowerwa
-        yacrossthec
-          ountry.
+📌        Whatth
+         eTideLeav
+         esBehind
+         —B ea ch
+         combersc
+          atalog
+thes      hells,g     lass
+   andd riftwoodth atev
+       erystormbring
+        sashore.·Th
+        eQuietRetu
+         rnoftheN
+       ightTrain—Sl
+      eepercarsarero
+      llingagainastra
+      velerstradeairp
+      ortsforaslower
+       wayacrossthe
+         country.
 ```
 
 ```
-📌 ACityL
-   earnsto
-      LoveIt
-        sRain—Afteryear
-         soffloods,onecityb
-         uiltparksthatsoakups
-          tormsandturnedgrayday
-          sinto draw.
+📌 ACity
+   Learnst
+      oLove  ItsRai
+        n—Afteryearsoff
+         loods,onecitybuil
+         tparksthatsoakupsto
+         rmsandturnedgraydays
+         intoa draw.
 ```
 
 ## Before the first push: the welcome page
