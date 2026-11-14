@@ -148,9 +148,9 @@ VOLUME_LABELS = {"light": ("Light", "up to 2"), "medium": ("Medium", "up to 4"),
 
 def volume_picker(current: str | None, caps: dict | None = None, ask: bool = False) -> str:
     """Light / medium / heavy buttons, the reader's choice pressed (medium until they choose).
-    `ask`: as a question, with a hint (the welcome page); nothing pressed until they choose."""
+    `ask`: as a question, with a hint (the welcome page); nothing pressed, all three grey."""
     e = html.escape
-    current = current or (None if ask else DEFAULT_VOLUME)
+    current = None if ask else current or DEFAULT_VOLUME
     buttons = "".join(
         f'<button data-volume="{v}" aria-pressed="{"true" if v == current else "false"}">{e(VOLUME_LABELS[v][0])}'
         f'<small>{e(f"up to {caps[v]}" if caps else VOLUME_LABELS[v][1])}</small></button>' for v in VOLUMES)
@@ -164,7 +164,7 @@ def start_page(reader: dict | None, caps: dict | None = None) -> str:
     """The welcome push's page: pick how many pushes a day, before the first real one."""
     return page(f"""<h1>PushPin</h1><p class="abstract">A few NYT stories a day, picked for you. Tap a
 push to pin it, then Read it or keep it; that's how it learns what you like.</p>
-{volume_picker((reader or {}).get("volume"), caps, ask=not (reader or {}).get("volume"))}{OWNER_SCRIPT}""")
+{volume_picker(None, caps, ask=True)}{OWNER_SCRIPT}""")
 
 
 PROFILE_SCRIPT = """<script>

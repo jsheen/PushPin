@@ -216,7 +216,7 @@ def test_volume_choice_sets_the_daily_cap(setup):
         assert 'aria-pressed="true"' not in start and "You can always change it later." in start  # no default
         assert 'location.assign("/me")' in start  # choosing on the welcome page goes on to the profile
         post("/volume", b"light")
-        assert 'data-volume="light" aria-pressed="true"' in get("/start")
+        assert 'aria-pressed="true"' not in get("/start")  # the welcome page always asks afresh
         me = get("/me")  # a newcomer's profile: empty, but there
         assert "Nothing yet. Tap Read on a push to start." in me and 'data-volume="light" aria-pressed="true"' in me
     finally:
