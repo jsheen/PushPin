@@ -5,13 +5,13 @@ selective: readers opt in to a number of pushes a day (light 2, medium 4, heavy 
 day; see [notifier.md](notifier.md#push-volume)), and the model picks which articles fill those
 slots. The test compares three arms:
 
-| Arm | Pushes | Papier-mâché (dinosaurs) |
+| Arm | Pushes | Papier-mâché (daily pictures) |
 |-----|--------|--------------------------|
 | A | NYT-style: many a day, same for everyone | — |
 | B | Selective: the reader's chosen volume, model-picked | Off |
 | C | Selective: the reader's chosen volume, model-picked | On |
 
-A vs. B tests the selective strategy; B vs. C tests whether the dinosaurs add engagement on top
+A vs. B tests the selective strategy; B vs. C tests whether the pictures add engagement on top
 of it.
 
 ## Assignment
@@ -19,7 +19,7 @@ of it.
 A fixed rule assigns each reader to an arm, for example a hash of `reader_id`, so a reader always
 stays in the same arm and the assignment can be recomputed later. The arm is stored on the
 reader. In arms A and B the papier-mâché switch is hidden; in arm C it can't be turned off (or
-every change is logged), so the server knows who saw dinosaurs. `/demo` and public `/u/<slug>`
+every change is logged), so the server knows who saw the pictures. `/demo` and public `/u/<slug>`
 pages are outside the test.
 
 ## Outcomes
@@ -48,7 +48,7 @@ randomized, so readers are the unit of analysis:
   or standard errors clustered by reader.
 
 Clicks are also the model's training labels, so the arm is kept as a feature or filter when
-retraining. That way clicks the dinosaurs encourage don't bias the model.
+retraining. That way clicks the pictures encourage don't bias the model.
 
 ## Sample size
 
@@ -88,7 +88,7 @@ For PushPin, the compressed version:
 
 | Piece | Effort |
 |-------|--------|
-| Arm assignment, hiding the dinosaurs switch, arm A sending (the same top headline to everyone, every slot) | ~1 day |
+| Arm assignment, hiding the papier-mâché switch, arm A sending (the same top headline to everyone, every slot) | ~1 day |
 | Readout query and per-reader analysis (bootstrap, clustered standard errors) | ~1 day |
 | Weekly retraining job (see below) | 2–3 days |
 | Running the test | 2–4 weeks |
@@ -97,7 +97,7 @@ For PushPin, the compressed version:
 
 The plan is to retrain each week, and that is part of what arms B and C are. Two cautions:
 
-- **Leakage between arms.** A model trained on everyone's clicks lets dinosaur-driven clicks from
+- **Leakage between arms.** A model trained on everyone's clicks lets picture-driven clicks from
   arm C shape arm B's pushes. Train with the arm as a feature, or pool B and C and say so.
 - **Small data.** A few hundred pushes a week is too few to retrain XGBoost from scratch. Update
   the calibration weekly and retrain on MIND plus the logs (the `scores` table stores each

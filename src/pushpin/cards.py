@@ -82,8 +82,9 @@ box-shadow:0 1px 2px rgba(0,0,0,.3);transition:transform .25s ease}
 .pm[aria-pressed=true]{color:var(--fg)}.pm[aria-pressed=true] .track{background:var(--on)}.pm[aria-pressed=true] .knob{transform:translateX(11px)}
 .papier-hint{font-size:14px;color:var(--muted);margin:0 0 14px}
 .papier{opacity:0;transition:opacity .5s ease;margin-top:4px;display:grid;grid-template-columns:repeat(4,1fr);gap:10px 8px}
-.papier.on{opacity:1}.papier[hidden]{display:none}
-.papier canvas{display:block;width:100%}.papier .dino{display:block;width:100%;padding:4px 2px;border:0;border-radius:8px;background:none;cursor:pointer;
+.papier.on{opacity:1}.papier[hidden]{display:none}.papier figure{margin:0}
+.papier figure canvas{display:block;width:100%}.papier .still{cursor:default}.papier .still:hover{background:none}
+.papier canvas{display:block;width:100%}.papier .dino{display:block;box-sizing:border-box;width:100%;padding:4px 2px;border:0;border-radius:8px;background:none;cursor:pointer;
 -webkit-tap-highlight-color:transparent;transition:transform .2s ease,background .2s ease}.papier .dino:hover{background:var(--btn)}
 .papier .dino:active{transform:scale(.94)}
 .sharecard{border:0;padding:44px 16px 16px;border-radius:18px;background:var(--bg);color:var(--fg);width:min(92vw,420px);
@@ -92,7 +93,7 @@ box-sizing:border-box;box-shadow:0 24px 80px rgba(0,0,0,.35)}.sharecard::backdro
 font:13px/1.25 ui-monospace,Menlo,monospace;white-space:pre;overflow-x:auto}
 .sharecard .x{position:absolute;top:6px;right:8px;font:28px/1 -apple-system,system-ui,sans-serif;border:0;background:none;color:var(--muted);padding:4px 8px;cursor:pointer}
 .sharecard .row{margin-top:14px}.sharecard .go{background:var(--fg);color:var(--bg)}
-.sharecard:has(.go[hidden]) .copy{background:var(--fg);color:var(--bg)}.papier figcaption{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:center;margin-top:6px}
+.sharecard:has(.go[hidden]) .copy{background:var(--fg);color:var(--bg)}.papier figcaption{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:center;margin-top:2px}
 .profile .sub{color:var(--muted);font-size:15px;margin:0}.profile header .toggle{margin:12px 0 6px}
 .profile section{border-top:1px solid var(--line);padding:24px 0 8px}
 .profile h2{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:0 0 12px}
@@ -249,12 +250,14 @@ def pin_panel(push: dict) -> str:
 
 def profile_page(reader: dict, read: list[dict], owner: bool, share_url: str = "",
                  today: date | None = None, pinned: dict | None = None, caps: dict | None = None,
-                 unread: list[dict] | None = None) -> str:
+                 unread: list[dict] | None = None, days: list[dict] | None = None) -> str:
     """A reader's profile. `owner`: their own view (/me, or /p/<push_id> with that push's article
     `pinned` on top), with the articles pinned but not read yet (`unread`: tap one to read it),
     the delete buttons, the public toggle, pushes a day and always the list;
     otherwise the public view (/u/<slug>), where the count and list only show if they made them
-    public. Article links go straight to NYT, so a visitor isn't counted as opening or reading."""
+    public. Article links go straight to NYT, so a visitor isn't counted as opening or reading.
+    `days`: the pushes sent each day and which were read (Store.days), for the pictures; without
+    it, each day with reads counts as finished."""
     e = html.escape
     name = reader.get("name")
     public = bool(reader.get("history_public"))
@@ -280,13 +283,13 @@ def profile_page(reader: dict, read: list[dict], owner: bool, share_url: str = "
     n = len(read)
     first = date.fromisoformat(min(a["read_at"] for a in read)[:10]) if read else None
     since = f'<p class="since">Started reading on {first:%B} {first.day}, {first.year}</p>' if first else ""
-    days = streak(read, today or date.today())
-    on_a_roll = f' <span class="streak">(Daily streak <span class="n">{days}</span>)</span>' if days else ""
+    run = streak(read, today or date.today())
+    on_a_roll = f' <span class="streak">(Daily streak <span class="n">{run}</span>)</span>' if run else ""
     count = since if owner or public else ""  # the number itself is in the Read header below
     # Read n (Daily streak d), with the Papier-mâché switch on the right, then the list. A private
     # list on a public link shows only that header: no titles, so no switch and no dinosaurs.
     shown = owner or public  # Papier-mâché only uses titles the page already shows
-    switch, hint, gallery = papier(read, papier_seed(reader)) if shown else ("", "", "")
+    switch, hint, gallery = papier(read, days, papier_seed(reader)) if shown else ("", "", "")
     head = f'<div class="readhead"><h2>Read <span class="n">{n}</span>{on_a_roll}</h2>{switch}</div>'
     articles = (f'<div class="readpanel">{head}{hint}<ul class="list">{"".join(item(a, owner) for a in read)}</ul>'
                 f'{gallery}</div>' if read
@@ -311,7 +314,7 @@ def profile_page(reader: dict, read: list[dict], owner: bool, share_url: str = "
     scripts = (OWNER_SCRIPT + PROFILE_SCRIPT) if owner else ""
     intro = ""
     if not owner:  # the public link opens with a short summary
-        stats = [("Read", n), *([("Daily streak", days)] if days else [])] if public else []
+        stats = [("Read", n), *([("Daily streak", run)] if run else [])] if public else []
         intro = splash(title, stats)
     if owner:  # the pinned push first
         intro = pin_panel(pinned) if pinned else ""
@@ -320,11 +323,12 @@ def profile_page(reader: dict, read: list[dict], owner: bool, share_url: str = "
     return page(body).replace("<main>", '<main style="max-width:540px">', 1)
 
 
-# Papier-mâché: the read titles as concrete poetry. Every article read makes a very small dinosaur
-# out of its title, in a grid of them; tapping one shares it as a card.
+# Papier-mâché: the read titles as concrete poetry. Each day's pushes make one small picture (a common
+# symbol or a dinosaur) out of the headlines read that day, filled in as they're read and finished
+# when all of them are; tapping a finished one shares it as text.
 PAPIER_SCRIPT = """<script>(() => {
 const sw = document.getElementById('papier-on'), box = document.getElementById('papier');
-const data = document.getElementById('papier-data'), titles = JSON.parse(data.textContent);
+const data = document.getElementById('papier-data'), days = JSON.parse(data.textContent);
 const panel = sw.closest('.readpanel'), list = panel.querySelector('.list'), hint = panel.querySelector('.papier-hint');
 let on = false, built = false;
 const E = (c, x, y, rx, ry, r = 0) => { c.beginPath(); c.ellipse(x, y, rx, ry, r, 0, 7); c.fill(); };
@@ -439,6 +443,70 @@ const PLANS = {
     return [167, 27];
   },
 };
+// Common symbols, on the same 200 x 130 grid. Those with eyes return them; the rest return null.
+const SYMBOLS = {
+  snowman(c) {
+    E(c, 100, 103, 27, 25); E(c, 100, 63, 20, 19); E(c, 100, 30, 14, 14);
+    R(c, 89, 4, 22, 14, 2); R(c, 82, 15, 36, 4, 2);                       // hat
+    L(c, 4, 82, 60, 54, 44); L(c, 4, 118, 60, 146, 44);                    // arms
+    return [[95, 28], [105, 28]];
+  },
+  heart(c) { E(c, 74, 46, 32, 30); E(c, 126, 46, 32, 30); P(c, 44, 58, 100, 40, 156, 58, 100, 124); return null; },
+  star(c) {
+    const pts = [];
+    for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, r = i % 2 ? 25 : 64; pts.push(100 + r * Math.cos(a), 70 + r * Math.sin(a)); }
+    P(c, ...pts); return null;
+  },
+  sun(c) {
+    E(c, 100, 65, 32, 32);
+    for (let i = 0; i < 12; i++) { const a = i * Math.PI / 6; L(c, 7, 100 + 42 * Math.cos(a), 65 + 42 * Math.sin(a), 100 + 60 * Math.cos(a), 65 + 60 * Math.sin(a)); }
+    return null;
+  },
+  moon(c) {
+    E(c, 100, 65, 58, 58);
+    c.globalCompositeOperation = 'destination-out'; E(c, 128, 48, 50, 50); c.globalCompositeOperation = 'source-over';
+    return null;
+  },
+  tree(c) { P(c, 100, 2, 140, 46, 60, 46); P(c, 100, 26, 152, 80, 48, 80); P(c, 100, 56, 166, 114, 34, 114); R(c, 90, 110, 20, 18, 2); return null; },
+  umbrella(c) {
+    c.beginPath(); c.arc(100, 66, 72, Math.PI, 0); c.closePath(); c.fill();
+    L(c, 7, 100, 62, 100, 112); c.lineWidth = 7; c.beginPath(); c.arc(88, 112, 12, 0, Math.PI); c.stroke();
+    return null;
+  },
+  house(c) {
+    R(c, 130, 14, 16, 34, 1); P(c, 100, 4, 172, 62, 28, 62); R(c, 44, 58, 112, 68, 2);
+    c.globalCompositeOperation = 'destination-out'; R(c, 90, 90, 22, 36, 2); R(c, 56, 72, 22, 20, 2); R(c, 124, 72, 22, 20, 2);
+    c.globalCompositeOperation = 'source-over'; return null;
+  },
+  cat(c) {
+    E(c, 92, 92, 34, 32); E(c, 100, 48, 24, 21);
+    P(c, 79, 38, 81, 12, 97, 30); P(c, 103, 30, 119, 12, 121, 38);       // ears
+    L(c, 8, 122, 112, 160, 110, 152, 74);                                 // tail
+    E(c, 80, 122, 13, 7); E(c, 108, 122, 13, 7);
+    return [[92, 46], [108, 46]];
+  },
+  fish(c) { E(c, 90, 66, 60, 32); P(c, 138, 66, 188, 28, 188, 104); P(c, 76, 38, 98, 16, 114, 40); return [62, 58]; },
+  apple(c) { E(c, 84, 78, 40, 44); E(c, 116, 78, 40, 44); L(c, 5, 100, 38, 106, 14); E(c, 124, 20, 17, 7, -0.5); return null; },
+  cloud(c) { E(c, 68, 82, 34, 28); E(c, 104, 62, 40, 36); E(c, 140, 80, 34, 30); R(c, 36, 80, 136, 32, 16); return null; },
+  bolt(c) { P(c, 120, 2, 50, 74, 94, 74, 70, 128, 152, 50, 106, 50, 134, 2); return null; },
+  cup(c) {
+    R(c, 50, 50, 82, 66, 14); R(c, 34, 114, 118, 9, 4);
+    c.lineWidth = 11; c.beginPath(); c.arc(132, 80, 17, -Math.PI / 2, Math.PI / 2); c.stroke();
+    L(c, 5, 76, 42, 88, 28, 78, 10); L(c, 5, 104, 42, 116, 28, 106, 10);  // steam
+    return null;
+  },
+  flower(c) {
+    for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; E(c, 100 + 24 * Math.cos(a), 44 + 24 * Math.sin(a), 17, 12, a); }
+    L(c, 6, 100, 64, 100, 128); E(c, 118, 100, 17, 7, -0.5); E(c, 82, 112, 15, 6, 0.5);
+    return null;
+  },
+  note(c) { E(c, 72, 106, 24, 17, -0.35); L(c, 8, 92, 102, 92, 10); L(c, 8, 92, 12, 134, 38, 126, 76); return null; },
+  balloon(c) { E(c, 100, 52, 40, 48); P(c, 93, 98, 107, 98, 100, 108); L(c, 3, 100, 106, 86, 118, 104, 128); return null; },
+};
+const SYMBOL_NAMES = {snowman: 'Snowman', heart: 'Heart', star: 'Star', sun: 'Sun', moon: 'Moon', tree: 'Pine tree',
+  umbrella: 'Umbrella', house: 'House', cat: 'Cat', fish: 'Fish', apple: 'Apple', cloud: 'Cloud', bolt: 'Lightning bolt',
+  cup: 'Coffee cup', flower: 'Flower', note: 'Music note', balloon: 'Balloon'};
+Object.assign(PLANS, SYMBOLS);
 const SPECIES = {  // name: [plan, knobs], by family; the first of the first six families open the order
   sauropod: [['Brontosaurus', {}], ['Apatosaurus', {bulk: 1.05, neck: 0.95}], ['Diplodocus', {bulk: 0.9, neck: 1.1, head: 0.85}],
     ['Brachiosaurus', {upright: 1, neck: 1.2, tail: 0.6}], ['Camarasaurus', {neck: 0.8, tail: 0.7, head: 1.1}],
@@ -484,12 +552,19 @@ const SPECIES = {  // name: [plan, knobs], by family; the first of the first six
     ['Sauropelta', {club: 0, shoulder: 1}], ['Edmontonia', {club: 0, shoulder: 1.2}], ['Borealopelta', {club: 0, bumps: 1.2, shoulder: 0.8}],
     ['Scelidosaurus', {club: 0, bumps: 0.7}], ['Pinacosaurus', {bumps: 0.9}]],
 };
-// the order they're made in: the original six first, then the families take turns
+// the order they're made in: a symbol, then a dinosaur, taking turns (the snowman first; the
+// dinosaur families take turns among themselves)
 const KINDS = (() => {
   const fams = ['sauropod', 'theropod', 'stegosaur', 'ceratopsian', 'hadrosaur', 'ankylosaur'];
   const queues = fams.map(f => SPECIES[f].map(([name, knobs]) => ({name, plan: f, knobs})));
+  const dinos = [];
+  while (queues.some(q => q.length)) for (const q of queues) if (q.length) dinos.push(q.shift());
+  const symbols = Object.keys(SYMBOLS).map(k => ({name: SYMBOL_NAMES[k], plan: k, knobs: {}}));
   const out = [];
-  while (queues.some(q => q.length)) for (const q of queues) if (q.length) out.push(q.shift());
+  for (let i = 0; i < Math.max(symbols.length, dinos.length); i++) {
+    if (i < symbols.length) out.push(symbols[i]);
+    if (i < dinos.length) out.push(dinos[i]);
+  }
   return out;
 })();
 // Each reader's own herd: a seed from the reader shuffles the species into their own order and
@@ -511,7 +586,7 @@ function herd(seed) {
   for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
   return k => {
     const kind = order[k % order.length], rk = rng(seed + ':' + k), knobs = {...kind.knobs};
-    for (const key of JITTER[kind.plan]) knobs[key] = (knobs[key] ?? 1) * (0.92 + 0.16 * rk());
+    for (const key of JITTER[kind.plan] || []) knobs[key] = (knobs[key] ?? 1) * (0.92 + 0.16 * rk());
     return {...kind, knobs};
   };
 }
@@ -523,9 +598,9 @@ function dino(c, w, h, flip, kind) {
   if (flip) { c.translate(200 * s, 0); c.scale(-1, 1); }
   c.scale(s, s);
   c.fillStyle = c.strokeStyle = '#000';
-  const eye = PLANS[kind.plan](c, kind.knobs);
+  const eye = PLANS[kind.plan](c, kind.knobs);  // [x, y], a list of them, or null
   c.globalCompositeOperation = 'destination-out';
-  c.beginPath(); c.arc(eye[0], eye[1], 2.8, 0, 7); c.fill();
+  for (const [x, y] of eye ? (Array.isArray(eye[0]) ? eye : [eye]) : []) { c.beginPath(); c.arc(x, y, 2.8, 0, 7); c.fill(); }
   c.restore();
 }
 // Lays the words out inside the dinosaur's silhouette, w x h: [char, x, y] for each glyph.
@@ -555,7 +630,7 @@ function layout(w, h, words, flip, kind, fs) {
   }
   return glyphs;
 }
-function draw(canvas, words, flip, animate, kind, delay) {
+function draw(canvas, words, built, flip, animate, kind, delay) {
   const dpr = window.devicePixelRatio || 1; let w = Math.round(canvas.clientWidth), h = Math.round(w * 0.64);
   canvas.style.height = h + 'px'; canvas.width = w * dpr; canvas.height = h * dpr;
   const c = canvas.getContext('2d');
@@ -569,7 +644,9 @@ function draw(canvas, words, flip, animate, kind, delay) {
   const gc = ghost.getContext('2d'); dino(gc, w, h, flip, kind);
   c.font = fs + 'px Georgia, "Times New Roman", serif'; c.textBaseline = 'middle';
   const css = getComputedStyle(document.documentElement);
-  const ink = css.getPropertyValue('--fg').trim() || '#121212';
+  const ink = css.getPropertyValue('--fg').trim() || '#121212', pencil = css.getPropertyValue('--line').trim() || '#e2e2e2';
+  // filled in from one side as the day's pushes are read: all of them, and it's finished
+  const isBuilt = g => built >= 1 || (flip ? g[1] >= w * (1 - built) : g[1] <= w * built);
   const start = performance.now() + delay, sweep = animate ? 600 : 0, fade = animate ? 240 : 0;
   c.fillStyle = gc.fillStyle = ink; gc.globalCompositeOperation = 'source-in'; gc.fillRect(0, 0, w, h);
   const frame = now => {
@@ -584,6 +661,7 @@ function draw(canvas, words, flip, animate, kind, delay) {
       if (t < 1) busy = true;
       if (t <= 0) continue;
       c.globalAlpha = t * t * (3 - 2 * t);  // smoothstep
+      c.fillStyle = isBuilt(g) ? ink : pencil;
       c.fillText(g[0], g[1], g[2]);
     }
     c.globalAlpha = 1;
@@ -596,7 +674,7 @@ function draw(canvas, words, flip, animate, kind, delay) {
 // on a character grid, with spaces around it and a pin in the top left corner. It lines up in a
 // monospace font; in a chat's proportional one it leans and wobbles, which is part of the charm.
 const COLS = 32;
-function textDino(title, kind) {
+function textDino(titles, kind) {
   const w = 400, h = 256, m = document.createElement('canvas'); m.width = w; m.height = h;
   const mc = m.getContext('2d'); dino(mc, w, h, false, kind);
   const a = mc.getImageData(0, 0, w, h).data, on = (x, y) => a[(y * w + x) * 4 + 3] > 127;
@@ -611,7 +689,7 @@ function textDino(title, kind) {
       for (let x = Math.floor(x0 + c * cw); x < Math.min(x1 + 1, x0 + (c + 1) * cw); x++) { t++; if (on(x, y)) n++; }
     return t && n / t > 0.3;
   };
-  const letters = title.replace(/\\s+/g, '') + '·';  // no spaces inside the body, so it has no holes
+  const letters = titles.join('·').replace(/\\s+/g, '') + '·';  // no spaces inside the body, so it has no holes
   const lines = []; let i = 0;
   for (let r = 0; r < rows; r++) {
     let line = '';
@@ -625,7 +703,7 @@ function textDino(title, kind) {
   return lines.join('\\n');
 }
 let sheet = null;
-function share(title, kind) {
+function share(titles, kind) {
   if (!sheet) {
     sheet = document.createElement('dialog'); sheet.className = 'sharecard';
     sheet.innerHTML = '<button type="button" class="x" aria-label="Close">×</button><pre></pre>'
@@ -634,7 +712,7 @@ function share(title, kind) {
     sheet.addEventListener('click', ev => { if (ev.target === sheet) sheet.close(); });  // the backdrop
     document.body.append(sheet);
   }
-  const text = textDino(title, kind), pre = sheet.querySelector('pre'), go = sheet.querySelector('.go'), copy = sheet.querySelector('.copy');
+  const text = textDino(titles, kind), pre = sheet.querySelector('pre'), go = sheet.querySelector('.go'), copy = sheet.querySelector('.copy');
   pre.textContent = text; pre.setAttribute('aria-label', 'A ' + kind.name + ' drawn in text');
   go.hidden = !navigator.share;
   go.onclick = () => navigator.share({text}).catch(() => null);
@@ -644,17 +722,30 @@ function share(title, kind) {
 }
 // ---- end share card ----
 const kindOf = herd(data.dataset.seed || '');
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 function build(animate) {
   box.innerHTML = '';
-  titles.forEach((title, k) => {  // one per article, oldest first
-    const canvas = document.createElement('canvas'), tap = document.createElement('button'), kind = kindOf(k);
+  days.forEach((d, k) => {  // one picture a day, oldest first, made of that day's read headlines
+    const kind = kindOf(k), done = d.sent > 0 && d.titles.length >= d.sent, built = d.sent ? Math.min(1, d.titles.length / d.sent) : 0;
+    const when = MONTHS[+d.day.slice(5, 7) - 1] + ' ' + +d.day.slice(8, 10);
+    const fig = document.createElement('figure'), canvas = document.createElement('canvas'), cap = document.createElement('figcaption');
     canvas.setAttribute('role', 'img');
-    canvas.setAttribute('aria-label', 'A ' + kind.name + ' made of the title: ' + title);
-    tap.type = 'button'; tap.className = 'dino'; tap.title = kind.name + ' · ' + title;
-    tap.setAttribute('aria-label', 'Share the ' + kind.name + ': ' + title);
-    tap.append(canvas); tap.addEventListener('click', () => share(title, kind));
-    box.append(tap);
-    draw(canvas, [title], k % 2 === 1, animate, kind, animate ? Math.min(k, 40) * 45 : 0);  // they hatch one after another
+    canvas.setAttribute('aria-label', 'A ' + kind.name + ' for ' + when + ', ' + d.titles.length + ' of ' + d.sent + ' pushes read'
+                        + (d.titles.length ? ': ' + d.titles.join('; ') : ''));
+    cap.textContent = when + (done ? '' : ' · ' + d.titles.length + '/' + d.sent);
+    if (done) {  // finished: tap to share it
+      const tap = document.createElement('button');
+      tap.type = 'button'; tap.className = 'dino'; tap.title = kind.name + ' · ' + when;
+      tap.setAttribute('aria-label', 'Share the ' + kind.name + ' for ' + when);
+      tap.append(canvas); tap.addEventListener('click', () => share(d.titles, kind));
+      fig.append(tap);
+    } else {
+      const still = document.createElement('div');  // not finished: nothing to share yet
+      still.className = 'dino still'; still.title = 'Read the rest of ' + when + '’s pushes to finish it';
+      still.append(canvas); fig.append(still);
+    }
+    fig.append(cap); box.append(fig);
+    draw(canvas, d.titles.length ? d.titles : ['·'], built, k % 2 === 1, animate, kind, animate ? Math.min(k, 40) * 45 : 0);
   });
 }
 function show(animate) {
@@ -685,26 +776,37 @@ def papier_seed(reader: dict) -> str:
     return hashlib.sha256(f"papier:{rid}".encode()).hexdigest()[:16] if rid else ""
 
 
-def papier(read: list[dict], seed: str = "") -> tuple[str, str, str]:
+def papier_days(read: list[dict]) -> list[dict]:
+    """Days from the reads alone, when the pushes sent aren't known: every day with reads, finished."""
+    out: dict[str, dict] = {}
+    for a in sorted(read, key=lambda a: a["read_at"] or ""):
+        d = out.setdefault(a["read_at"][:10], {"day": a["read_at"][:10], "sent": 0, "read": 0, "titles": []})
+        d["sent"] += 1
+        d["read"] += 1
+        d["titles"].append(a["title"] or "Untitled")
+    return list(out.values())
+
+
+def papier(read: list[dict], days: list[dict] | None = None, seed: str = "") -> tuple[str, str, str]:
     """Papier-mâché for a Read list the page shows: the switch for the panel's header, the
-    instructions (shown when it's on), and the dinosaurs' container with their titles and script.
-    `seed` picks the reader's own herd (see papier_seed)."""
+    instructions (shown when it's on), and the pictures' container with their days and script.
+    One picture a day, made of that day's read headlines and filled in as they're read: reading
+    all of the day's pushes finishes it. `seed` picks the reader's own order (see papier_seed)."""
     if not read:
         return "", "", ""
-    titles = [a["title"] or "Untitled" for a in sorted(read, key=lambda a: a["read_at"] or "")]  # oldest first
-    data = json.dumps(titles).replace("</", "<\\/")
-    made = len(read)
-    note = f"{made} dinosaur{'s' if made != 1 else ''} so far"
+    days = days if days is not None else papier_days(read)
+    data = json.dumps([{"day": d["day"], "sent": d["sent"], "titles": d["titles"]} for d in days]).replace("</", "<\\/")
+    done = sum(1 for d in days if d["sent"] and d["read"] >= d["sent"])
     switch = ('<button type="button" class="pm" id="papier-on" aria-pressed="false">'
               '<span class="track"><span class="knob"></span></span>Papier-mâché</button>')
-    hint = (f'<p class="papier-hint" hidden>Every article you read makes a new dinosaur · {note}'
-            f' · Tap one to share it</p>')
+    hint = (f'<p class="papier-hint" hidden>Each day’s pushes make a picture: read them all to finish it · '
+            f'{done} finished · Tap a finished one to share it</p>')
     gallery = (f'<div class="papier" id="papier" hidden></div>'
                f'<script type="application/json" id="papier-data" data-seed="{html.escape(seed)}">{data}</script>{PAPIER_SCRIPT}')
     return switch, hint, gallery
 
 
-# /demo: a public profile with made-up reads, to show a herd of dinosaurs (29, one per read). Nothing is stored: real
+# /demo: a public profile with made-up pushes and reads, to show the daily pictures (most finished, a few not). Nothing is stored: real
 # opens and reads are the model's labels, so fake ones must never reach the database.
 DEMO_TITLES = [
     "The Quiet Return of the Night Train", "What the Tide Leaves Behind", "A City Learns to Love Its Rain",
@@ -726,7 +828,15 @@ def demo_page() -> str:
             24, 24, 25, 26, 26, 27, 28, 28, 29, 29]
     read = [{"news_id": f"DEMO{i}", "title": t, "url": "https://www.nytimes.com", "section": None,
              "read_at": f"2026-10-{d:02d}T{9 + i % 2 * 9}:00"} for i, (t, d) in enumerate(zip(DEMO_TITLES, days, strict=True))]
-    return profile_page({"name": "Justin", "history_public": 1}, read, owner=False, today=date(2026, 10, 29))
+    by_day = {d["day"]: d for d in papier_days(read)}
+    for day, missed in DEMO_UNREAD.items():  # pushes sent but not read: those days aren't finished
+        by_day.setdefault(day, {"day": day, "sent": 0, "read": 0, "titles": []})["sent"] += missed
+    return profile_page({"name": "Justin", "history_public": 1}, read, owner=False, today=date(2026, 10, 29),
+                        days=[by_day[k] for k in sorted(by_day)])
+
+
+# demo pushes left unread, by day: two days with some read, one with none, and today so far
+DEMO_UNREAD = {"2026-10-09": 1, "2026-10-14": 2, "2026-10-16": 1, "2026-10-29": 1}
 
 
 PIN_MARK = '<img class="pinmark" src="/icon.png" alt="PushPin">'
@@ -751,7 +861,7 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
       GET  /u/<slug>           a reader's public profile
       GET  /stats              {"readers": n} for autoscaling (KEDA), only with header
                                X-Api-Key = $CARDS_STATS_TOKEN; 404 when that isn't set
-      GET  /demo               a public profile with 29 made-up reads (29 dinosaurs, one each); stores nothing
+      GET  /demo               a public profile with 29 made-up reads over 22 days of pictures; stores nothing
       GET  /health             liveness
 
     The iOS app's JSON API, on when PUSHPIN_SESSION_SECRET and PUSHPIN_APPLE_BUNDLE_ID are set.
@@ -806,7 +916,7 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
             share = f"{proto}://{self.headers.get('host') or 'localhost'}/u/{store.slug(reader_id)}"
             return profile_page(store.reader(reader_id), store.articles_read(reader_id),
                                 owner=True, share_url=share, pinned=pinned, caps=caps, today=date.fromisoformat(store.now()[:10]),
-                                unread=store.pinned_unread(reader_id))
+                                unread=store.pinned_unread(reader_id), days=store.days(reader_id))
 
         def _base(self) -> str:
             return f"{self.headers.get('x-forwarded-proto') or 'http'}://{self.headers.get('host') or 'localhost'}"
@@ -956,7 +1066,7 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
                 self._send(200, self._own_profile(reader_id))
             elif route == "u" and (other := store.reader_by_slug(push_id)) is not None:
                 rid = other["reader_id"]
-                self._send(200, profile_page(other, store.articles_read(rid), owner=False,
+                self._send(200, profile_page(other, store.articles_read(rid), owner=False, days=store.days(rid),
                                              today=date.fromisoformat(store.now()[:10])))
             elif route == "p" and (push := store.push(push_id)) is not None:
                 reader_id, new = self._reader_id(), None

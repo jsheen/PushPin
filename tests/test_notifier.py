@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import urllib.error
@@ -525,19 +526,49 @@ def test_papier_mache_only_with_a_visible_read_list():
             for i in range(7)]
     reader = {"name": "Jo", "history_public": 0}
     own = cards.profile_page(reader, read, owner=True)
-    assert 'id="papier-on"' in own and "Every article you read makes a new dinosaur · 7 dinosaurs so far" in own
+    assert 'id="papier-on"' in own and "Each day’s pushes make a picture: read them all to finish it · 7 finished" in own
     head = re.search(r'<div class="readhead">.*?</div>', own).group(0)
     assert 'id="papier-on"' in head and 'class="papier-hint" hidden' in own  # switch in the Read header; hint until on
-    assert "Tap one to share it" in own and "navigator.share({text})" in own  # each dinosaur shares as text
+    assert "Tap a finished one to share it" in own and "navigator.share({text})" in own  # a finished one shares as text
+    assert "snowman(c)" in own and "Lightning bolt" in own  # common symbols, not just dinosaurs
     panel = own[own.index('<div class="readpanel">'):]
     assert panel.index('class="list"') < panel.index('id="papier"')  # one panel, no fold
     assert "<details" not in own and 'class="plus"' not in own
     data = re.search(r'id="papier-data"[^>]*>(.*?)</script>', own).group(1)
-    assert data.startswith('["T0<\\/script>"') and "</script>\"" not in data  # oldest first, can't close the tag
+    assert data.startswith('[{"day": "2026-11-10", "sent": 1, "titles": ["T0<\\/script>"]}') and "</script>\"" not in data  # oldest first, can't close the tag
     assert 'id="papier-on"' not in cards.profile_page(reader, read, owner=False)  # private list: no dinosaurs
     assert 'id="papier-on"' in cards.profile_page({**reader, "history_public": 1}, read, owner=False)
     assert 'id="papier-on"' not in cards.profile_page(reader, [], owner=True)
-    assert "makes a new dinosaur · 1 dinosaur so far" in cards.profile_page(reader, read[:1], owner=True)
+    assert "read them all to finish it · 1 finished" in cards.profile_page(reader, read[:1], owner=True)
+    half = [{"day": "2026-11-10", "sent": 2, "read": 1, "titles": ["T0"]}]  # one of two pushes read: not finished
+    assert "· 0 finished ·" in cards.profile_page(reader, read[:1], owner=True, days=half)
+
+
+def test_a_days_picture_is_finished_when_all_its_pushes_are_read(setup):
+    n, store, sent, _db = setup
+    n.run_slot(pd.Timestamp("2026-11-12 12:00"))
+    n.run_slot(pd.Timestamp("2026-11-12 17:00"))
+    first, second = (a[4].rsplit("/", 1)[1] for a in sent)
+    server = cards.serve_cards(store, 0)
+    get, post = phone(f"http://127.0.0.1:{server.server_address[1]}")
+    try:
+        get(f"/p/{first}")
+        post(f"/read/{first}")
+        rid = store._rows("SELECT reader_id FROM readers")[0]["reader_id"]
+        title = store.push(first)["title"]
+        day = store._rows("SELECT sent_at FROM scores WHERE push_id = :p", p=first)[0]["sent_at"][:10]  # when it was sent
+        assert store.days(rid) == [{"day": day, "sent": 2, "read": 1, "titles": [title]}]
+        assert "· 0 finished ·" in get("/me")  # one of the day's two pushes read
+        post(f"/read/{second}")
+        assert store.days(rid)[0]["read"] == 2 and "· 1 finished ·" in get("/me")
+        post(f"/remove/{store.push(second)['news_id']}")  # deleted: still read, but its title isn't shown
+        assert store.days(rid) == [{"day": day, "sent": 2, "read": 2, "titles": [title]}]
+        assert store.days(None) == []
+        stray = store.new_reader(None)  # no first push time: only what they tapped counts
+        store.interact(first, stray, "open")
+        assert [(d["sent"], d["read"]) for d in store.days(stray)] == [(1, 0)]
+    finally:
+        server.shutdown()
 
 
 def test_demo_page_shows_dinosaurs_and_stores_nothing(setup):
@@ -547,7 +578,9 @@ def test_demo_page_shows_dinosaurs_and_stores_nothing(setup):
         page = urllib.request.urlopen(f"http://127.0.0.1:{server.server_address[1]}/demo").read().decode()
     finally:
         server.shutdown()
-    assert 'id="papier-on"' in page and "29 dinosaurs so far" in page and "Justin’s" in page and "Crème" not in page
+    assert 'id="papier-on"' in page and "18 finished" in page and "Justin’s" in page and "Crème" not in page
+    data = json.loads(re.search(r'id="papier-data"[^>]*>(.*?)</script>', page).group(1))
+    assert len(data) == 22 and {"day": "2026-10-14", "sent": 2, "titles": []} in data  # a day with nothing read
     assert store.reader_count() == 0 and db("SELECT COUNT(*) AS n FROM interactions")["n"].item() == 0
 
 

@@ -23,11 +23,12 @@ learns from) and shows the reader's profile with the article pinned on top:
   - the privacy line, the public toggle, and an optional first name;
   - **Pinned**: pushes they tapped but haven't read yet. These are always private. Tapping a
     headline reads it and moves it to Read; × deletes it.
-  - **Read**: the count and daily streak, shown as papier-mâché dinosaurs: a very small one for
-    every article read, made of its headline.
+  - **Read**: the count and daily streak, shown as papier-mâché pictures: one small picture a
+    day, made of that day's read headlines and finished when all of the day's pushes are read.
   - how many pushes a day they want.
 
-This sample reader has pinned 9 recent pushes and read 6 of them.
+This sample reader has pinned 9 recent pushes and read 6 of the 10 they opened that day, so the
+day's picture is 6/10 of the way there.
 The data was set up on a copy of the database, not on a real reader.
 
 <img src="screens/push-tapped.png" width="300" alt="Pinning a push: the pinned article with a Read button, then the reader's profile">
@@ -38,48 +39,72 @@ The data was set up on a copy of the database, not on a real reader.
 It opens on a title card and goes to the profile when tapped.
 
 <img src="screens/demo-splash.png" width="300" alt="Demo title card: Justin's, Read 29, Daily streak 6, Tap to continue">
-<img src="screens/demo-profile.png" width="300" alt="Demo profile: Read 29, a grid of very small papier-mâché dinosaurs, one per headline">
+<img src="screens/demo-profile.png" width="300" alt="Demo profile: Read 29, a grid of small papier-mâché pictures, one a day: a snowman, dinosaurs, a heart, a star, a moon, a tree and more, a few unfinished">
 
-Every read makes a very small papier-mâché dinosaur out of its headline, with a faint silhouette
-under the words so the shape reads at that size. All 29 fit on one screen.
+Each day's pushes make one small papier-mâché picture out of the headlines read that day. The
+pictures are common symbols (snowman, heart, star, sun, moon, pine tree, umbrella, house, cat,
+fish, apple, cloud, lightning bolt, coffee cup, flower, music note, balloon), taking turns with the
+dinosaurs. A picture fills in from one side as the day's pushes are read and is finished only when
+all of them are. An unfinished one is pencilled in, with how many were read under its date (Oct 9
+· 2/3); a day with nothing read is a blank outline (Oct 14 · 0/2). The demo has 22 days, 18 of them
+finished, and they all fit on one screen. A faint silhouette sits under the words so each shape
+reads at this size.
 
-## 4. Sharing a dinosaur
+## 4. Sharing a picture
 
-Tapping a dinosaur opens it as text, ready to paste into any chat: the dinosaur drawn with its
-headline's letters on a 32-character grid, with plain spaces around it and 📌 in the top left
-corner, on the dinosaur's top line. The spaces between words are dropped inside the body so it has
-no holes. **Share** opens the phone's share sheet with the text, and **Copy** copies it. Browsers
-without a share sheet only show Copy.
+Tapping a finished picture opens it as text, ready to paste into any chat: the shape drawn with the
+day's headlines' letters on a 32-character grid, with plain spaces around it and 📌 in the top left
+corner, on the top line. The spaces between words are dropped inside the shape so it has no holes.
+**Share** opens the phone's share sheet with the text, and **Copy** copies it. Browsers without a
+share sheet only show Copy. Unfinished pictures can't be shared yet.
 
 It lines up in a monospace font. In a chat's proportional font the rows shift a little, and that's
 fine.
 
-<img src="screens/share-sheet.png" width="300" alt="Share sheet on the demo profile: a Triceratops spelled out in the letters of The Last Typewriter Repairman in Ohio, with Share and Copy buttons">
+<img src="screens/share-sheet.png" width="300" alt="Share sheet on the demo profile: a snowman spelled out in the letters of the day's headlines, with Share and Copy buttons">
 
-What two of the demo dinosaurs share as, a Brontosaurus and a Stegosaurus:
-
-```
-📌                        Whatth
-                         eTideLe
-                       avesBe
-           hind·WhattheTide
-       LeavesBehind·Whatth
-    eTideLeavesBehind·Wha
-  ttheTideLeavesBehind·Wh
-attheTideLeavesBehind·Wh
-           attheT ideLea
-           vesBeh ind·Wh
-```
+What two of the demo pictures share as, the snowman and the heart:
 
 ```
-📌           A   C
-         i  tyL ear ns
-toL     oveItsRain·ACit yL
-earnsto LoveItsRain·ACityL
-   earnstoLoveItsRain·ACityL
-       earnstoLoveItsRain·ACityL
-           earnstoLoveIts   Rai
-           n·ACit  yLearn
+📌          WhattheT
+            ideLeave
+          sBehind·TheQ
+           uietReturn
+           oftheNight
+            Train·Wh
+at           theTid           eL
+ eave      sBehind·Th      eQui
+     etReturnoftheNigh tTra
+        in·WhattheTideLe
+         avesBehind·The
+          QuietReturno
+           ftheNightT
+         rain·WhattheTi
+        deLeavesBehind·T
+       heQuietReturnofthe
+       NightTrain·Whatthe
+       TideLeavesBehind·T
+        heQuietReturnoft
+         heNightTrain·W
+           hattheTid
+```
+
+```
+📌  TheLastTyp    ewriterRep
+  airmaninOhio·InsidetheRaceto
+MaptheOceanFloor·TheLastTypewrit
+erRepairmaninOhio·InsidetheRacet
+oMaptheOceanFloor·TheLastTypewri
+terRepairmaninOhio·InsidetheRace
+ toMaptheOceanFloor·TheLastType
+   writerRepairmaninOhio·Insi
+     detheRacetoMaptheOcean
+      Floor·TheLastTypewri
+        terRepairmaninOh
+          io·Insidethe
+           RacetoMapt
+             heOcea
+               nF
 ```
 
 ## Before the first push: the welcome page
@@ -101,5 +126,5 @@ metrics to 390 × 844 at 2x with `mobile: true` and the dark color scheme, open 
 splash. Stub `navigator.share`, because headless Chrome doesn't have it and would hide the button.
 Then click a `.papier .dino`. The shared text is the dialog `<pre>`'s text.
 
-The other screenshots that show dinosaurs (`push-tapped.png` and `demo-profile.png`) were taken
+The other screenshots that show the pictures (`push-tapped.png` and `demo-profile.png`) were taken
 the same way, in dark mode. `push-tapped.png` uses the page's full height as the window.

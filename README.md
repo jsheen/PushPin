@@ -36,22 +36,23 @@ Details: [docs/model.md](docs/model.md) and [docs/analysis.md](docs/analysis.md)
 
 The notifier scores live NYT RSS articles and pushes to phones through [ntfy](https://ntfy.sh)
 or the iOS app. Readers choose a volume: light (2 a day: morning, night), medium (4) or heavy (8).
-Tapping a push opens the reader's profile. Every article they read becomes a very small
-papier-mâché dinosaur made of its headline, and tapping one turns it into text to share in any
-chat: the dinosaur spelled out in its headline's letters, with 📌 in the top left corner. Every
+Tapping a push opens the reader's profile. Each day's pushes make a small papier-mâché picture
+(a snowman, a heart, a star, a dinosaur...) out of the headlines read, and it's finished only when
+the reader has read all of that day's pushes. Tapping a finished one turns it into text to share in
+any chat, spelled out in the headlines' letters with 📌 in the top left corner. Every
 push and tap is logged as labeled data that MIND lacks. The plan is to retrain the model each week
 on these logs. It can also deploy to GCP for about
 $1/month.
 
 ## Proposed A/B test
 
-| Arm | Pushes | Dinosaurs |
+| Arm | Pushes | Papier-mâché |
 |-----|--------|-----------|
 | A | NYT-style: many a day, same for everyone | — |
 | B | Selective: reader-chosen volume, model-picked | Off |
 | C | Selective: reader-chosen volume, model-picked | On |
 
-A vs. B tests selective pushing; B vs. C tests the dinosaurs. Each reader is assigned to an arm
+A vs. B tests selective pushing; B vs. C tests the papier-mâché pictures. Each reader is assigned to an arm
 by a fixed rule (a hash of their id), and the outcomes are clicks per reader-day, return rate and
 opt-outs. Per-push CTR alone would favor sending less. Pushes from the same reader aren't
 independent, so arms are compared on per-reader numbers. Design: [docs/ab-test.md](docs/ab-test.md).
@@ -79,7 +80,7 @@ docker compose up -d scorer notifier cards tunnel   # real pushes (NTFY_TOPIC in
 | [ab-test.md](docs/ab-test.md) | The proposed A/B test and its analysis |
 | [deploy-gcp.md](docs/deploy-gcp.md), [production.md](docs/production.md) | Cloud deployment |
 | [ios-app.md](docs/ios-app.md), [live-scoring.md](docs/live-scoring.md) | iOS backend; request-time scoring |
-| [demo-screens.md](docs/demo-screens.md) | What the phone shows: push, tapped push, demo profile, sharing a dinosaur |
+| [demo-screens.md](docs/demo-screens.md) | What the phone shows: push, tapped push, demo profile, sharing a picture |
 
 ## Status and contact
 
