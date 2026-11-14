@@ -42,13 +42,13 @@ reading to make today's word art".
 ## 4. Sharing a picture
 
 Tapping a picture makes it a sticker (an unfinished one from today shows just the part revealed so
-far; one from a day that's over shows what was missed in grey): everything read that day, every
-title with its whole abstract, written into the shape on a white die-cut with a soft shadow and
-the PushPin pin in the corner, as a PNG with a transparent background. It looks the same in any
-chat, in light or dark mode, and the words make each one the reader's own. **Share** opens the
-phone's share sheet with the image, **Copy** puts it on the clipboard to paste into a message, and
-**Save** saves it (on a phone it opens the share sheet, where Save Image puts it in Photos; a web
-page can't save to Photos directly).
+far; one from a day that's over is the whole shape's die-cut, blank white where it was missed):
+everything read that day, every title with its whole abstract, written into the shape on a white
+die-cut with a soft shadow and the PushPin pin in the corner, as a PNG with a transparent
+background. It looks the same in any chat, in light or dark mode, and the words make each one the
+reader's own. **Share** opens the phone's share sheet with the image, **Copy** puts it on the
+clipboard to paste into a message, and **Save** saves it (on a phone it opens the share sheet,
+where Save Image puts it in Photos; a web page can't save to Photos directly).
 
 <img src="screens/share-sheet.png" width="300" alt="Share sheet on the demo profile: the snowman sticker made of the day's articles, with Share, Copy and Save buttons">
 
@@ -60,8 +60,8 @@ The demo's snowman and Brontosaurus, each made of the four articles read that da
 Days that are over and weren't finished share what was missed: Oct 15 (3 of 4 read) and Oct 23
 (nothing read):
 
-<img src="screens/sticker-unfinished.png" width="420" alt="Unfinished day sticker: the read articles in part of the shape, the rest grey">
-<img src="screens/sticker-missed.png" width="200" alt="Missed day sticker: a grey moon on a white die-cut">
+<img src="screens/sticker-unfinished.png" width="420" alt="Unfinished day sticker: the read articles in part of the shape, the rest blank white die-cut">
+<img src="screens/sticker-missed.png" width="200" alt="Missed day sticker: a blank white moon die-cut">
 
 ## Before the first push: the welcome page
 
