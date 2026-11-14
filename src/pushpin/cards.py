@@ -125,8 +125,8 @@ document.querySelectorAll("button[data-volume]").forEach(b => b.addEventListener
   const r = await fetch("/volume", {method: "POST", body: b.dataset.volume}).catch(() => null);
   if (!r || !r.ok) return;
   document.querySelectorAll("button[data-volume]").forEach(x => x.setAttribute("aria-pressed", x === b));
-  // welcome page: show the choice for a second, then on to the profile
-  if (location.pathname === "/start") return setTimeout(() => location.assign("/me"), 1000);
+  // welcome page: show the choice for half a second, then on to the profile
+  if (location.pathname === "/start") return setTimeout(() => location.assign("/me"), 500);
   const hint = document.querySelector(".volume .hint");
   if (hint) hint.textContent = "Saved. You can change it on your profile.";
 }));
