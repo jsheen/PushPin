@@ -636,7 +636,7 @@ function textDino(title, kind) {
       for (let x = Math.floor(x0 + c * cw); x < Math.min(x1 + 1, x0 + (c + 1) * cw); x++) { t++; if (on(x, y)) n++; }
     return t && n / t > 0.3;
   };
-  const letters = title.replace(/\s+/g, '') + '·';  // no spaces inside the body, so it has no holes
+  const letters = title.replace(/\\s+/g, '') + '·';  // no spaces inside the body, so it has no holes
   const lines = []; let i = 0;
   for (let r = 0; r < rows; r++) {
     let line = '';
