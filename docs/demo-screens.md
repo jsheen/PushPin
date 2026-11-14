@@ -43,9 +43,7 @@ two lists, Today's read and Past reads, most recently read first.
 
 Tapping a picture makes it a sticker: the words on a white die-cut of the shape, with the pin in the
 corner, as a PNG that looks the same in any chat. **Share** opens the share sheet, **Copy** copies
-the image, and **Save** saves it (on a phone, through the share sheet's Save Image, into Photos).
-An unfinished past day is the whole die-cut, blank where it wasn't read; today's shows only the part
-read so far.
+the image, and **Save** saves it (on a phone, through the share sheet's Save Image, into Photos). As you can see, the sticker is a cute, little e.e. cummings-esque / ascii word art / concrete poetry image that hopefully will encourage readers to engage with articles. An unfinished past day is the whole die-cut, blank where it wasn't read; today's shows only the part read so far.
 
 <img src="screens/share-sheet.png" width="300" alt="Share sheet: the snowman sticker with Share, Copy and Save">
 <img src="screens/sticker-brontosaurus.png" width="420" alt="Brontosaurus sticker made of the day's articles">
