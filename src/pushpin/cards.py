@@ -612,7 +612,7 @@ function silhouette(w, h, flip, kind) {
   return (x, y) => mask[(y * w + x) * 4 + 3] > 127;
 }
 // Lays the text out once inside the shape, w x h, in type of size fs with lines `spread` times the
-// usual spacing and `extra` extra spaces between words: [char, x, y] for each glyph, and whether
+// usual spacing: [char, x, y] for each glyph, and whether
 // all of the text fit. Nothing repeats; what doesn't fit is left out. Thin parts still get letters:
 // a stretch narrower than a letter (but at least half as wide) takes one, centered, and a line
 // thinner than the row height counts if it's near the row.
@@ -645,24 +645,16 @@ function layout(w, h, text, inside, fs, spread = 1) {
 // The largest type at which all of the text fits in the shape once: the word art is scaled to
 // its text, so the text never runs out early or runs over. Then the slack is spread
 // out, so the text reaches the bottom (where handles, stems and legs often are) instead of
-// stopping short: the lines are spaced out, then a few words get a little more room.
+// stopping short: the lines are spaced out, leaving only the last line a little unfinished.
 function fitted(w, h, text, inside, top) {
   let fs = top, l = null;
   for (; fs > 2; fs *= 0.97) { l = layout(w, h, text, inside, fs); if (l.fit) break; }
   if (!l || !l.fit) return {...layout(w, h, text, inside, 2), fs: 2};
   let big = fs / 0.97;  // then the exact size between that and the step above, where it only just fits
   for (let k = 0; k < 8 && fs < top; k++) { const m = (fs + big) / 2; if (layout(w, h, text, inside, m).fit) fs = m; else big = m; }
-  let lo = 1, hi = 1.6;  // line spacing: the most that still fits
+  let lo = 1, hi = 1.6;  // line spacing: the most that still fits; only the last line ends short
   for (let k = 0; k < 8; k++) { const m = (lo + hi) / 2; if (layout(w, h, text, inside, fs, m).fit) lo = m; else hi = m; }
-  const gaps = [...text.matchAll(/ /g)].map(m => m.index);
-  const widen = n => {  // n of the gaps between words doubled, spread evenly through the text
-    if (!n) return text;
-    const pick = new Set(Array.from({length: n}, (_, j) => gaps[Math.floor((j + 0.5) * gaps.length / n)]));
-    return [...text].map((ch, j) => pick.has(j) ? '  ' : ch).join('');
-  };
-  let a = 0, b = gaps.length;
-  while (a < b) { const m = Math.ceil((a + b) / 2); if (layout(w, h, widen(m), inside, fs, lo).fit) a = m; else b = m - 1; }
-  return {...layout(w, h, widen(a), inside, fs, lo), fs};
+  return {...layout(w, h, text, inside, fs, lo), fs};
 }
 function draw(canvas, text, built, flip, animate, kind, delay) {
   const dpr = window.devicePixelRatio || 1; let w = Math.round(canvas.clientWidth), h = Math.round(w * 0.64);
@@ -743,22 +735,22 @@ function textDino(day, kind) {
   // Everything read that day, each once: every title followed by its whole abstract, starting with
   // the first title and ending on the period, no spaces inside the shape (so it has no holes). The
   // shape grows to fit the words, not the other way round: from the narrowest width up, grids (how
-  // much of a cell must be inside, how tall a character is) whose cells match the letters exactly,
-  // and one picked at random among the narrowest few (seeded, so it's the same each time and
-  // differs between readers).
+  // much of a cell must be inside, how tall a character is) the letters fill, leaving at most part
+  // of the last line blank, and one picked at random among the narrowest few (seeded, so it's the
+  // same each time and differs between readers).
   const r = rng(day.seed + ':share');
   const parts = day.parts.map(p => ({title: p.title.replace(/\\s+/g, ''), abstract: p.words.join('')}));
   const end = parts.length ? parts[parts.length - 1].abstract || parts[parts.length - 1].title : '';
   const letters = parts.map(p => p.title + (p.abstract ? '—' + p.abstract : '')).join('·') + (/[.!?]["”’]?$/.test(end) ? '' : '.');
-  const exact = []; let first = 0, roomy = null;
+  // grids the letters fill, leaving at most part of the last line blank
+  const fits = []; let first = 0, roomy = null;
   for (let cols = 10; cols <= 200 && !(first && cols > first + 3); cols++)
     for (const share of [0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5]) for (const tall of [1.8, 1.9, 2, 2.1, 2.2]) {
-      const t = grid(cols, share, tall);
-      if (t.count === letters.length) { exact.push(t); first ||= cols; }
+      const t = grid(cols, share, tall), lastRow = [...t.cells].reverse().find(row => row.some(Boolean)) || [];
+      if (t.count >= letters.length && t.count - letters.length <= lastRow.filter(Boolean).length) { fits.push(t); first ||= cols; }
       else if (t.count > letters.length && (!roomy || t.count < roomy.count)) roomy = t;
     }
-  // no exact fit (rare): the closest grid with room to spare, its last few cells left blank
-  const thin = exact.filter(t => t.share <= 0.3), pool = thin.length ? thin : exact;  // a low threshold keeps thin parts
+  const thin = fits.filter(t => t.share <= 0.3), pool = thin.length ? thin : fits;  // a low threshold keeps thin parts
   const g = pool.length ? pool[Math.floor(r() * pool.length)] : roomy;
   let i = 0;
   const lines = g.cells.map(row => row.map(v => v ? letters[i++] ?? ' ' : ' ').join('').trimEnd());

@@ -42,61 +42,61 @@ day's word art" (Oct 23 · 0/4).
 Tapping a finished picture opens it as text to paste into any chat: the shape spelled out in
 everything read that day, every title with its whole abstract, from the first title to the final
 period, with 📌 in the top left corner. The shape grows to fit the words, so a busy day makes a
-bigger picture. Each picture is unique to its reader and day. **Share** opens the phone's share
-sheet; **Copy** copies it.
+bigger picture, and only the last line may end a little short. Each picture is unique to its
+reader and day. **Share** opens the phone's share sheet; **Copy** copies it.
 
 <img src="screens/share-sheet.png" width="300" alt="Share sheet on the demo profile: a snowman spelled out in the letters of the day's articles, with Share and Copy buttons">
 
 The demo's snowman and Brontosaurus, each made of the four articles read that day:
 
 ```
-📌             TheQuietR
-               eturnofth
-            eNightTrain—Sle
-             epercarsarero
-              llingagaina
-              str ave lers
-              tradeairpor
-               tsforaslo
-wer              wayacr             oss
- theco        untry.·What        theTi
-    deLea   vesBehind—Beach   combe
-        rscatalogtheshells,glass
-           anddriftwoodthate
-           verystormbringsas
-            hore.·ACityLear
-             nstoLoveItsRa
-              in—Afteryear
-           soffloods,onecity
-          builtparksthatsoaku
-         pstorms,andnowrainyda
-        ysbringpeopleoutside.·T
-        heLastTypewriterRepairm
-         aninOhio—Hehasfixedtho
-         usandsofmachinesandst
-          illkeepsadrawerofri
-            bbonsnobodymake
-               sanymore.
+📌             TheQuietRe
+               turnoftheN
+            ightTrain—Sleepe
+              rcarsareroll
+              ingagainastr
+              avelerstrade
+              airportsfora
+               slowerwaya
+cros             sthecou             ntr
+  y.·Wha      ttheTideLeave      sBehi
+      nd—Be achcomberscatalo gthesh
+         ells,glassanddriftwood
+           thateverystormbrin
+            gsashore.·ACityL
+             earnstoLoveItsR
+              ain—Afteryea
+             rsoffloods,one
+           citybuiltparksthat
+         soakupstorms,andnowrai
+         nydaysbringpeopleoutsi
+         de.·TheLastTypewriterRe
+         pairmaninOhio—Hehasfixe
+         dthousandsofmachinesan
+          dstillkeepsadrawerof
+            ribbonsnobodymake
+              sanymore.
 ```
 
 ```
-📌                                             Insidethe
-                                             RacetoMapthe
-                                            OceanFloor—Sc
-                                           ientistsands
-                                         onarshipsa
-                          rechart      ingthevasts
-                   eabedthatremainslessknownthan
-               themoon.·WhyEveryoneIsBakingBre
-           adAgain—Sourdoughstartersarepassed
-        handtohandashomebakersrediscoveraslo
-      w,patientcraft.·TheSecretLifeofSubwayPi
-    geons—Thebirdsthatridethetrainsknowthesc
-  hedulesbetterthanmanycommutersdo.·HowaSma
- llTownSavedItsLibrary—Whenthecountycutitsb
-udg                 et,residentsheldb akesa
-                    lesandrais   eden ought
-                    okeep thed   oors open.
+📌                                           Insideth
+                                           eRacetoMapt
+                                          heOceanFloor
+                                         —Scientistsa
+                                       ndsonarshi
+                                      psarechart
+                    ingthevastseabedthatremain
+                slessknownthanthemoon.·WhyEve
+            ryoneIsBakingBreadAgain—Sourdou
+         ghstartersarepassedhandtohandasho
+       mebakersrediscoveraslow,patientcraf
+     t.·TheSecretLifeofSubwayPigeons—Thebi
+   rdsthatridethetrainsknowtheschedulesbe
+  tterthanmanycommutersdo.·HowaSmallTownS
+avedItsLibrary—Whenthecountycutitsbudget,
+                   residentsheldbak esale
+                   sandraised  enou ghtok
+                   eept hedoo  rsop en.
 ```
 
 ## Before the first push: the welcome page
