@@ -101,3 +101,71 @@ The plan is to retrain each week, and that is part of what arms B and C are. Two
 - **Small data.** A few hundred pushes a week is too few to retrain XGBoost from scratch. Update
   the calibration weekly and retrain on MIND plus the logs (the `scores` table stores each
   candidate's features; the `labeled` view gives the labels).
+
+## Later arms: retention signals beyond similarity
+
+*Not built; candidates for follow-up tests once arm B has a baseline.* The model learns two things
+about what a reader wants: similarity ("more of what you read") and complementarity
+(`complement_score`: across all users, people who read subcategory *a* go on to read *b*). Two more
+ideas, borrowed from social feeds, aim at keeping readers over weeks rather than winning the next
+click. Each would be an arm B′: arm B plus one bonus in the push objective.
+
+### Nostalgia: bring back an interest that has gone quiet
+
+A reader who loved a subcategory but hasn't been pushed it in weeks may welcome it back. The
+objective can't see this today. `novelty` counts all of a reader's exposure, history clicks
+included, so a well-loved subcategory always looks familiar, however long ago it was last shown.
+The signal is the gap between **long-run share** and **recent share**:
+
+- long-run: `subcat_affinity` (share of history clicks), or exposure share over all time
+- recent: share of the last N days of pushes, or `hours_since_last_shown_in_subcat` and
+  `hours_since_last_click_in_subcat`
+
+It has to tell two cases apart:
+
+| Case | Pattern | What to do |
+|------|---------|------------|
+| **Dormant** | Strong history, not pushed lately | Bring it back: rediscovery bonus |
+| **Abandoned** | Pushed lately and skipped | Leave it alone: that's fatigue (`subcat_prior_skips`, `slot_skipped_72h`) |
+
+The bonus is roughly `affinity × f(gap)`, alongside the novelty term.
+
+Before spending an arm on it, MIND can give a rough check. Its pre-period history has no timestamps
+and the log covers about a week, so real multi-week gaps aren't observable. But the
+[exploration analysis](analysis.md#do-clicks-on-unfamiliar-subcategories-stick) design carries
+over: for subcategories in a user's history, compare the click rate on the first log-period
+exposure of a **dormant** one (in history, not yet shown in the log) with a **steady** one (shown
+again and again). The push log has real timestamps, so the test itself measures actual gaps.
+
+### Bridges: one article that combines two interests
+
+Someone who reads Business and Soccer may like "the economics of the World Cup" more than either
+topic alone. This works per article and per reader. Complementarity is different: it's measured
+across all users and links pairs of subcategories. Ways to score a candidate:
+
+- **Embeddings.** Group the reader's clicks into interests (clusters of clicked-article vectors, or
+  the LLM profile's click themes). Score = the max over pairs (i, j) of min(sim to i, sim to j):
+  high only if the article is close to *both*. `llm_sim_click` uses only the best-matching theme,
+  so it can't see this.
+- **Entities.** The article mentions entities the reader has read about in two different
+  subcategories. Cheap and easy to explain.
+- **Generated queries.** The LLM writes a few bridge queries per reader from pairs of their themes,
+  and the article store retrieves matches. Closest to how social feeds do it, and the most expensive.
+
+The NYT feeds suit this better than MIND, because they carry many cross-desk pieces
+(Business × Technology, Science × Politics).
+
+### Outcomes for these arms
+
+Both are bets on long-run engagement, so offline AUC is the wrong yardstick: the
+[LLM ablation](analysis.md#results) shows how little a new signal moves AUC once similarity is
+covered. On top of the outcomes above (return rate, opt-outs, clicks per reader per day), these
+arms add:
+
+- **Later reading of the topic**: after a rediscovery or bridge push, does the reader tap that
+  subcategory again in the following weeks without the bonus?
+- **Per-push CTR of bonus pushes vs. arm B's**: the click cost paid now, to set against any gain
+  in return and opt-outs.
+
+They need longer than arm B vs. C: at least four weeks, since the effect is slow and a single
+rediscovery push per reader is rare. Analysis is per reader, as above.
