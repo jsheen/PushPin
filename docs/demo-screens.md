@@ -33,10 +33,11 @@ and abstracts. It stores nothing.
 Each day's pushes make one papier-mâché picture, a common symbol (snowman, heart, star, moon...)
 or a dinosaur, written in the titles and abstracts read that day, each used once. The type is
 sized so the text fills the whole shape, thin parts included. A picture is revealed from one side
-as the day's pushes are read, with no outline of the rest, so it's a guess what it will be until
-all of them are read (Oct 15 · 3/4). A day that's over with nothing read shows the grey outline of
-what it could have been (Oct 23 · 0/4); today, with nothing read yet, says "Start reading to make
-today's word art".
+as the day's pushes are read; while the day is on, nothing shows of the rest, so it's a guess what
+it will be. Once the day is over, an unfinished picture gets the grey outline of what it could
+have been under the part that was read (Oct 15 · 3/4), and a day with nothing read is just the
+outline (Oct 23 · 0/4). Today, with nothing read yet, says "Start reading to make today's word
+art".
 
 ## 4. Sharing a picture
 

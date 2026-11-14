@@ -665,13 +665,15 @@ function draw(canvas, text, built, flip, animate, kind, delay, past) {
   const W = w * dpr, H = h * dpr, shape = silhouette(W, H, flip, kind);
   [w, h] = [W, H];
   const css = getComputedStyle(document.documentElement), ink = css.getPropertyValue('--fg').trim() || '#121212';
-  if (built <= 0 && past) {  // a day that's over with nothing read: the grey outline of what it could have been
-    const ghost = document.createElement('canvas'); ghost.width = W; ghost.height = H;
+  // a day that's over but not finished: the grey outline of what it could have been, under
+  // whatever was read (today's stays hidden, so it's a guess until it's done)
+  let ghost = null;
+  if (past && built < 1) {
+    ghost = document.createElement('canvas'); ghost.width = W; ghost.height = H;
     const gc = ghost.getContext('2d'); dino(gc, W, H, flip, kind);
     gc.globalCompositeOperation = 'source-in'; gc.fillStyle = ink; gc.fillRect(0, 0, W, H);
-    c.globalAlpha = 0.15; c.drawImage(ghost, 0, 0); c.globalAlpha = 1;
-    return;
   }
+  if (built <= 0 && ghost) { c.globalAlpha = 0.15; c.drawImage(ghost, 0, 0); c.globalAlpha = 1; return; }
   if (built <= 0) {  // today, nothing read yet: a nudge in its place, no hint of the shape
     const size = Math.max(9 * dpr, Math.round(H * 0.12)), lines = [];
     c.font = size + 'px -apple-system, system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
@@ -695,6 +697,7 @@ function draw(canvas, text, built, flip, animate, kind, delay, past) {
   const frame = now => {
     c.clearRect(0, 0, w, h);
     let busy = false;
+    if (ghost) { c.globalAlpha = 0.15; c.drawImage(ghost, 0, 0); }
     for (const g of glyphs) {
       const along = flip ? 1 - g[1] / w : g[1] / w;
       const t = fade ? Math.min(1, Math.max(0, (now - start - along * sweep - (g[2] / h) * 120) / fade)) : 1;
