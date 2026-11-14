@@ -536,10 +536,10 @@ def test_new_user_replaces_a_stored_mind_persona_unless_configured(setup):
     assert persona.user_id == "U9"
 
 
-def test_pushes_carry_the_pushpin_and_pages_serve_its_icons(setup):
+def test_pushes_carry_the_icon_without_an_emoji_and_pages_serve_its_icons(setup):
     n, store, sent, _db = setup
     n.run_slot(pd.Timestamp("2026-11-12 12:00"))
-    assert sent[0][5]["tags"] == ["pushpin"] and sent[0][5]["icon"] == "http://mac:8090/icon.png"
+    assert not sent[0][5].get("tags") and sent[0][5]["icon"] == "http://mac:8090/icon.png"
     server = cards.serve_cards(store, 0)
     base = f"http://127.0.0.1:{server.server_address[1]}"
     try:
