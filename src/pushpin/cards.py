@@ -608,9 +608,8 @@ const KINDS = (() => {
   }
   return out;
 })();
-// The same picture for everyone on a given day: the date picks the shape, from one fixed order
-// that starts with the snowman and a Brontosaurus on Oct 12, 2026, then the rest shuffled once, so
-// every shape comes up before any repeats. What differs between readers is the words.
+// The same picture for everyone on a given day: the date picks the shape (see kindFor), starting
+// with the snowman and a Brontosaurus on Oct 12, 2026. What differs between readers is the words.
 function rng(str) {  // a small seeded generator (string hash + mulberry32): the same seed, the same numbers
   let h = 1779033703 ^ str.length;
   for (let i = 0; i < str.length; i++) { h = Math.imul(h ^ str.charCodeAt(i), 3432918353); h = h << 13 | h >>> 19; }
@@ -619,16 +618,21 @@ function rng(str) {  // a small seeded generator (string hash + mulberry32): the
     t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296;
   };
 }
-const ORDER = (() => {
-  const first = ['Snowman', 'Brontosaurus'].map(n => KINDS.find(k => k.name === n));
-  const rest = KINDS.filter(k => !first.includes(k)), r = rng('pushpin:order');
+// two families, each in its own fixed shuffle: everyday symbols (the snowman first) and dinosaurs
+// (a Brontosaurus first). Days take turns, symbol then dinosaur, so it's a mix; each family comes
+// round before its shapes repeat (the 17 symbols more often than the ~100 dinosaurs).
+const shuffled = (list, first, seed) => {
+  const head = list.find(k => k.name === first), rest = list.filter(k => k !== head), r = rng(seed);
   for (let i = rest.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [rest[i], rest[j]] = [rest[j], rest[i]]; }
-  return [...first, ...rest];
-})();
+  return [head, ...rest];
+};
+const SYMBOL_ORDER = shuffled(KINDS.filter(k => SYMBOLS[k.plan]), 'Snowman', 'pushpin:symbols');
+const DINO_ORDER = shuffled(KINDS.filter(k => !SYMBOLS[k.plan]), 'Brontosaurus', 'pushpin:dinosaurs');
 const EPOCH = Date.UTC(2026, 9, 12);
-const kindFor = day => {  // day: YYYY-MM-DD
+const kindFor = day => {  // day: YYYY-MM-DD; even days from Oct 12, 2026 a symbol, odd days a dinosaur
   const n = Math.round((Date.UTC(+day.slice(0, 4), +day.slice(5, 7) - 1, +day.slice(8, 10)) - EPOCH) / 864e5);
-  return ORDER[((n % ORDER.length) + ORDER.length) % ORDER.length];
+  const list = ((n % 2) + 2) % 2 ? DINO_ORDER : SYMBOL_ORDER, k = Math.floor(n / 2);
+  return list[((k % list.length) + list.length) % list.length];
 };
 // ---- end species ----
 function dino(c, w, h, flip, kind, solid = false) {  // solid: no holes (eyes, door, windows), for a die-cut
@@ -946,7 +950,7 @@ function set(value, animate) {
 }
 sw.addEventListener('click', () => set(!on, true));
 let off = false; try { off = localStorage.getItem('papier') === '0'; } catch (e) {}
-if (!off) set(true, false);  // on unless this reader turned it off
+set(!off, false);  // on unless this reader turned it off (either way, so the plain list hides the art)
 let t; window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout(() => { today(); if (on) build(false); }, 150); });
 // the days changed on the page (the demo's ×): redraw today's and the grid from the new counts
 addEventListener('papier:update', () => { days = JSON.parse(data.textContent); today(); if (on) build(false); });

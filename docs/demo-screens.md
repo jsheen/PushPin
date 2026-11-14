@@ -24,62 +24,35 @@ database, has read 6 of the 10 pushes they opened that day.
 
 ## 3. The demo profile
 
-`/demo` is a made-up Medium reader (4 pushes a day): 63 reads over 18 days, with invented titles
-and abstracts. It stores nothing.
+`/demo` is a made-up Medium reader's public link: 63 reads over 18 days, with invented titles and
+abstracts. `/demo/me` is the same reader's own view, as if they'd just tapped today's push: privacy
+switch, Pinned, Read and pushes a day; its buttons only change the page. Neither stores anything.
 
 <img src="screens/demo-splash.png" width="300" alt="Demo title card: Justin's, Read 63, Daily streak 6, Tap to continue">
-<img src="screens/demo-profile.png" width="300" alt="Demo profile: Read 63, a grid of small papier-mâché pictures, one a day: a snowman, dinosaurs, a heart, a star, a moon, a tree and more, a few unfinished">
+<img src="screens/demo-profile.png" width="300" alt="Demo profile: Today's read 2 of 3 on top, then a grid of daily word art, symbols and dinosaurs taking turns">
+<img src="screens/demo-owner.png" width="300" alt="Demo owner view: today's pinned push with Read, the privacy switch, Pinned, Read with the word art, pushes a day">
+<img src="screens/demo-owner-list.png" width="300" alt="Demo owner view with Papier-mâché off: Today's read and Past reads as plain lists">
 
-`/demo/me` is the same reader's own view, as if they'd just tapped today's third push: it's pinned
-on top with Read, then the privacy switch, Pinned (pushes tapped but not read yet), Read with the
-pictures, and pushes a day. Its buttons only change the page; × takes an article out of its day's
-count and the pictures redraw.
-
-<img src="screens/demo-owner.png" width="300" alt="Demo owner view: today's pinned push with Read, the privacy switch, Pinned 2, Read 63 with the daily pictures, pushes a day">
-<img src="screens/demo-owner-list.png" width="300" alt="Demo owner view with Papier-mâché off: Today's read with the word art and today's two articles, then Past reads">
-
-Each day you pin pushes (tap them) makes one papier-mâché picture, a common symbol (snowman,
-heart, star, moon...) or a dinosaur, the same shape for everyone that day, written in the titles
-and abstracts of the ones you read, each used once. It fills in as you read what you pinned: 3
-read and 2 still pinned is 3/5, everything read is finished, and pushes you never tapped don't
-count, and an article you delete with × leaves the count whether you read it or not (2 pinned and
-3 read, one deleted: out of 4). While the day is on, nothing shows of the rest, so it's a guess
-what it will be (today: Oct 29 · 2/3). Once the day is over, an unfinished picture gets the grey
-outline of what it could have been under the part that was read (Oct 15 · 3/4), and a day with
-things pinned but nothing read is just the outline (Oct 23 · 0/2). Today, with nothing read yet,
-says "Start reading to make today's word art". The type is sized so the text fills the whole
-shape, thin parts included. At the top of Read, in both the list and the pictures, Today's read
-shows today's word art so far, bigger, with its count (Today's read · 2 of 3 pinned today; older
-pins count toward their own days), and in the list the articles read today come first, then Past
-reads.
+With **Papier-mâché** on, the first 3 articles read each day (whenever they were pinned) make that
+day's word art: a common symbol or a dinosaur, taking turns, the same shape for everyone that day,
+written in the articles' titles and abstracts. It fills in 1/3, 2/3, then it's finished; later
+reads are listed but don't change it, and × on a read article takes it out. **Today's read** is on
+top (Today's read · 2 of 3), then past days. Today's unread part stays hidden; a past day that
+stopped short shows the rest as a grey outline (Oct 19 · 2/3). With Papier-mâché off, Read is just
+two lists: Today's read and Past reads.
 
 ## 4. Sharing a picture
 
-Tapping a picture makes it a sticker (an unfinished one from today shows just the part revealed so
-far; one from a day that's over is the whole shape's die-cut, blank white where it was missed):
-everything read that day, every title with its whole abstract, written into the shape on a white
-die-cut with a soft shadow and the PushPin pin in the corner, as a PNG with a transparent
-background. It looks the same in any chat, in light or dark mode, and the words make each one the
-reader's own. **Share** opens the phone's share sheet with the image, **Copy** puts it on the
-clipboard to paste into a message, and **Save** saves it (on a phone it opens the share sheet,
-where Save Image puts it in Photos; a web page can't save to Photos directly).
+Tapping a picture makes it a sticker: the words on a white die-cut of the shape, with the pin in the
+corner, as a PNG that looks the same in any chat. **Share** opens the share sheet, **Copy** copies
+the image, and **Save** saves it (on a phone, through the share sheet's Save Image, into Photos).
+An unfinished past day is the whole die-cut, blank where it wasn't read; today's shows only the part
+read so far.
 
-<img src="screens/share-sheet.png" width="300" alt="Share sheet on the demo profile: the snowman sticker made of the day's articles, with Share, Copy and Save buttons">
-
-The demo's snowman and Brontosaurus, each made of the four articles read that day:
-
-<img src="screens/sticker-snowman.png" width="260" alt="Snowman sticker: four articles' titles and abstracts written into a snowman on a white die-cut, with the PushPin pin">
-<img src="screens/sticker-brontosaurus.png" width="420" alt="Brontosaurus sticker: four articles' titles and abstracts written into a Brontosaurus on a white die-cut, with the PushPin pin">
-
-Days that are over and weren't finished share what was missed: Oct 15 (3 of 4 pinned read) and
-Oct 23 (2 pinned, nothing read):
-
-<img src="screens/sticker-unfinished.png" width="420" alt="Unfinished day sticker: the read articles in part of the shape, the rest blank white die-cut">
-<img src="screens/sticker-missed.png" width="200" alt="Missed day sticker: a blank white moon die-cut">
-
-Today's unfinished picture (Oct 29, 2 of 3 pinned read) shares just the part revealed so far:
-
-<img src="screens/sticker-today.png" width="300" alt="Today's unfinished sticker: only the part revealed so far, die-cut around it">
+<img src="screens/share-sheet.png" width="300" alt="Share sheet: the snowman sticker with Share, Copy and Save">
+<img src="screens/sticker-brontosaurus.png" width="420" alt="Brontosaurus sticker made of the day's articles">
+<img src="screens/sticker-unfinished.png" width="320" alt="Oct 19 sticker, 2 of 3 read: words in part of the shape, the rest blank die-cut">
+<img src="screens/sticker-today.png" width="260" alt="Today's sticker, 2 of 3 read: only the part read so far">
 
 ## Before the first push: the welcome page
 

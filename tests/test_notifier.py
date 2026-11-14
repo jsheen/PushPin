@@ -618,4 +618,4 @@ def test_everyone_gets_the_same_shape_each_day():
     data = re.compile(r'<script type="application/json" id="papier-data"[^>]*>')
     assert data.search(a).group(0) == data.search(b).group(0) and "data-seed" not in a  # nothing per reader
     assert "aaaa" not in a.split('id="papier-data"')[1]  # the reader's id (their cookie) isn't on the page
-    assert "kindFor(d.day)" in a and "rng('pushpin:order')" in a  # the date picks the shape
+    assert "kindFor(d.day)" in a and "'pushpin:symbols'" in a and "'pushpin:dinosaurs'" in a  # the date picks the shape, symbols and dinosaurs taking turns

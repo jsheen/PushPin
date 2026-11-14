@@ -36,12 +36,12 @@ Details: [docs/model.md](docs/model.md) and [docs/analysis.md](docs/analysis.md)
 
 The notifier scores live NYT RSS articles and pushes to phones through [ntfy](https://ntfy.sh)
 or the iOS app. Readers choose a volume: light (2 a day: morning, night), medium (4) or heavy (8).
-Tapping a push opens the reader's profile. Each day's pinned pushes make a small papier-mâché
-picture (a snowman, a heart, a star, a dinosaur...) out of the titles and abstracts of the
-articles read, and it's finished once everything pinned that day is read. Tapping one turns it
-into a sticker to share in any chat. Everyone gets the same shape on a given day; the words they
-read make it theirs. Every push and tap is logged as labeled data that MIND lacks. The plan is to
-retrain the model each week on these logs. It can also deploy to GCP for about $1/month.
+Tapping a push opens the reader's profile. The first 3 articles they read each day make a small
+papier-mâché word art (a snowman, a heart, a dinosaur...) out of the articles' titles and
+abstracts. Tapping one turns it into a sticker to share in any chat. Everyone gets the same shape
+on a given day; the words they read make it theirs. Every push and tap is logged as labeled data
+that MIND lacks. The plan is to retrain the model each week on these logs. It can also deploy to
+GCP for about $1/month.
 
 ## Proposed A/B test
 
