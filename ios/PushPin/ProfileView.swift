@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The reader's profile, like /me on the web: what they pinned, what they read,
-/// how many pushes a day, the public link, and the account.
+/// how many pushes a day, and the account. Only the reader sees it: there's no public page.
 struct ProfileView: View {
     @EnvironmentObject private var state: AppState
     @Environment(\.openURL) private var openURL
@@ -28,7 +28,7 @@ struct ProfileView: View {
                             .swipeActions { Button("Delete", role: .destructive) { Task { await state.remove(a.newsId) } } }
                         }
                     } header: { Label("Pinned", systemImage: "pin.fill") } footer: {
-                        if !p.pinned.isEmpty { Text("Read one and it moves to Read.") }
+                        if !p.pinned.isEmpty { Text("Tap a headline to read it and move it to Read.") }
                     }
 
                     Section {
@@ -51,14 +51,6 @@ struct ProfileView: View {
                             }
                         }
                         .pickerStyle(.segmented)
-                    }
-
-                    Section {
-                        Toggle("Show what I read on my link", isOn: Binding(
-                            get: { p.reader.public }, set: { on in Task { await state.setPublic(on) } }))
-                        if let url = URL(string: p.shareUrl) {
-                            ShareLink("Share my profile", item: url)
-                        }
                     }
 
                     Section {

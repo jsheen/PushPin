@@ -6,7 +6,7 @@ the card server stores what readers do. Three things are added for it:
 | Piece | Where | What it does |
 |-------|-------|--------------|
 | Sign in with Apple | `POST /api/auth/apple` (`src/pushpin/cards.py`, `src/pushpin/apple.py`) | Checks Apple's identity token (signature, issuer, bundle id), makes the reader on first sign-in (`readers.apple_sub`), answers with a session token for the Keychain. |
-| JSON API | `/api/...` on the card server | The same actions as the web cards: open (pin), read, delete, volume, public, plus devices and account deletion. Listed in `serve_cards`'s docstring. |
+| JSON API | `/api/...` on the card server | The same actions as the web cards: open (pin), read, delete, volume, plus devices and account deletion. Listed in `serve_cards`'s docstring. |
 | APNs | `Apns` in `src/pushpin/apple.py`, called by the notifier | Each sent push also goes to every registered device (`devices` table), with `push_id`, `news_id` and `url` in the payload. Dead tokens (410) are dropped. ntfy keeps working alongside. |
 
 Account deletion (`DELETE /api/account`, an App Store rule) removes the reader, their devices,
@@ -59,7 +59,7 @@ SwiftUI, iOS 17+. The Xcode project is generated from `ios/project.yml`
 | File | What it is |
 |------|------------|
 | `PushPin/RootView.swift` | Sign in with Apple (and the server address, while it's still the tunnel) or the profile |
-| `PushPin/ProfileView.swift` | Pinned (Read, swipe to delete), Read with the daily streak, pushes a day, public link, sign out, delete account |
+| `PushPin/ProfileView.swift` | Pinned (Read, swipe to delete), Read with the daily streak, pushes a day, sign out, delete account |
 | `PushPin/PinnedView.swift` | What a tapped push opens: the story with a pin dropping onto it, a haptic thud, Read |
 | `PushPin/AppState.swift`, `API.swift`, `Keychain.swift` | Server calls, the session in the Keychain, device-token registration |
 | `PushPin/PushPinApp.swift` | Push plumbing: the ARTICLE category with a **Pin it** button, taps, the device token |

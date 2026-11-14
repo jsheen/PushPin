@@ -247,7 +247,7 @@ def profile_page(reader: dict, read: list[dict], today: date | None = None, pinn
     waiting = [a for a in (unread or []) if not pinned or a["news_id"] != pinned["news_id"]]
     if waiting:  # the one on top isn't listed twice
         top += (f'<section><h2>Pinned <span class="n">{len(waiting)}</span></h2>'
-                f'<p class="private">Tap a headline to read it and it moves to Read.</p><ul class="list">'
+                f'<p class="private">Tap a headline to read it and move it to Read.</p><ul class="list">'
                 f'{"".join(item(a) for a in waiting)}</ul></section>')
 
     n = len(read)

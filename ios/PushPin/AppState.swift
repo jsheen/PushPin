@@ -122,8 +122,4 @@ final class AppState: ObservableObject {
     func setVolume(_ volume: String) async {
         let _: Profile? = await run("POST", "volume", ["volume": volume])
     }
-
-    func setPublic(_ on: Bool) async {
-        let _: Profile? = await run("POST", "public", ["public": on])
-    }
 }

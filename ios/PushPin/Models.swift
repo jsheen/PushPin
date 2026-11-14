@@ -29,10 +29,8 @@ struct Profile: Codable {
     struct Reader: Codable {
         let name: String?
         let volume: String?
-        let `public`: Bool
     }
     let reader: Reader
-    let shareUrl: String
     let caps: [String: Int]
     let pinned: [Article]
     let read: [Article]
