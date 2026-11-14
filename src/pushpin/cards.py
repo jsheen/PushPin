@@ -611,23 +611,29 @@ function silhouette(w, h, flip, kind) {
   const mask = mc.getImageData(0, 0, w, h).data;
   return (x, y) => mask[(y * w + x) * 4 + 3] > 127;
 }
-// Lays the text out once inside the shape, w x h, in type of size fs: [char, x, y] for each
-// glyph, and whether all of the text fit. Nothing repeats; what doesn't fit is left out.
-function layout(w, h, text, inside, fs) {
-  const lh = fs * 1.1, mc = document.createElement('canvas').getContext('2d');
+// Lays the text out once inside the shape, w x h, in type of size fs with lines `spread` times the
+// usual spacing and `extra` extra spaces between words: [char, x, y] for each glyph, and whether
+// all of the text fit. Nothing repeats; what doesn't fit is left out. Thin parts still get letters:
+// a stretch narrower than a letter (but at least half as wide) takes one, centered, and a line
+// thinner than the row height counts if it's near the row.
+function layout(w, h, text, inside, fs, spread = 1) {
+  const lh = fs * 1.1 * spread, mc = document.createElement('canvas').getContext('2d');
   mc.font = fs + 'px Georgia, "Times New Roman", serif';
   const widths = {}, width = ch => widths[ch] ??= mc.measureText(ch).width;
-  const glyphs = []; let i = 0;
+  const near = Math.round(fs * 0.4), glyphs = []; let i = 0;
   for (let row = lh / 2; row < h && i < text.length; row += lh) {
-    const y = Math.round(row);
+    const y = Math.round(row), ya = Math.max(0, y - near), yb = Math.min(h - 1, y + near);
+    const at = x => inside(x, y) || inside(x, ya) || inside(x, yb);
     let x = 0;
     while (x < w && i < text.length) {
-      while (x < w && !inside(x, y)) x++;
-      let end = x; while (end < w && inside(end, y)) end++;
+      while (x < w && !at(x)) x++;
+      let end = x; while (end < w && at(end)) end++;
       let cx = x;
-      while (i < text.length) {
+      while (i < text.length && text[i] === ' ') i++;  // a stretch starts with a letter
+      if (i < text.length && end - x < width(text[i]) && end - x >= width(text[i]) / 2) {
+        glyphs.push([text[i], x + (end - x - width(text[i])) / 2, y]); i++;  // a thin part: one letter
+      } else while (i < text.length) {
         const ch = text[i];
-        if (cx === x && ch === ' ') { i++; continue; }
         if (cx + width(ch) > end) break;
         glyphs.push([ch, cx, y]); cx += width(ch); i++;
       }
@@ -636,47 +642,60 @@ function layout(w, h, text, inside, fs) {
   }
   return {glyphs, fit: i >= text.length};
 }
-// The largest type at which all of the text fits in the shape once, in steps of 3% so the text
-// fills the shape closely (whole pixels jump too far at small sizes).
+// The largest type at which all of the text fits in the shape once: the word art is scaled to
+// its text, so the text never runs out early or runs over. Then the slack is spread
+// out, so the text reaches the bottom (where handles, stems and legs often are) instead of
+// stopping short: the lines are spaced out, then a few words get a little more room.
 function fitted(w, h, text, inside, top) {
-  for (let fs = top; fs > 2; fs *= 0.97) {
-    const l = layout(w, h, text, inside, fs);
-    if (l.fit) return {...l, fs};
-  }
-  return {...layout(w, h, text, inside, 2), fs: 2};
+  let fs = top, l = null;
+  for (; fs > 2; fs *= 0.97) { l = layout(w, h, text, inside, fs); if (l.fit) break; }
+  if (!l || !l.fit) return {...layout(w, h, text, inside, 2), fs: 2};
+  let big = fs / 0.97;  // then the exact size between that and the step above, where it only just fits
+  for (let k = 0; k < 8 && fs < top; k++) { const m = (fs + big) / 2; if (layout(w, h, text, inside, m).fit) fs = m; else big = m; }
+  let lo = 1, hi = 1.6;  // line spacing: the most that still fits
+  for (let k = 0; k < 8; k++) { const m = (lo + hi) / 2; if (layout(w, h, text, inside, fs, m).fit) lo = m; else hi = m; }
+  const gaps = [...text.matchAll(/ /g)].map(m => m.index);
+  const widen = n => {  // n of the gaps between words doubled, spread evenly through the text
+    if (!n) return text;
+    const pick = new Set(Array.from({length: n}, (_, j) => gaps[Math.floor((j + 0.5) * gaps.length / n)]));
+    return [...text].map((ch, j) => pick.has(j) ? '  ' : ch).join('');
+  };
+  let a = 0, b = gaps.length;
+  while (a < b) { const m = Math.ceil((a + b) / 2); if (layout(w, h, widen(m), inside, fs, lo).fit) a = m; else b = m - 1; }
+  return {...layout(w, h, widen(a), inside, fs, lo), fs};
 }
 function draw(canvas, text, built, flip, animate, kind, delay) {
   const dpr = window.devicePixelRatio || 1; let w = Math.round(canvas.clientWidth), h = Math.round(w * 0.64);
   canvas.style.height = h + 'px'; canvas.width = w * dpr; canvas.height = h * dpr;
   const c = canvas.getContext('2d');
-  // laid out in device pixels, so the type can be smaller than a CSS pixel allows: the silhouette
-  // reads at a glance, the headline up close
-  const W = w * dpr, H = h * dpr;
-  const {glyphs, fs} = fitted(W, H, text, silhouette(W, H, flip, kind), Math.round(W / 4));
+  // laid out in device pixels, so the type can be smaller than a CSS pixel allows: the shape reads
+  // at a glance, the headlines up close
+  const W = w * dpr, H = h * dpr, shape = silhouette(W, H, flip, kind);
   [w, h] = [W, H];
-  // unfinished: a faint silhouette under the words shows the outline still to fill (finished: words only)
-  const ghost = document.createElement('canvas'); ghost.width = w; ghost.height = h;
-  const gc = ghost.getContext('2d'); dino(gc, w, h, flip, kind);
-  c.font = fs + 'px Georgia, "Times New Roman", serif'; c.textBaseline = 'middle';
-  const css = getComputedStyle(document.documentElement);
-  const ink = css.getPropertyValue('--fg').trim() || '#121212', pencil = css.getPropertyValue('--line').trim() || '#e2e2e2';
-  // filled in from one side as the day's pushes are read: all of them, and it's finished
-  const isBuilt = g => built >= 1 || (flip ? g[1] >= w * (1 - built) : g[1] <= w * built);
+  const css = getComputedStyle(document.documentElement), ink = css.getPropertyValue('--fg').trim() || '#121212';
+  if (built <= 0) {  // nothing read yet: just a question mark, no hint of the shape
+    c.font = Math.round(H * 0.4) + 'px Georgia, "Times New Roman", serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillStyle = css.getPropertyValue('--muted').trim() || '#666'; c.fillText('?', W / 2, H / 2);
+    return;
+  }
+  // Unfinished: only part of the shape is revealed, from one side, as far as the day's pushes have
+  // been read, and the read text fills just that part. Nothing else shows, so it's a guess what it is.
+  let x0 = W, x1 = 0;
+  for (let y = 0; y < H; y += 2) for (let x = 0; x < W; x++) if (shape(x, y)) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); }
+  const edge = flip ? x1 - (x1 - x0) * built : x0 + (x1 - x0) * built;
+  const inside = built >= 1 ? shape : (x, y) => shape(x, y) && (flip ? x >= edge : x <= edge);
+  const {glyphs, fs} = fitted(W, H, text, inside, Math.round(W / 4));
+  c.font = fs + 'px Georgia, "Times New Roman", serif'; c.textBaseline = 'middle'; c.fillStyle = ink;
   const start = performance.now() + delay, sweep = animate ? 600 : 0, fade = animate ? 240 : 0;
-  c.fillStyle = gc.fillStyle = ink; gc.globalCompositeOperation = 'source-in'; gc.fillRect(0, 0, w, h);
   const frame = now => {
     c.clearRect(0, 0, w, h);
     let busy = false;
-    const shown = fade ? Math.min(1, Math.max(0, (now - start) / (sweep + fade))) : 1;
-    if (built < 1) { c.globalAlpha = 0.12 * shown; c.drawImage(ghost, 0, 0); }
-    if (shown < 1) busy = true;
     for (const g of glyphs) {
       const along = flip ? 1 - g[1] / w : g[1] / w;
       const t = fade ? Math.min(1, Math.max(0, (now - start - along * sweep - (g[2] / h) * 120) / fade)) : 1;
       if (t < 1) busy = true;
       if (t <= 0) continue;
       c.globalAlpha = t * t * (3 - 2 * t);  // smoothstep
-      c.fillStyle = isBuilt(g) ? ink : pencil;
       c.fillText(g[0], g[1], g[2]);
     }
     c.globalAlpha = 1;
@@ -713,7 +732,7 @@ function textDino(day, kind) {
       }
       cells.push(row);
     }
-    return {cells, count, cols};
+    return {cells, count, cols, share};
   };
   // Everything read that day, each once: every title followed by its whole abstract, starting with
   // the first title and ending on the period, no spaces inside the shape (so it has no holes). The
@@ -733,7 +752,8 @@ function textDino(day, kind) {
       else if (t.count > letters.length && (!roomy || t.count < roomy.count)) roomy = t;
     }
   // no exact fit (rare): the closest grid with room to spare, its last few cells left blank
-  const g = exact.length ? exact[Math.floor(r() * exact.length)] : roomy;
+  const thin = exact.filter(t => t.share <= 0.3), pool = thin.length ? thin : exact;  // a low threshold keeps thin parts
+  const g = pool.length ? pool[Math.floor(r() * pool.length)] : roomy;
   let i = 0;
   const lines = g.cells.map(row => row.map(v => v ? letters[i++] ?? ' ' : ' ').join('').trimEnd());
   while (lines.length && !lines[0]) lines.shift();

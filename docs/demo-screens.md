@@ -30,10 +30,11 @@ and abstracts. It stores nothing.
 <img src="screens/demo-splash.png" width="300" alt="Demo title card: Justin's, Read 63, Daily streak 6, Tap to continue">
 <img src="screens/demo-profile.png" width="300" alt="Demo profile: Read 63, a grid of small papier-mâché pictures, one a day: a snowman, dinosaurs, a heart, a star, a moon, a tree and more, a few unfinished">
 
-Each day's pushes make one papier-mâché picture, a common symbol (snowman, heart, star, moon...) or
-a dinosaur, written in the titles and abstracts read that day, each used once. It fills in as the
-day's pushes are read and is finished only when all of them are. Unfinished days stay pencilled in
-with a count (Oct 15 · 3/4); a day with nothing read is a grey outline (Oct 23 · 0/4).
+Each day's pushes make one papier-mâché picture, a common symbol (snowman, heart, star, moon...)
+or a dinosaur, written in the titles and abstracts read that day, each used once. The type is
+sized so the text fills the whole shape, thin parts included. A picture is revealed from one side
+as the day's pushes are read, with no outline of the rest, so it's a guess what it will be until
+all of them are read (Oct 15 · 3/4). A day with nothing read is just a "?" (Oct 23 · 0/4).
 
 ## 4. Sharing a picture
 
