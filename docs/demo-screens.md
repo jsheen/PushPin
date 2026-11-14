@@ -60,23 +60,23 @@ The demo's snowman and Brontosaurus, each made of the four articles read that da
               airportsfora
                slowerwaya
 cros             sthecou             ntr
-  y.·Wha      ttheTideLeave      sBehi
-      nd—Be achcomberscatalo gthesh
-         ells,glassanddriftwood
-           thateverystormbrin
-            gsashore.·ACityL
-             earnstoLoveItsR
-              ain—Afteryea
-             rsoffloods,one
-           citybuiltparksthat
-         soakupstorms,andnowrai
-         nydaysbringpeopleoutsi
-         de.·TheLastTypewriterRe
-         pairmaninOhio—Hehasfixe
-         dthousandsofmachinesan
-          dstillkeepsadrawerof
-            ribbonsnobodymake
-              sanymore.
+  y.What      theTideLeaves      Behin
+      d—Bea chcomberscatalog theshe
+         lls,glassanddriftwoodt
+           hateverystormbring
+            sashore.ACityLea
+             rnstoLoveItsRai
+              n—Afteryears
+             offloods,oneci
+           tybuiltparksthatso
+         akupstorms,andnowrainy
+         daysbringpeopleoutside
+         .TheLastTypewriterRepai
+         rmaninOhio—Hehasfixedth
+         ousandsofmachinesandst
+          illkeepsadrawerofrib
+            bonsnobodymakesan
+              ymore.
 ```
 
 ```
@@ -87,17 +87,17 @@ cros             sthecou             ntr
                                        ndsonarshi
                                       psarechart
                     ingthevastseabedthatremain
-                slessknownthanthemoon.·WhyEve
-            ryoneIsBakingBreadAgain—Sourdou
-         ghstartersarepassedhandtohandasho
-       mebakersrediscoveraslow,patientcraf
-     t.·TheSecretLifeofSubwayPigeons—Thebi
-   rdsthatridethetrainsknowtheschedulesbe
-  tterthanmanycommutersdo.·HowaSmallTownS
-avedItsLibrary—Whenthecountycutitsbudget,
-                   residentsheldbak esale
-                   sandraised  enou ghtok
-                   eept hedoo  rsop en.
+                slessknownthanthemoon.WhyEver
+            yoneIsBakingBreadAgain—Sourdoug
+         hstartersarepassedhandtohandashom
+       ebakersrediscoveraslow,patientcraft
+     .TheSecretLifeofSubwayPigeons—Thebird
+   sthatridethetrainsknowtheschedulesbett
+  erthanmanycommutersdo.HowaSmallTownSave
+dItsLibrary—Whenthecountycutitsbudget,res
+                   identsheldbakesa lesan
+                   draisedeno  ught okeep
+                   thed oorso  pen.
 ```
 
 ## Before the first push: the welcome page

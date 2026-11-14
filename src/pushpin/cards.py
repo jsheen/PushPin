@@ -748,7 +748,7 @@ function textDino(day, kind) {
   const r = rng(day.seed + ':share');
   const parts = day.parts.map(p => ({title: p.title.replace(/\\s+/g, ''), abstract: p.words.join('')}));
   const end = parts.length ? parts[parts.length - 1].abstract || parts[parts.length - 1].title : '';
-  const letters = parts.map(p => p.title + (p.abstract ? '—' + p.abstract : '')).join('·') + (/[.!?]["”’]?$/.test(end) ? '' : '.');
+  const letters = parts.map(p => p.title + (p.abstract ? '—' + p.abstract : '')).join('') + (/[.!?]["”’]?$/.test(end) ? '' : '.');
   // grids the letters fill, leaving at most part of the last line blank
   const fits = []; let first = 0, roomy = null;
   for (let cols = 10; cols <= 200 && !(first && cols > first + 3); cols++)
@@ -802,7 +802,7 @@ function dayText(d) {
   if (last && last.words.length) { if (!/[.!?]["”’]?$/.test(last.words[last.words.length - 1])) last.words[last.words.length - 1] += '.'; }
   else if (last && !/[.!?]["”’]?$/.test(last.title)) last.title += '.';
   // the picture on the profile: every title with its whole abstract (the shared text drops words to fit)
-  const text = parts.length ? parts.map(p => p.words.length ? p.title + ' — ' + p.words.join(' ') : p.title).join(' · ') : '·';
+  const text = parts.length ? parts.map(p => p.words.length ? p.title + ' — ' + p.words.join(' ') : p.title).join(' ') : '';
   return {text, flip, parts, seed};
 }
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
