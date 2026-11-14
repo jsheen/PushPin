@@ -25,8 +25,8 @@ learns from) and shows the reader's profile with the article pinned on top:
     article makes it the Crème instead.
   - **Pinned**: pushes they tapped but haven't read yet. These are always private. Tapping a
     headline reads it and moves it to Read; × deletes it.
-  - **Read**: the count and daily streak, shown as papier-mâché dinosaurs made from the headlines
-    (one every 5 reads).
+  - **Read**: the count and daily streak, shown as papier-mâché dinosaurs: a very small one for
+    every article read, made of its headline.
   - how many pushes a day they want.
 
 This sample reader has pinned 9 recent pushes, read 6 of them, and starred one as their Crème.
@@ -40,23 +40,23 @@ The data was set up on a copy of the database, not on a real reader.
 It opens on a title card and goes to the profile when tapped.
 
 <img src="screens/demo-splash.png" width="300" alt="Demo title card: Justin's, Read 29, Daily streak 6, Tap to continue">
-<img src="screens/demo-profile.png" width="300" alt="Demo profile: Crème article, Read 29, papier-mâché dinosaurs made of headlines">
+<img src="screens/demo-profile.png" width="300" alt="Demo profile: Crème article, Read 29, a grid of very small papier-mâché dinosaurs, one per headline">
 
-Every 5 reads makes a papier-mâché dinosaur out of the headlines. The full page has all five, plus
-the sixth in progress: [demo-profile-full.png](screens/demo-profile-full.png).
+Every read makes a very small papier-mâché dinosaur out of its headline, with a faint silhouette
+under the words so the shape reads at that size. The full page has all 29:
+[demo-profile-full.png](screens/demo-profile-full.png).
 
 ## 4. Sharing a dinosaur
 
 Tapping a dinosaur opens its share card: a 1080 × 1080 square on cream paper. The PushPin pin
-is at the top, then a newspaper masthead, then the dinosaur made of its headlines. **Share** opens
-the phone's share sheet with the image, and **Save image** downloads it. Browsers that can't share
-files only show Save image. A dinosaur that's still in progress is shared as it is, with the unread
-part in pencil.
+is at the top, then a newspaper masthead, then the dinosaur, drawn large from its headline.
+**Share** opens the phone's share sheet with the image, and **Save image** downloads it. Browsers
+that can't share files only show Save image.
 
 The masthead is a placeholder, `[Newspaper Name]`, set by `NEWSPAPER` in `src/pushpin/cards.py`.
 
 <img src="screens/share-sheet.png" width="300" alt="Share sheet on the demo profile: a Brontosaurus card with Share and Save image buttons">
-<img src="screens/share-card.png" width="300" alt="The shared image: the PushPin pin, the [Newspaper Name] masthead, a Stegosaurus made of headlines">
+<img src="screens/share-card.png" width="300" alt="The shared image: the PushPin pin, the [Newspaper Name] masthead, a Triceratops made of the headline The Last Typewriter Repairman in Ohio">
 
 ## Before the first push: the welcome page
 

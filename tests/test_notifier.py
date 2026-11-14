@@ -557,7 +557,7 @@ def test_papier_mache_only_with_a_visible_read_list():
             for i in range(7)]
     reader = {"name": "Jo", "history_public": 0}
     own = cards.profile_page(reader, read, [], owner=True)
-    assert 'id="papier-on"' in own and "Every 5 articles you read makes a new dinosaur · 1 dinosaur so far" in own
+    assert 'id="papier-on"' in own and "Every article you read makes a new dinosaur · 7 dinosaurs so far" in own
     head = re.search(r'<div class="readhead">.*?</div>', own).group(0)
     assert 'id="papier-on"' in head and 'class="papier-hint" hidden' in own  # switch in the Read header; hint until on
     assert "Tap one to share it" in own and 'data-paper="[Newspaper Name]"' in own  # each dinosaur opens a share card
@@ -569,8 +569,8 @@ def test_papier_mache_only_with_a_visible_read_list():
     assert data.startswith('["T0<\\/script>"') and "</script>\"" not in data  # oldest first, can't close the tag
     assert 'id="papier-on"' not in cards.profile_page(reader, read, [], owner=False)  # private list: no dinosaurs
     assert 'id="papier-on"' in cards.profile_page({**reader, "history_public": 1}, read, [], owner=False)
-    assert "5 more to your first dinosaur" not in own and 'id="papier-on"' not in cards.profile_page(reader, [], [], owner=True)
-    assert "4 more to your first dinosaur" in cards.profile_page(reader, read[:1], [], owner=True)
+    assert 'id="papier-on"' not in cards.profile_page(reader, [], [], owner=True)
+    assert "makes a new dinosaur · 1 dinosaur so far" in cards.profile_page(reader, read[:1], [], owner=True)
 
 
 def test_demo_page_shows_dinosaurs_and_stores_nothing(setup):
@@ -580,7 +580,7 @@ def test_demo_page_shows_dinosaurs_and_stores_nothing(setup):
         page = urllib.request.urlopen(f"http://127.0.0.1:{server.server_address[1]}/demo").read().decode()
     finally:
         server.shutdown()
-    assert 'id="papier-on"' in page and "5 dinosaurs so far" in page and "Justin’s" in page and "Monarch Butterflies" in page
+    assert 'id="papier-on"' in page and "29 dinosaurs so far" in page and "Justin’s" in page and "Monarch Butterflies" in page
     assert store.reader_count() == 0 and db("SELECT COUNT(*) AS n FROM interactions")["n"].item() == 0
 
 

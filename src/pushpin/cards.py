@@ -82,9 +82,11 @@ text-transform:uppercase;color:var(--muted);background:none;border:0;padding:6px
 box-shadow:0 1px 2px rgba(0,0,0,.3);transition:transform .25s ease}
 .pm[aria-pressed=true]{color:var(--fg)}.pm[aria-pressed=true] .track{background:var(--on)}.pm[aria-pressed=true] .knob{transform:translateX(11px)}
 .papier-hint{font-size:14px;color:var(--muted);margin:0 0 14px}
-.papier{opacity:0;transition:opacity .5s ease;margin-top:4px}.papier.on{opacity:1}.papier figure{width:80%;margin:0 0 26px}.papier figure.right{margin-left:auto}
-.papier canvas{display:block;width:100%}.papier .dino{display:block;width:100%;padding:0;border:0;background:none;cursor:pointer;
--webkit-tap-highlight-color:transparent;transition:transform .2s ease}.papier .dino:active{transform:scale(.98)}
+.papier{opacity:0;transition:opacity .5s ease;margin-top:4px;display:grid;grid-template-columns:repeat(4,1fr);gap:10px 8px}
+.papier.on{opacity:1}.papier[hidden]{display:none}
+.papier canvas{display:block;width:100%}.papier .dino{display:block;width:100%;padding:4px 2px;border:0;border-radius:8px;background:none;cursor:pointer;
+-webkit-tap-highlight-color:transparent;transition:transform .2s ease,background .2s ease}.papier .dino:hover{background:var(--btn)}
+.papier .dino:active{transform:scale(.94)}
 .sharecard{border:0;padding:44px 16px 16px;border-radius:18px;background:var(--bg);color:var(--fg);width:min(92vw,420px);
 box-sizing:border-box;box-shadow:0 24px 80px rgba(0,0,0,.35)}.sharecard::backdrop{background:rgba(0,0,0,.55)}
 .sharecard img{display:block;width:100%;aspect-ratio:1;border-radius:6px;background:#f6f1e7;box-shadow:0 2px 10px rgba(0,0,0,.12)}
@@ -343,13 +345,12 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
     return page(body).replace("<main>", '<main style="max-width:540px">', 1)
 
 
-# Papier-mâché: the read titles as concrete poetry. Every PAPIER_PER articles read makes a dinosaur
-# out of their titles; the one still being made is filled tail-first, the rest pencilled in.
-PAPIER_PER = 5
+# Papier-mâché: the read titles as concrete poetry. Every article read makes a very small dinosaur
+# out of its title, in a grid of them; tapping one shares it as a card.
 NEWSPAPER = "[Newspaper Name]"  # the masthead on a dinosaur's share card: a placeholder until there's a partner paper
 PAPIER_SCRIPT = """<script>(() => {
 const sw = document.getElementById('papier-on'), box = document.getElementById('papier');
-const data = document.getElementById('papier-data'), titles = JSON.parse(data.textContent), PER = %PER%;
+const data = document.getElementById('papier-data'), titles = JSON.parse(data.textContent);
 const panel = sw.closest('.readpanel'), list = panel.querySelector('.list'), hint = panel.querySelector('.papier-hint');
 let on = false, built = false;
 const E = (c, x, y, rx, ry, r = 0) => { c.beginPath(); c.ellipse(x, y, rx, ry, r, 0, 7); c.fill(); };
@@ -580,28 +581,35 @@ function layout(w, h, words, flip, kind, fs) {
   }
   return glyphs;
 }
-// built from the tail: left to right, or right to left when flipped
-const isBuilt = (g, w, built, flip) => built >= 1 || (flip ? g[1] >= w - w * built : g[1] <= w * built);
-function draw(canvas, words, built, flip, animate, kind) {
-  const dpr = window.devicePixelRatio || 1, w = Math.round(canvas.clientWidth), h = Math.round(w * 0.64);
+function draw(canvas, words, flip, animate, kind, delay) {
+  const dpr = window.devicePixelRatio || 1; let w = Math.round(canvas.clientWidth), h = Math.round(w * 0.64);
   canvas.style.height = h + 'px'; canvas.width = w * dpr; canvas.height = h * dpr;
-  const c = canvas.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const fs = Math.max(6, Math.round(w / 60));
-  const glyphs = layout(w, h, words, flip, kind, fs);
+  const c = canvas.getContext('2d');
+  // laid out in device pixels, so the type can be smaller than a CSS pixel allows: the silhouette
+  // reads at a glance, the headline up close
+  const W = w * dpr, H = h * dpr, fs = Math.max(3, Math.round(W / 44));
+  const glyphs = layout(W, H, words, flip, kind, fs);
+  [w, h] = [W, H];
+  // a faint silhouette under the words: legs and spikes too thin for a letter still show
+  const ghost = document.createElement('canvas'); ghost.width = w; ghost.height = h;
+  const gc = ghost.getContext('2d'); dino(gc, w, h, flip, kind);
   c.font = fs + 'px Georgia, "Times New Roman", serif'; c.textBaseline = 'middle';
   const css = getComputedStyle(document.documentElement);
-  const ink = css.getPropertyValue('--fg').trim() || '#121212', pencil = css.getPropertyValue('--line').trim() || '#e2e2e2';
-  const start = performance.now(), sweep = animate ? 900 : 0, fade = animate ? 280 : 0;
+  const ink = css.getPropertyValue('--fg').trim() || '#121212';
+  const start = performance.now() + delay, sweep = animate ? 600 : 0, fade = animate ? 240 : 0;
+  c.fillStyle = gc.fillStyle = ink; gc.globalCompositeOperation = 'source-in'; gc.fillRect(0, 0, w, h);
   const frame = now => {
     c.clearRect(0, 0, w, h);
     let busy = false;
+    const shown = fade ? Math.min(1, Math.max(0, (now - start) / (sweep + fade))) : 1;
+    c.globalAlpha = 0.12 * shown; c.drawImage(ghost, 0, 0);
+    if (shown < 1) busy = true;
     for (const g of glyphs) {
       const along = flip ? 1 - g[1] / w : g[1] / w;
       const t = fade ? Math.min(1, Math.max(0, (now - start - along * sweep - (g[2] / h) * 120) / fade)) : 1;
       if (t < 1) busy = true;
       if (t <= 0) continue;
       c.globalAlpha = t * t * (3 - 2 * t);  // smoothstep
-      c.fillStyle = isBuilt(g, w, built, flip) ? ink : pencil;
       c.fillText(g[0], g[1], g[2]);
     }
     c.globalAlpha = 1;
@@ -611,14 +619,14 @@ function draw(canvas, words, built, flip, animate, kind) {
 }
 // ---- share card ----
 // Tapping a dinosaur opens its card: a 1080 x 1080 square image on paper, with
-// the PushPin mark on top, the newspaper's masthead and the dinosaur made of its headlines.
-const PAPER = '#f6f1e7', INK = '#1a1714', PENCIL = '#d8cfc0', SERIF = 'Georgia, "Times New Roman", serif';
+// the PushPin mark on top, the newspaper's masthead and the dinosaur made of its headline.
+const PAPER = '#f6f1e7', INK = '#1a1714', SERIF = 'Georgia, "Times New Roman", serif';
 const paper = data.dataset.paper || '';
 let logo = null;
 const pin = () => logo ??= new Promise(ok => {
   const im = new Image(); im.onload = () => ok(im); im.onerror = () => ok(null); im.src = '/icon.png';
 });
-async function card(words, built, kind) {
+async function card(words, kind) {
   const W = 1080, H = 1080, M = 84, cv = document.createElement('canvas');
   cv.width = W; cv.height = H;
   const c = cv.getContext('2d');
@@ -637,11 +645,15 @@ async function card(words, built, kind) {
   let x0 = dw, x1 = 0, y0 = dh, y1 = 0;
   for (const [ch, x, y] of glyphs) { x0 = Math.min(x0, x); x1 = Math.max(x1, x + c.measureText(ch).width); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
   const dx = Math.round(W / 2 - (x0 + x1) / 2), dy = Math.round((311 + H - 46) / 2 - (y0 + y1) / 2);
-  for (const g of glyphs) { c.fillStyle = isBuilt(g, dw, built, false) ? INK : PENCIL; c.fillText(g[0], dx + g[1], dy + g[2]); }
+  const ghost = document.createElement('canvas'); ghost.width = dw; ghost.height = dh;           // its faint silhouette
+  const gc = ghost.getContext('2d'); dino(gc, dw, dh, false, kind);
+  gc.globalCompositeOperation = 'source-in'; gc.fillStyle = INK; gc.fillRect(0, 0, dw, dh);
+  c.globalAlpha = 0.1; c.drawImage(ghost, dx, dy); c.globalAlpha = 1;
+  c.fillStyle = INK; for (const g of glyphs) c.fillText(g[0], dx + g[1], dy + g[2]);
   return cv;
 }
 let sheet = null;
-function share(k, words, built, kind) {
+function share(words, kind) {
   if (!sheet) {
     sheet = document.createElement('dialog'); sheet.className = 'sharecard';
     sheet.innerHTML = '<button type="button" class="x" aria-label="Close">×</button><img alt="">'
@@ -651,10 +663,10 @@ function share(k, words, built, kind) {
     document.body.append(sheet);
   }
   const img = sheet.querySelector('img'), go = sheet.querySelector('.go'), save = sheet.querySelector('.save');
-  img.removeAttribute('src'); img.alt = 'A ' + kind.name + ' made of headlines, from PushPin';
+  img.removeAttribute('src'); img.alt = 'A ' + kind.name + ' made of the headline ' + words[0] + ', from PushPin';
   go.hidden = true; save.removeAttribute('href');
   sheet.showModal();
-  card(words, built, kind).then(cv => {
+  card(words, kind).then(cv => {
     const url = cv.toDataURL('image/png'), name = 'pushpin-' + kind.name.toLowerCase().replace(/[^a-z]+/g, '-') + '.png';
     img.src = url; save.href = url; save.download = name;
     // made before the tap, so Share runs inside it (iOS only shares from a tap)
@@ -669,21 +681,16 @@ function share(k, words, built, kind) {
 const kindOf = herd(data.dataset.seed || '');
 function build(animate) {
   box.innerHTML = '';
-  const n = titles.length, count = Math.max(1, Math.ceil(n / PER));
-  for (let k = 0; k < count; k++) {
-    const group = titles.slice(k * PER, k * PER + PER), built = group.length / PER;
-    const fig = document.createElement('figure'), canvas = document.createElement('canvas');
-    const cap = document.createElement('figcaption'), tap = document.createElement('button');
+  titles.forEach((title, k) => {  // one per article, oldest first
+    const canvas = document.createElement('canvas'), tap = document.createElement('button'), kind = kindOf(k);
     canvas.setAttribute('role', 'img');
-    const kind = kindOf(k);
-    canvas.setAttribute('aria-label', 'A ' + kind.name + ' made of the titles: ' + group.join('; '));
-    tap.type = 'button'; tap.className = 'dino'; tap.setAttribute('aria-label', 'Share the ' + kind.name);
-    tap.append(canvas); tap.addEventListener('click', () => share(k, group, built, kind));
-    cap.textContent = (k + 1) + ' · ' + kind.name + (built >= 1 ? '' : ' · ' + group.length + ' of ' + PER + ' read');
-    fig.className = k % 2 ? 'right' : 'left';  // a zig-zag down the page, each facing the middle
-    fig.append(tap, cap); box.append(fig);
-    draw(canvas, group, built, k % 2 === 1, animate, kind);
-  }
+    canvas.setAttribute('aria-label', 'A ' + kind.name + ' made of the title: ' + title);
+    tap.type = 'button'; tap.className = 'dino'; tap.title = kind.name + ' · ' + title;
+    tap.setAttribute('aria-label', 'Share the ' + kind.name + ': ' + title);
+    tap.append(canvas); tap.addEventListener('click', () => share([title], kind));
+    box.append(tap);
+    draw(canvas, [title], k % 2 === 1, animate, kind, animate ? Math.min(k, 40) * 45 : 0);  // they hatch one after another
+  });
 }
 function show(animate) {
   if (!on || built) return;
@@ -703,7 +710,7 @@ sw.addEventListener('click', () => set(!on, true));
 let off = false; try { off = localStorage.getItem('papier') === '0'; } catch (e) {}
 if (!off) set(true, false);  // on unless this reader turned it off
 let t; window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout(() => { if (on) build(false); }, 150); });
-})();</script>""".replace("%PER%", str(PAPIER_PER))
+})();</script>"""
 
 
 def papier_seed(reader: dict) -> str:
@@ -721,11 +728,11 @@ def papier(read: list[dict], seed: str = "") -> tuple[str, str, str]:
         return "", "", ""
     titles = [a["title"] or "Untitled" for a in sorted(read, key=lambda a: a["read_at"] or "")]  # oldest first
     data = json.dumps(titles).replace("</", "<\\/")
-    made = len(read) // PAPIER_PER
-    note = f"{made} dinosaur{'s' if made != 1 else ''} so far" if made else f"{PAPIER_PER - len(read)} more to your first dinosaur"
+    made = len(read)
+    note = f"{made} dinosaur{'s' if made != 1 else ''} so far"
     switch = ('<button type="button" class="pm" id="papier-on" aria-pressed="false">'
               '<span class="track"><span class="knob"></span></span>Papier-mâché</button>')
-    hint = (f'<p class="papier-hint" hidden>Every {PAPIER_PER} articles you read makes a new dinosaur · {note}'
+    hint = (f'<p class="papier-hint" hidden>Every article you read makes a new dinosaur · {note}'
             f' · Tap one to share it</p>')
     gallery = (f'<div class="papier" id="papier" hidden></div>'
                f'<script type="application/json" id="papier-data" data-seed="{html.escape(seed)}" '
@@ -733,7 +740,7 @@ def papier(read: list[dict], seed: str = "") -> tuple[str, str, str]:
     return switch, hint, gallery
 
 
-# /demo: a public profile with made-up reads, to show every kind of dinosaur (29: five and one in progress). Nothing is stored: real
+# /demo: a public profile with made-up reads, to show a herd of dinosaurs (29, one per read). Nothing is stored: real
 # opens and reads are the model's labels, so fake ones must never reach the database.
 DEMO_TITLES = [
     "The Quiet Return of the Night Train", "What the Tide Leaves Behind", "A City Learns to Love Its Rain",
@@ -783,7 +790,7 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
       GET  /u/<slug>           a reader's public profile
       GET  /stats              {"readers": n} for autoscaling (KEDA), only with header
                                X-Api-Key = $CARDS_STATS_TOKEN; 404 when that isn't set
-      GET  /demo               a public profile with 29 made-up reads (5 dinosaurs and one in progress); stores nothing
+      GET  /demo               a public profile with 29 made-up reads (29 dinosaurs, one each); stores nothing
       GET  /health             liveness
 
     The iOS app's JSON API, on when PUSHPIN_SESSION_SECRET and PUSHPIN_APPLE_BUNDLE_ID are set.

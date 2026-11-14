@@ -36,7 +36,9 @@ Details: [docs/model.md](docs/model.md) and [docs/analysis.md](docs/analysis.md)
 
 The notifier scores live NYT RSS articles and pushes to phones through [ntfy](https://ntfy.sh)
 or the iOS app. Readers choose a volume: light (2 a day: morning, night), medium (4) or heavy (8).
-Tapping a push opens the reader's profile, where reads can become papier-mâché dinosaurs. Every
+Tapping a push opens the reader's profile. Every article they read becomes a very small
+papier-mâché dinosaur made of its headline, and tapping one makes a square card to share: the
+PushPin pin, a newspaper masthead (a placeholder for now) and the dinosaur. Every
 push and tap is logged as labeled data that MIND lacks. The plan is to retrain the model each week
 on these logs. It can also deploy to GCP for about
 $1/month.
@@ -77,7 +79,7 @@ docker compose up -d scorer notifier cards tunnel   # real pushes (NTFY_TOPIC in
 | [ab-test.md](docs/ab-test.md) | The proposed A/B test and its analysis |
 | [deploy-gcp.md](docs/deploy-gcp.md), [production.md](docs/production.md) | Cloud deployment |
 | [ios-app.md](docs/ios-app.md), [live-scoring.md](docs/live-scoring.md) | iOS backend; request-time scoring |
-| [demo-screens.md](docs/demo-screens.md) | What the phone shows: push, tapped push, demo profile |
+| [demo-screens.md](docs/demo-screens.md) | What the phone shows: push, tapped push, demo profile, sharing a dinosaur |
 
 ## Status and contact
 
