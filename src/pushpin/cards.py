@@ -709,38 +709,31 @@ function draw(canvas, text, built, flip, animate, kind, delay, past) {
   requestAnimationFrame(frame);
 }
 // ---- share card ----
-// The sticker: the word art as an image, so it looks the same in any chat. The day's words in
-// serif type on a white die-cut of the shape (the outline grown by a border, like a printed
-// sticker), with a soft shadow, the PushPin pin in the top left corner and a transparent
-// background, as a PNG. In Photos on iOS 17+, long-press it and Add Sticker to use it in Messages.
-const STICKER_INK = '#1a1714';
+// The card: the word art as an image, so it looks the same in any chat. The day's words in black
+// serif type, the shape made only by the words, on a plain white card with a generous margin and
+// the PushPin pin in the top left corner, as a PNG.
+const CARD_INK = '#1a1714';
 let pinImage = null;
 const pinIcon = () => pinImage ??= new Promise(ok => {
   const im = new Image(); im.onload = () => ok(im); im.onerror = () => ok(null); im.src = '/icon.png';
 });
-async function sticker(day, kind) {
+async function wordCard(day, kind) {
   const W = 1200, H = 768, shape = silhouette(W, H, day.flip, kind);
   const {glyphs, fs} = fitted(W, H, day.text, shape, Math.round(W / 4));
-  let x0 = W, x1 = 0, y0 = H, y1 = 0;
-  for (let y = 0; y < H; y += 2) for (let x = 0; x < W; x += 2) if (shape(x, y)) {
-    x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+  let x0 = W, x1 = 0, y0 = H, y1 = 0;  // the words' own extent
+  const c0 = document.createElement('canvas').getContext('2d'); c0.font = fs + 'px Georgia, "Times New Roman", serif';
+  for (const [ch, x, y] of glyphs) {
+    x0 = Math.min(x0, x); x1 = Math.max(x1, x + c0.measureText(ch).width); y0 = Math.min(y0, y - fs / 2); y1 = Math.max(y1, y + fs / 2);
   }
-  const B = 26, P = B + 34, ox = P - x0, oy = P - y0;  // border, then room for the shadow
-  const out = document.createElement('canvas'); out.width = x1 - x0 + 2 * P; out.height = y1 - y0 + 2 * P;
-  const mask = document.createElement('canvas'); mask.width = W; mask.height = H;
-  dino(mask.getContext('2d'), W, H, day.flip, kind);
-  const cut = document.createElement('canvas'); cut.width = out.width; cut.height = out.height;
-  const cc = cut.getContext('2d');
-  for (let a = 0; a < 48; a++) cc.drawImage(mask, ox + B * Math.cos(a * Math.PI / 24), oy + B * Math.sin(a * Math.PI / 24));
-  cc.drawImage(mask, ox, oy);
-  cc.globalCompositeOperation = 'source-in'; cc.fillStyle = '#fff'; cc.fillRect(0, 0, cut.width, cut.height);
+  const M = Math.round(Math.max(x1 - x0, y1 - y0) * 0.12) + 40, pin = 72;  // margin, with room for the pin
+  const out = document.createElement('canvas');
+  out.width = Math.round(x1 - x0 + 2 * M); out.height = Math.round(y1 - y0 + 2 * M);
   const c = out.getContext('2d');
-  c.shadowColor = 'rgba(0,0,0,.28)'; c.shadowBlur = 24; c.shadowOffsetY = 8; c.drawImage(cut, 0, 0);
-  c.shadowColor = 'transparent';
-  c.font = fs + 'px Georgia, "Times New Roman", serif'; c.textBaseline = 'middle'; c.fillStyle = STICKER_INK;
-  for (const g of glyphs) c.fillText(g[0], ox + g[1], oy + g[2]);
+  c.fillStyle = '#fff'; c.fillRect(0, 0, out.width, out.height);
+  c.font = fs + 'px Georgia, "Times New Roman", serif'; c.textBaseline = 'middle'; c.fillStyle = CARD_INK;
+  for (const g of glyphs) c.fillText(g[0], M - x0 + g[1], M - y0 + g[2]);
   const im = await pinIcon();
-  if (im) c.drawImage(im, 8, 8, 84, 84);
+  if (im) c.drawImage(im, Math.round(M * 0.3), Math.round(M * 0.3), pin, pin);
   return out;
 }
 let sheet = null;
@@ -755,10 +748,10 @@ function share(day, kind) {
     document.body.append(sheet);
   }
   const img = sheet.querySelector('img'), go = sheet.querySelector('.go'), save = sheet.querySelector('.save'), copy = sheet.querySelector('.copy');
-  img.removeAttribute('src'); img.alt = 'A ' + kind.name + ' sticker made of the day’s articles';
+  img.removeAttribute('src'); img.alt = 'A ' + kind.name + ' made of the day’s articles, on a white card';
   go.hidden = copy.hidden = true; save.removeAttribute('href'); copy.textContent = 'Copy';
   sheet.showModal();
-  sticker(day, kind).then(cv => {
+  wordCard(day, kind).then(cv => {
     const url = cv.toDataURL('image/png'), name = 'pushpin-' + day.seed.split(':').pop() + '-' + kind.name.toLowerCase().replace(/[^a-z]+/g, '-') + '.png';
     img.src = url; save.href = url; save.download = name;
     cv.toBlob(b => {  // made before the tap on Share, which iOS needs to share a file
