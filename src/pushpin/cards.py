@@ -148,16 +148,16 @@ VOLUME_LABELS = {"light": ("Light", "up to 2"), "medium": ("Medium", "up to 4"),
 
 def volume_picker(current: str | None, caps: dict | None = None, ask: bool = False) -> str:
     """Light / medium / heavy buttons, the reader's choice pressed (medium until they choose).
-    `ask`: as a question, with a hint (the welcome page)."""
+    `ask`: as a question, with a hint (the welcome page); nothing pressed until they choose."""
     e = html.escape
-    current = current or DEFAULT_VOLUME
+    current = current or (None if ask else DEFAULT_VOLUME)
     buttons = "".join(
         f'<button data-volume="{v}" aria-pressed="{"true" if v == current else "false"}">{e(VOLUME_LABELS[v][0])}'
         f'<small>{e(f"up to {caps[v]}" if caps else VOLUME_LABELS[v][1])}</small></button>' for v in VOLUMES)
     if not ask:
         return f'<div class="volume"><p>Pushes a day</p><div class="row">{buttons}</div></div>'
     return (f'<div class="volume"><p>How many pushes a day?</p><div class="hint">Only sent when there\'s '
-            f'a story worth it, so some days get fewer.</div><div class="row">{buttons}</div></div>')
+            f'a story worth it, so some days get fewer. You can always change it later.</div><div class="row">{buttons}</div></div>')
 
 
 def start_page(reader: dict | None, caps: dict | None = None) -> str:

@@ -213,6 +213,7 @@ def test_volume_choice_sets_the_daily_cap(setup):
         with pytest.raises(urllib.error.HTTPError) as e:
             post("/volume", b"lots")
         assert e.value.code == 404
+        assert 'aria-pressed="true"' not in start and "You can always change it later." in start  # no default
         assert 'location.assign("/me")' in start  # choosing on the welcome page goes on to the profile
         post("/volume", b"light")
         assert 'data-volume="light" aria-pressed="true"' in get("/start")
