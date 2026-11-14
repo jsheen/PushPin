@@ -39,7 +39,7 @@ import jwt
 import yaml
 
 from pushpin import apple
-from pushpin.store import MAX_FAVORITES, VOLUMES, Store
+from pushpin.store import DEFAULT_VOLUME, MAX_FAVORITES, VOLUMES, Store
 
 # the red pushpin (scripts/make_icons.py): browser tab, home screen, ntfy's notification icon
 ASSETS = Path(__file__).parent / "assets"
@@ -145,13 +145,15 @@ def page(body: str) -> str:
 VOLUME_LABELS = {"light": ("Light", "up to 2"), "medium": ("Medium", "up to 4"), "heavy": ("Heavy", "up to 8")}
 
 
-def volume_picker(current: str | None, caps: dict | None = None) -> str:
-    """Light / medium / heavy buttons. Before the reader has chosen, with a prompt."""
+def volume_picker(current: str | None, caps: dict | None = None, ask: bool = False) -> str:
+    """Light / medium / heavy buttons, the reader's choice pressed (medium until they choose).
+    `ask`: as a question, with a hint (the welcome page)."""
     e = html.escape
+    current = current or DEFAULT_VOLUME
     buttons = "".join(
         f'<button data-volume="{v}" aria-pressed="{"true" if v == current else "false"}">{e(VOLUME_LABELS[v][0])}'
         f'<small>{e(f"up to {caps[v]}" if caps else VOLUME_LABELS[v][1])}</small></button>' for v in VOLUMES)
-    if current:
+    if not ask:
         return f'<div class="volume"><p>Pushes a day</p><div class="row">{buttons}</div></div>'
     return (f'<div class="volume"><p>How many pushes a day?</p><div class="hint">Only sent when there\'s '
             f'a story worth it, so some days get fewer.</div><div class="row">{buttons}</div></div>')
@@ -161,7 +163,7 @@ def start_page(reader: dict | None, caps: dict | None = None) -> str:
     """The welcome push's page: pick how many pushes a day, before the first real one."""
     return page(f"""<h1>PushPin</h1><p class="abstract">A few NYT stories a day, picked for you. Tap a
 push to pin it, then Read it or keep it; that's how it learns what you like.</p>
-{volume_picker((reader or {}).get("volume"), caps)}{OWNER_SCRIPT}""")
+{volume_picker((reader or {}).get("volume"), caps, ask=not (reader or {}).get("volume"))}{OWNER_SCRIPT}""")
 
 
 PROFILE_SCRIPT = """<script>
@@ -304,7 +306,7 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
                   f'Make my reading public</label><p class="share"{"" if public else " hidden"}>Anyone with this link '
                   f'can see what you’ve read: <a href="{e(share_url)}">{e(share_url)}</a></p>'
                   f'<p class="note" aria-live="polite"></p>'
-                  + (volume_picker(reader.get("volume"), caps) if reader.get("volume") else ""))
+                  + volume_picker(reader.get("volume"), caps))  # always at the bottom
     elif public:
         bottom = articles
     else:
@@ -320,9 +322,8 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
     if not owner:  # the public link opens with a short summary
         stats = [("Read", n), *([("Daily streak", days)] if days else [])] if public else []
         intro = splash(title, stats)
-    if owner:  # the pinned push first; until they choose, the pushes-a-day question next
-        intro = ((pin_panel(pinned, fav_ids) if pinned else "")
-                 + ("" if reader.get("volume") else volume_picker(None, caps)))
+    if owner:  # the pinned push first
+        intro = pin_panel(pinned, fav_ids) if pinned else ""
     body = (f'{intro}<div class="profile"><header><h1>{title}</h1>{count}{sub}{ask_name}</header>{top}'
             f'<section>{bottom}</section></div>{scripts}')
     return page(body).replace("<main>", '<main style="max-width:540px">', 1)
@@ -725,7 +726,7 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
 
     def profile_json(reader_id: str, base: str) -> dict:
         reader, read = store.reader(reader_id), store.articles_read(reader_id)
-        return {"reader": {"name": reader["name"], "volume": reader["volume"], "public": bool(reader["history_public"])},
+        return {"reader": {"name": reader["name"], "volume": reader["volume"] or DEFAULT_VOLUME, "public": bool(reader["history_public"])},
                 "share_url": f"{base}/u/{store.slug(reader_id)}", "caps": caps or {},
                 "creme": store.favorites(reader_id), "pinned": store.pinned_unread(reader_id), "read": read,
                 "streak": streak(read, date.fromisoformat(store.now()[:10]))}

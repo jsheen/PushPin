@@ -44,6 +44,7 @@ from sqlalchemy import BigInteger, Boolean, Text, create_engine, inspect, text
 ARTICLE_COLUMNS = ["news_id", "title", "abstract", "section", "url", "published"]
 KINDS = ("open", "read")  # recorded per reader: the push tapped (pinned), then Read tapped
 VOLUMES = ("light", "medium", "heavy")  # push volume a reader can ask for (caps in configs/notifier.yml)
+DEFAULT_VOLUME = "medium"  # until a reader chooses (readers.volume stays NULL: not chosen)
 MAX_FAVORITES = 1  # the Crème: a reader's one top article
 # reader columns added after the first release, created on older databases
 READER_COLUMNS = {"volume": "TEXT", "volume_at": "TEXT", "slug": "TEXT", "history_public": "INTEGER DEFAULT 0",

@@ -37,7 +37,7 @@ Each slot:
 3. Picks the top article with the push objective (friction from `configs/objective.yml`).
 4. Sends it through [ntfy](https://ntfy.sh) if it passes the send policy and this is one of the
    reader's push hours (see [Push volume](#push-volume)): 2, 4 or 8 a day for light, medium or
-   heavy, spread over the day, and 3 until they choose.
+   heavy, spread over the day; medium until they choose.
 5. Writes every candidate to the database.
 
 ## Pin, then the profile
@@ -81,7 +81,8 @@ spread over the day (`volume_slots` in `configs/notifier.yml`):
 | **Light** | up to 2 | 9 (morning), 21 (night) |
 | **Medium** | up to 4 | 9, 13 (early afternoon), 17 (late afternoon), 21 |
 | **Heavy** | up to 8 | every slot: 7, 9, 11, 13, 15, 17, 19, 21 |
-| Not chosen yet | up to 3 | 9, 15, 21 (`start_slots`) |
+
+Until a reader chooses, they get medium (`DEFAULT_VOLUME` in `src/pushpin/store.py`).
 
 A reader is only scored at their own hours. The numbers are ceilings: an hour only sends if its
 top article clears the send policy, so a quiet news day sends fewer, and a skipped hour isn't
@@ -90,8 +91,8 @@ made up later.
 - **At the start:** `python -m pushpin.notifier --welcome` sends a welcome push that opens
   `/start`, a page with the three buttons. Opening it creates the reader, so pushes from then on
   count for them.
-- **On any card:** until the reader has chosen, the buttons sit above the headline with the
-  question "How many pushes a day?"; afterwards they move to the bottom, to change any time.
+- **On the profile:** the buttons are always at the bottom, with the reader's choice (or medium)
+  pressed, to change any time.
 
 The choice is stored on the reader (`readers.volume`, `volume_at`) and each slot reads it. All
 subscribers to the ntfy topic get the same pushes, so with several readers the most recent

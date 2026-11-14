@@ -204,7 +204,7 @@ def test_readers_tracked_separately(setup):
 def test_volume_choice_sets_the_daily_cap(setup):
     n, store, _sent, db = setup
     n.cfg["volume_caps"] = {"light": 1, "medium": 2, "heavy": 4}
-    assert n.daily_cap() == 2  # nobody has chosen: the config's daily_cap
+    assert n.daily_cap() == 2  # nobody has chosen: medium
     server = cards.serve_cards(store, 0, caps=n.cfg["volume_caps"])
     get, post = phone(f"http://127.0.0.1:{server.server_address[1]}")
     try:
@@ -272,7 +272,7 @@ def test_profile_favorites_and_public_history(setup):
             post("/favorite/NYT-never-read")
         assert e.value.code == 404
         me = get("/me")
-        assert me.count('aria-pressed="true"') == 2  # the Crème, starred on top and in the list
+        assert me.split('class="volume"')[0].count('aria-pressed="true"') == 2  # the Crème, starred on top and in the list (the volume buttons come after)
 
         link = re.search(r'href="(http://[^"]+/u/([^"]+))"', me)
         public = stranger_get(f"/u/{link.group(2)}")
@@ -406,18 +406,19 @@ def test_reader_can_delete_pinned_and_read_articles(setup):
         server.shutdown()
 
 
-def test_profile_asks_for_volume_until_chosen(setup):
+def test_profile_volume_is_at_the_bottom_and_medium_by_default(setup):
     n, store, sent, _db = setup
     n.run_slot(pd.Timestamp("2026-11-12 12:00"))
     push_id = sent[0][4].rsplit("/", 1)[1]
     reader = store.new_reader(store.push(push_id)["sent_ts"])
     show = lambda: cards.profile_page(store.reader(reader), [], [], owner=True, pinned=store.push(push_id, reader))
-    ask = show()
-    assert "How many pushes a day?" in ask and ask.index('class="pin"') < ask.index("How many pushes a day?")
-    store.set_volume(reader, "medium")
-    chosen = show()
-    assert "How many pushes a day?" not in chosen and 'data-volume="medium" aria-pressed="true"' in chosen
-    assert chosen.index('class="toggle"') < chosen.index('class="volume"')  # at the bottom once chosen
+    for volume in (None, "heavy"):  # before choosing (medium), and after
+        if volume:
+            store.set_volume(reader, volume)
+        page = show()
+        assert "How many pushes a day?" not in page and page.count('class="volume"') == 1
+        assert f'data-volume="{volume or "medium"}" aria-pressed="true"' in page
+        assert page.index('class="pin"') < page.index('class="toggle"') < page.index('class="volume"')  # at the bottom
 
 
 def test_reader_not_labeled_for_pushes_before_they_joined(setup):

@@ -10,7 +10,6 @@ volume_slots:
   light: [9, 21]                          # morning, night
   medium: [9, 13, 17, 21]                 # morning, early afternoon, late afternoon, night
   heavy: [7, 9, 11, 13, 15, 17, 19, 21]   # every slot
-start_slots: [9, 15, 21]        # until the reader picks a volume (3 a day)
 user_id: null                   # null = a brand-new user (no history: cold start); or a MIND id, e.g. U12345, as a persona
 objective: configs/objective.yml  # friction, threshold, risk_penalty
 ntfy_server: https://ntfy.sh

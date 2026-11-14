@@ -50,7 +50,7 @@ from pushpin.apple import Apns
 from pushpin.cards import open_store
 from pushpin.objective import push_scores, send_decisions
 from pushpin.push_job import HttpScorer
-from pushpin.store import ARTICLE_COLUMNS, Store
+from pushpin.store import ARTICLE_COLUMNS, DEFAULT_VOLUME, Store
 
 NEW_USER_PREFIX = "new-"  # MIND ids look like U12345, so these never collide
 
@@ -176,7 +176,7 @@ class Notifier:
         one shared audience (everyone subscribed gets the same push), kept when there's a topic,
         or when there's nobody else (a dry run on a fresh setup). With `now`, only the audiences
         whose volume pushes at this hour (see `push_hours`)."""
-        readers = [{"reader_id": r["reader_id"], "user_id": r["scorer_user"], "volume": r["volume"]}
+        readers = [{"reader_id": r["reader_id"], "user_id": r["scorer_user"], "volume": r["volume"] or DEFAULT_VOLUME}
                    for r in self.store.app_readers(lambda: new_user_id(None))]
         if self.topic or not readers:
             readers.insert(0, {"reader_id": None, "user_id": self.user_id, "volume": None})
@@ -189,15 +189,12 @@ class Notifier:
         return out
 
     def push_hours(self, volume: str | None = None) -> list[int] | None:
-        """The hours a volume pushes at: its `volume_slots`, or `start_slots` before the reader
-        chooses. Without a volume, the broadcast's: the latest choice made on a web card or the
-        start page. None when the config doesn't set them (every slot, capped by `daily_cap`)."""
-        volume = volume or self.store.volume()
+        """The hours a volume pushes at, from `volume_slots`. Without a volume, the broadcast's: the
+        latest choice made on a web card or the start page, or medium if nobody has chosen. None when
+        the config doesn't set them (every slot, capped by `daily_cap`)."""
+        volume = volume or self.store.volume() or DEFAULT_VOLUME
         slots = self.cfg.get("volume_slots") or {}
-        if volume in slots:
-            return [int(h) for h in slots[volume]]
-        start = self.cfg.get("start_slots")
-        return [int(h) for h in start] if start is not None else None
+        return [int(h) for h in slots[volume]] if volume in slots else None
 
     def run_slot(self, now: pd.Timestamp | None = None) -> dict:
         """One slot for every audience. Returns the broadcast's result (when there is one) with
@@ -308,9 +305,9 @@ class Notifier:
 
     def daily_cap(self, volume: str | None = None) -> int:
         """Pushes a day: the reader's choice (light / medium / heavy) mapped through `volume_caps`,
-        else how many `push_hours` it has; before they choose, `daily_cap`. Without a volume, the
-        broadcast's: the latest choice made on a web card or the start page."""
-        volume = volume or self.store.volume()
+        else how many `push_hours` it has, else `daily_cap`. Medium until they choose. Without a
+        volume, the broadcast's: the latest choice made on a web card or the start page."""
+        volume = volume or self.store.volume() or DEFAULT_VOLUME
         caps = self.cfg.get("volume_caps") or {}
         if volume in caps:
             return int(caps[volume])
