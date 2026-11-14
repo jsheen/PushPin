@@ -13,10 +13,10 @@ the body.
 
 *Mockup: how iOS draws a notification depends on the ntfy app and the phone's settings.*
 
-## 2. Tapping the push
+## 2. Pinning the push
 
-The tap opens `/p/<push_id>`. That records the open, which is the click the model learns from,
-and shows the reader's profile with the article pinned on top:
+Tapping a push pins it. The tap opens `/p/<push_id>`, which records the open (the click the model
+learns from) and shows the reader's profile with the article pinned on top:
 
 - **Read** opens the story on nytimes.com and moves the article to Read.
 - Below it is the reader's profile:
@@ -32,7 +32,7 @@ and shows the reader's profile with the article pinned on top:
 This sample reader has pinned 9 recent pushes, read 6 of them, and starred one as their Crème.
 The data was set up on a copy of the database, not on a real reader.
 
-<img src="screens/push-tapped.png" width="300" alt="Page opened by tapping a push: the pinned article with a Read button, then the reader's profile">
+<img src="screens/push-tapped.png" width="300" alt="Pinning a push: the pinned article with a Read button, then the reader's profile">
 
 ## 3. The demo profile
 
