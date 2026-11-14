@@ -343,6 +343,26 @@ The same services deploy to GCP:
 `--apply`. About $1/month; not yet applied to a real project. See
 [docs/deploy-gcp.md](docs/deploy-gcp.md).
 
+### Proposed A/B test
+
+The NYT's own push strategy appears to send many pushes a day to everyone. PushPin is more
+selective: readers opt in to a number of pushes a day (light, medium or heavy), and the model
+picks which articles fill those slots. An A/B test could compare three arms:
+
+| Arm | Pushes | Papier-mâché (dinosaurs) |
+|-----|--------|--------------------------|
+| A | NYT-style: many a day, same for everyone | — |
+| B | Selective: the reader's chosen volume, model-picked | Off |
+| C | Selective: the reader's chosen volume, model-picked | On |
+
+A vs. B tests the selective push strategy; B vs. C tests whether the dinosaurs add engagement on
+top of it. A rule assigns each reader to an arm, for example a hash of `reader_id`, so a reader
+always stays in the same arm. The arm is stored on the reader, and in arms A and B the
+papier-mâché switch is hidden. The interactions table already gives the outcomes to compare:
+click-through per push, return rate (days with at least one read), and opt-outs or lowered push
+volume. Clicks are also the model's training labels, so the arm should be kept as a feature or
+filter when retraining. That way clicks the dinosaurs encourage don't bias the model.
+
 ## Development
 
 ```bash
@@ -385,4 +405,4 @@ Also `outputs/analysis/`, `outputs/nyt-sim/` and `outputs/notifier/pushes.db`.
 
 These programs are a work in progress, as we work to improve usability, error-catching, and speed of analysis. If you find errors, please contact Justin Sheen at justinksheen (at) gmail (dot) com
 
-Last Update: November 12, 2026
+Last Update: November 13, 2026
