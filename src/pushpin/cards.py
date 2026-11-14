@@ -748,14 +748,15 @@ function share(day, kind) {
   if (!sheet) {
     sheet = document.createElement('dialog'); sheet.className = 'sharecard';
     sheet.innerHTML = '<button type="button" class="x" aria-label="Close">×</button><img alt="">'
-      + '<div class="row"><button type="button" class="go">Share</button><a class="save" download>Save image</a></div>';
+      + '<div class="row"><button type="button" class="go">Share</button><button type="button" class="copy">Copy</button>'
+      + '<a class="save" download>Save</a></div>';
     sheet.querySelector('.x').addEventListener('click', () => sheet.close());
     sheet.addEventListener('click', ev => { if (ev.target === sheet) sheet.close(); });  // the backdrop
     document.body.append(sheet);
   }
-  const img = sheet.querySelector('img'), go = sheet.querySelector('.go'), save = sheet.querySelector('.save');
+  const img = sheet.querySelector('img'), go = sheet.querySelector('.go'), save = sheet.querySelector('.save'), copy = sheet.querySelector('.copy');
   img.removeAttribute('src'); img.alt = 'A ' + kind.name + ' sticker made of the day’s articles';
-  go.hidden = true; save.removeAttribute('href');
+  go.hidden = copy.hidden = true; save.removeAttribute('href'); copy.textContent = 'Copy';
   sheet.showModal();
   sticker(day, kind).then(cv => {
     const url = cv.toDataURL('image/png'), name = 'pushpin-' + day.seed.split(':').pop() + '-' + kind.name.toLowerCase().replace(/[^a-z]+/g, '-') + '.png';
@@ -764,6 +765,10 @@ function share(day, kind) {
       const payload = {files: [new File([b], name, {type: 'image/png'})]};
       go.hidden = !(navigator.canShare && navigator.canShare(payload));
       go.onclick = () => navigator.share(payload).catch(() => null);
+      // Copy puts the image itself on the clipboard, to paste straight into a message
+      copy.hidden = !(navigator.clipboard && navigator.clipboard.write && window.ClipboardItem);
+      copy.onclick = () => navigator.clipboard.write([new ClipboardItem({'image/png': b})])
+        .then(() => { copy.textContent = 'Copied'; }, () => { copy.textContent = 'Couldn’t copy'; });
     }, 'image/png');
   });
 }

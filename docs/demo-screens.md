@@ -40,14 +40,15 @@ today's word art".
 
 ## 4. Sharing a picture
 
-Tapping a finished picture makes it a sticker: everything read that day, every title with its whole
-abstract, written into the shape on a white die-cut with a soft shadow and the PushPin pin in the
-corner, as a PNG with a transparent background. It looks the same in any chat, in light or dark
-mode, and each one is unique to its reader and day. **Share** opens the phone's share sheet with the
-image; **Save image** downloads it. On iOS 17+, long-press it in Photos and choose Add Sticker to
-use it as a sticker in Messages.
+Tapping a finished picture makes it a sticker: everything read that day, every title with its
+whole abstract, written into the shape on a white die-cut with a soft shadow and the PushPin pin
+in the corner, as a PNG with a transparent background. It looks the same in any chat, in light or
+dark mode, and each one is unique to its reader and day. **Share** opens the phone's share sheet
+with the image, **Copy** puts the image on the clipboard to paste into a message, and **Save**
+downloads it. On iOS 17+, long-press it in Photos and choose Add Sticker to use it as a sticker in
+Messages.
 
-<img src="screens/share-sheet.png" width="300" alt="Share sheet on the demo profile: the snowman sticker made of the day's articles, with Share and Save image buttons">
+<img src="screens/share-sheet.png" width="300" alt="Share sheet on the demo profile: the snowman sticker made of the day's articles, with Share, Copy and Save buttons">
 
 The demo's snowman and Brontosaurus, each made of the four articles read that day:
 
