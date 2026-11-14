@@ -81,11 +81,13 @@ box-shadow:0 1px 2px rgba(0,0,0,.3);transition:transform .25s ease}
 .pm[aria-pressed=true]{color:var(--fg)}.pm[aria-pressed=true] .track{background:var(--on)}.pm[aria-pressed=true] .knob{transform:translateX(11px)}
 .papier-hint{font-size:14px;color:var(--muted);margin:0 0 14px}
 .papier{opacity:0;transition:opacity .5s ease;margin-top:4px;display:grid;grid-template-columns:repeat(4,1fr);gap:10px 8px}
-.papier.on{opacity:1}.papier[hidden]{display:none}.papier figure{margin:0}
-.papier figure canvas{display:block;width:100%}.papier .still{cursor:default}.papier .still:hover{background:none}
-.papier canvas{display:block;width:100%}.papier .dino{display:block;box-sizing:border-box;width:100%;padding:4px 2px;border:0;border-radius:8px;background:none;cursor:pointer;
--webkit-tap-highlight-color:transparent;transition:transform .2s ease,background .2s ease}.papier .dino:hover{background:var(--btn)}
-.papier .dino:active{transform:scale(.94)}
+.papier.on{opacity:1}.papier[hidden]{display:none}
+.papier-today{margin:0 0 18px}.papier-today h3{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:0 0 6px}
+.papier-today figure{margin:0 auto;width:min(100%,340px)}.papier-today canvas{display:block;width:100%}.papier figure{margin:0}
+.papier figure canvas{display:block;width:100%}.papier .still,.papier-today .still{cursor:default}.papier .still:hover,.papier-today .still:hover{background:none}
+.papier canvas{display:block;width:100%}.papier .dino,.papier-today .dino{display:block;box-sizing:border-box;width:100%;padding:4px 2px;border:0;border-radius:8px;background:none;cursor:pointer;
+-webkit-tap-highlight-color:transparent;transition:transform .2s ease,background .2s ease}.papier .dino:hover,.papier-today .dino:hover{background:var(--btn)}
+.papier .dino:active,.papier-today .dino:active{transform:scale(.94)}
 .sharecard{border:0;padding:44px 16px 16px;border-radius:18px;background:var(--bg);color:var(--fg);width:min(92vw,420px);
 box-sizing:border-box;box-shadow:0 24px 80px rgba(0,0,0,.35)}.sharecard::backdrop{background:rgba(0,0,0,.55)}
 .sharecard img{display:block;max-width:100%;max-height:58vh;margin:0 auto;min-height:120px;object-fit:contain}
@@ -205,7 +207,20 @@ document.querySelectorAll("button[data-volume]").forEach(b => b.addEventListener
   document.querySelectorAll("button[data-volume]").forEach(x => x.setAttribute("aria-pressed", x === b))));
 const pub = document.querySelector("#public");
 if (pub) pub.addEventListener("change", () => { document.querySelector(".share").hidden = !pub.checked; });
-document.querySelectorAll("button[data-del]").forEach(b => b.addEventListener("click", () => b.closest("li").remove()));
+// ×: gone from the list, and out of its day's count (read or pinned), so the pictures redraw
+document.querySelectorAll("button[data-del]").forEach(b => b.addEventListener("click", () => {
+  const li = b.closest("li"), day = li.dataset.day, wasRead = !li.querySelector("a[data-read]"), title = li.querySelector("a").textContent;
+  li.remove();
+  const h = [...document.querySelectorAll(".profile h2")].find(x => x.textContent.startsWith(wasRead ? "Read" : "Pinned"));
+  const n = h && h.querySelector(".n");
+  if (n) n.textContent = Math.max(0, +n.textContent - 1);  // the header's count
+  const el = document.getElementById("papier-data"), days = el && JSON.parse(el.textContent), d = days && days.find(x => x.day === day);
+  if (!d) return;
+  d.pinned -= 1;
+  if (wasRead) { d.read -= 1; const i = d.titles.indexOf(title); if (i >= 0) { d.titles.splice(i, 1); d.abstracts.splice(i, 1); } }
+  if (d.pinned <= 0) days.splice(days.indexOf(d), 1);
+  el.textContent = JSON.stringify(days); dispatchEvent(new Event("papier:update"));
+}));
 const who = document.querySelector(".who");
 if (who) who.addEventListener("submit", ev => ev.preventDefault());
 </script>"""
@@ -281,7 +296,8 @@ def profile_page(reader: dict, read: list[dict], owner: bool, share_url: str = "
             button = (f'<button class="del" data-del="{e(a["news_id"])}" data-confirm="{e(ask)}" '
                       f'aria-label="Delete">×</button>')
         read_tap = f' data-read="{e(a["push_id"])}"' if a.get("push_id") else ""  # a pinned one: tapping reads it
-        return (f'<li><div><a href="{e(a["url"] or "#")}"{read_tap}>{e(a["title"] or "Untitled")}</a>'
+        day = a.get("day") or (a.get("read_at") or "")[:10]  # which day's picture it's in (the demo redraws by it)
+        return (f'<li{f' data-day="{e(day)}"' if day else ""}><div><a href="{e(a["url"] or "#")}"{read_tap}>{e(a["title"] or "Untitled")}</a>'
                 f'</div>{button}</li>')
 
     top = ""
@@ -301,9 +317,9 @@ def profile_page(reader: dict, read: list[dict], owner: bool, share_url: str = "
     # Read n (Daily streak d), with the Papier-mâché switch on the right, then the list. A private
     # list on a public link shows only that header: no titles, so no switch and no dinosaurs.
     shown = owner or public  # Papier-mâché only uses titles the page already shows
-    switch, hint, gallery = papier(read, days, today or date.today()) if shown else ("", "", "")
+    switch, hint, gallery, today_art = papier(read, days, today or date.today()) if shown else ("", "", "", "")
     head = f'<div class="readhead"><h2>Read <span class="n">{n}</span>{on_a_roll}</h2>{switch}</div>'
-    articles = (f'<div class="readpanel">{head}{hint}<ul class="list">{"".join(item(a, owner) for a in read)}</ul>'
+    articles = (f'<div class="readpanel">{head}{today_art}{hint}<ul class="list">{"".join(item(a, owner) for a in read)}</ul>'
                 f'{gallery}</div>' if read
                 else '<h2>Read</h2><p class="empty">Nothing yet. Tap Read on a push to start.</p>')
     if owner:
@@ -340,7 +356,8 @@ def profile_page(reader: dict, read: list[dict], owner: bool, share_url: str = "
 # when all of them are; tapping a finished one shares it as text.
 PAPIER_SCRIPT = """<script>(() => {
 const sw = document.getElementById('papier-on'), box = document.getElementById('papier');
-const data = document.getElementById('papier-data'), days = JSON.parse(data.textContent);
+const data = document.getElementById('papier-data');
+let days = JSON.parse(data.textContent);
 const panel = sw.closest('.readpanel'), list = panel.querySelector('.list'), hint = panel.querySelector('.papier-hint');
 let on = false, built = false;
 const E = (c, x, y, rx, ry, r = 0) => { c.beginPath(); c.ellipse(x, y, rx, ry, r, 0, 7); c.fill(); };
@@ -852,32 +869,53 @@ function dayText(d) {
   return {text, flip, parts, seed};
 }
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-function build(animate) {
-  box.innerHTML = '';
-  days.forEach((d, k) => {  // one picture a day, oldest first, made of that day's read headlines
-    const kind = kindFor(d.day), day = dayText(d), done = d.pinned > 0 && d.read >= d.pinned, built = d.pinned ? Math.min(1, d.read / d.pinned) : 0;
-    const past = d.day < (data.dataset.today || '');
-    const when = MONTHS[+d.day.slice(5, 7) - 1] + ' ' + +d.day.slice(8, 10);
-    const fig = document.createElement('figure'), canvas = document.createElement('canvas'), cap = document.createElement('figcaption');
-    canvas.setAttribute('role', 'img');
-    canvas.setAttribute('aria-label', 'A ' + kind.name + ' for ' + when + ', ' + d.read + ' of ' + d.pinned + ' pinned pushes read'
-                        + (d.titles.length ? ': ' + d.titles.join('; ') : ''));
+// One day's picture: a figure with the canvas (tap to share it) and, in the grid, its date caption.
+function picture(d, k, animate, caption = true) {
+  const kind = kindFor(d.day), day = dayText(d), done = d.pinned > 0 && d.read >= d.pinned, built = d.pinned ? Math.min(1, d.read / d.pinned) : 0;
+  const past = d.day < (data.dataset.today || '');
+  const when = MONTHS[+d.day.slice(5, 7) - 1] + ' ' + +d.day.slice(8, 10);
+  const fig = document.createElement('figure'), canvas = document.createElement('canvas');
+  canvas.setAttribute('role', 'img');
+  canvas.setAttribute('aria-label', 'A ' + kind.name + ' for ' + when + ', ' + d.read + ' of ' + d.pinned + ' pinned pushes read'
+                      + (d.titles.length ? ': ' + d.titles.join('; ') : ''));
+  if (built > 0 || past) {  // tap to share it (unfinished: today, the part revealed; a past day, the whole die-cut, blank where missed)
+    const tap = document.createElement('button'), named = done || past;
+    tap.type = 'button'; tap.className = 'dino'; tap.title = (named ? kind.name + ' · ' : '') + when;
+    tap.setAttribute('aria-label', 'Share the ' + (named ? kind.name : 'picture') + ' for ' + when);
+    tap.append(canvas); tap.addEventListener('click', () => share(day, kind, built, past));
+    fig.append(tap);
+  } else {
+    const still = document.createElement('div');  // today, nothing read: nothing to share yet
+    still.className = 'dino still'; still.title = 'Read ' + when + '’s pushes to make its word art';
+    still.append(canvas); fig.append(still);
+  }
+  if (caption) {
+    const cap = document.createElement('figcaption');
     cap.textContent = when + (done ? '' : ' · ' + d.read + '/' + d.pinned);
-    if (built > 0 || past) {  // tap to share it (unfinished: today, the part revealed; a past day, the whole die-cut, blank where missed)
-      const tap = document.createElement('button'), named = done || past;
-      tap.type = 'button'; tap.className = 'dino'; tap.title = (named ? kind.name + ' · ' : '') + when;
-      tap.setAttribute('aria-label', 'Share the ' + (named ? kind.name : 'picture') + ' for ' + when);
-      tap.append(canvas); tap.addEventListener('click', () => share(day, kind, built, past));
-      fig.append(tap);
-    } else {
-      const still = document.createElement('div');  // today, nothing read: nothing to share yet
-      still.className = 'dino still'; still.title = 'Read ' + when + '’s pushes to make its word art';
-      still.append(canvas); fig.append(still);
-    }
-    fig.append(cap); box.append(fig);
-    draw(canvas, day.text, built, day.flip, animate, kind, animate ? Math.min(k, 40) * 45 : 0, past);
+    fig.append(cap);
+  }
+  return [fig, () => draw(canvas, day.text, built, day.flip, animate, kind, animate ? Math.min(k, 40) * 45 : 0, past)];
+}
+const TODAY = data.dataset.today || '';
+function build(animate) {  // the grid: every day but today, which has its own place on top
+  box.innerHTML = '';
+  days.filter(d => d.day !== TODAY).forEach((d, k) => {
+    const [fig, paint] = picture(d, k, animate);
+    box.append(fig); paint();
   });
 }
+// Today's read, on top of the panel in both modes (the list and the pictures): today's word art so far.
+const top = document.getElementById('papier-today');
+function today() {
+  if (!top) return;
+  const d = days.find(x => x.day === TODAY) || {day: TODAY, pinned: 0, read: 0, titles: [], abstracts: []};
+  top.innerHTML = '';
+  const head = document.createElement('h3');
+  head.textContent = 'Today’s read' + (d.pinned ? ' · ' + d.read + ' of ' + d.pinned : '');
+  const [fig, paint] = picture(d, 0, false, false);
+  top.append(head, fig); paint();
+}
+today();
 function show(animate) {
   if (!on || built) return;
   built = true; build(animate);
@@ -895,7 +933,9 @@ function set(value, animate) {
 sw.addEventListener('click', () => set(!on, true));
 let off = false; try { off = localStorage.getItem('papier') === '0'; } catch (e) {}
 if (!off) set(true, false);  // on unless this reader turned it off
-let t; window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout(() => { if (on) build(false); }, 150); });
+let t; window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout(() => { today(); if (on) build(false); }, 150); });
+// the days changed on the page (the demo's ×): redraw today's and the grid from the new counts
+addEventListener('papier:update', () => { days = JSON.parse(data.textContent); today(); if (on) build(false); });
 })();</script>"""
 
 
@@ -911,14 +951,15 @@ def papier_days(read: list[dict]) -> list[dict]:
     return list(out.values())
 
 
-def papier(read: list[dict], days: list[dict] | None = None, today: date | None = None) -> tuple[str, str, str]:
+def papier(read: list[dict], days: list[dict] | None = None, today: date | None = None) -> tuple[str, str, str, str]:
     """Papier-mâché for a Read list the page shows: the switch for the panel's header, the
-    instructions (shown when it's on), and the pictures' container with their days and script.
+    instructions (shown when it's on), the pictures' container with their days and script, and the
+    place for today's read (today's word art so far), on top of the panel in both modes.
     One picture a day the reader pinned pushes, made of the ones they read and filled in as they
     read them: reading everything pinned that day finishes it (3 read and 2 still pinned: 3/5). The
     date picks the shape, the same for everyone that day."""
     if not read:
-        return "", "", ""
+        return "", "", "", ""
     days = days if days is not None else papier_days(read)
     data = json.dumps([{"day": d["day"], "pinned": d["pinned"], "read": d["read"], "titles": d["titles"],
                         "abstracts": d.get("abstracts") or []}
@@ -928,10 +969,11 @@ def papier(read: list[dict], days: list[dict] | None = None, today: date | None 
               '<span class="track"><span class="knob"></span></span>Papier-mâché</button>')
     hint = (f'<p class="papier-hint" hidden>Each day’s pinned pushes make a picture: read them all to finish it · '
             f'{done} finished · Tap one to share it</p>')
+    top = '<div class="papier-today" id="papier-today"></div>'  # today's read, filled in by the script
     gallery = (f'<div class="papier" id="papier" hidden></div>'
                f'<script type="application/json" id="papier-data" '
                f'data-today="{(today or date.today()).isoformat()}">{data}</script>{PAPIER_SCRIPT}')
-    return switch, hint, gallery
+    return switch, hint, gallery, top
 
 
 # /demo: a public profile with made-up pushes and reads, to show the daily pictures (most finished, a few not). Nothing is stored: real
@@ -1021,11 +1063,12 @@ DEMO_PIN = {"push_id": "DEMO-PIN", "news_id": "DEMO-PIN", "section": "Arts", "ur
             "title": "The Lantern Makers of the River Festival",
             "abstract": "Each autumn, families fold paper lanterns by hand and set them floating downstream at dusk."}
 DEMO_PINNED = [  # most recently pinned first: today's, then two from Oct 23, two from Oct 19, one from Oct 15
-    {"news_id": "DEMO-PIN", "push_id": "DEMO-PIN", "url": "https://www.nytimes.com", "title": DEMO_PIN["title"]},
-    *({"news_id": f"DEMO-P{k}", "push_id": f"DEMO-P{k}", "url": "https://www.nytimes.com", "title": t} for k, t in enumerate([
-        "The Ferry That Carries Pianos Across the Lake", "A Town Votes on Its Favorite Tree",
-        "Why Cities Are Planting Tiny Forests", "The Last Glassblower on Main Street",
-        "A Night Bus Driver's Favorite Stops"]))]
+    {"news_id": "DEMO-PIN", "push_id": "DEMO-PIN", "url": "https://www.nytimes.com", "title": DEMO_PIN["title"], "day": "2026-10-29"},
+    *({"news_id": f"DEMO-P{k}", "push_id": f"DEMO-P{k}", "url": "https://www.nytimes.com", "title": t, "day": day}
+      for k, (t, day) in enumerate([
+          ("The Ferry That Carries Pianos Across the Lake", "2026-10-23"), ("A Town Votes on Its Favorite Tree", "2026-10-23"),
+          ("Why Cities Are Planting Tiny Forests", "2026-10-19"), ("The Last Glassblower on Main Street", "2026-10-19"),
+          ("A Night Bus Driver's Favorite Stops", "2026-10-15")]))]
 
 
 # (day of October, pushes pinned, read): 18 days, 14 finished; the unread pins are DEMO_PINNED

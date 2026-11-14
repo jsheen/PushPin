@@ -382,8 +382,8 @@ class Store:
         day the push was sent), pinned (how many they tapped, read or not), read (how many of those
         they tapped Read on, on any day since), and titles and abstracts of the read ones, in send
         order. Reading everything pinned that day finishes its picture; pushes never tapped don't
-        count. An article deleted from the profile leaves the count unless it was read (then it
-        still counts as read, but its words aren't shown)."""
+        count, and neither does an article deleted from the profile, read or not (2 pinned and 3
+        read, one of either deleted: out of 4)."""
         if not reader_id or not self._has_scores():
             return []
         rows = self._rows(f"""SELECT SUBSTR(s.sent_at, 1, 10) AS day, s.push_id, s.title, a.abstract,
@@ -394,15 +394,14 @@ class Store:
             WHERE s.sent ORDER BY s.sent_ts, s.push_id""", r=reader_id)
         out: dict[str, dict] = {}
         for row in rows:
-            if not (row["read"] or row["kept"]):  # pinned, never read, then deleted: gone
+            if not row["kept"]:  # deleted from the profile: it leaves the count
                 continue
             d = out.setdefault(row["day"], {"day": row["day"], "pinned": 0, "read": 0, "titles": [], "abstracts": []})
             d["pinned"] += 1
             if row["read"]:
                 d["read"] += 1
-                if row["kept"]:
-                    d["titles"].append(row["title"] or "Untitled")
-                    d["abstracts"].append(row["abstract"] or "")
+                d["titles"].append(row["title"] or "Untitled")
+                d["abstracts"].append(row["abstract"] or "")
         return list(out.values())
 
     def remove(self, reader_id: str, news_id: str) -> bool:

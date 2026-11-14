@@ -32,7 +32,8 @@ and abstracts. It stores nothing.
 
 `/demo/me` is the same reader's own view, as if they'd just tapped today's third push: it's pinned
 on top with Read, then the privacy switch, Pinned (pushes tapped but not read yet), Read with the
-pictures, and pushes a day. Its buttons only change the page.
+pictures, and pushes a day. Its buttons only change the page; × takes an article out of its day's
+count and the pictures redraw.
 
 <img src="screens/demo-owner.png" width="300" alt="Demo owner view: today's pinned push with Read, the privacy switch, Pinned 2, Read 63 with the daily pictures, pushes a day">
 
@@ -40,11 +41,14 @@ Each day you pin pushes (tap them) makes one papier-mâché picture, a common sy
 heart, star, moon...) or a dinosaur, the same shape for everyone that day, written in the titles
 and abstracts of the ones you read, each used once. It fills in as you read what you pinned: 3
 read and 2 still pinned is 3/5, everything read is finished, and pushes you never tapped don't
-count. While the day is on, nothing shows of the rest, so it's a guess what it will be (today: Oct
-29 · 2/3). Once the day is over, an unfinished picture gets the grey outline of what it could have
-been under the part that was read (Oct 15 · 3/4), and a day with things pinned but nothing read is
-just the outline (Oct 23 · 0/2). Today, with nothing read yet, says "Start reading to make today's
-word art". The type is sized so the text fills the whole shape, thin parts included.
+count, and an article you delete with × leaves the count whether you read it or not (2 pinned and
+3 read, one deleted: out of 4). While the day is on, nothing shows of the rest, so it's a guess
+what it will be (today: Oct 29 · 2/3). Once the day is over, an unfinished picture gets the grey
+outline of what it could have been under the part that was read (Oct 15 · 3/4), and a day with
+things pinned but nothing read is just the outline (Oct 23 · 0/2). Today, with nothing read yet,
+says "Start reading to make today's word art". The type is sized so the text fills the whole
+shape, thin parts included. At the top of Read, in both the list and the pictures, Today's read
+shows today's word art so far, bigger, with its count (Today's read · 2 of 3).
 
 ## 4. Sharing a picture
 

@@ -284,7 +284,7 @@ def test_profile_and_public_history(setup):
 
         post("/public", b"on")
         public = stranger_get(f"/u/{link.group(2)}")
-        assert "Started reading on " in public and '<div class="stat">Read <span class="n">4</span></div>' in public and 'Read <span class="n">4</span>' in public and public.count("<li>") == 4
+        assert "Started reading on " in public and '<div class="stat">Read <span class="n">4</span></div>' in public and 'Read <span class="n">4</span>' in public and public.count("<li data-day=") == 4
         post("/public", b"off")
         private = stranger_get(f"/u/{link.group(2)}")  # just "Read 4": no titles, no dinosaurs
         assert 'Read <span class="n">4</span>' in private and private.count('class="list"') == 0 and 'id="papier-on"' not in private
@@ -570,8 +570,8 @@ def test_a_days_picture_counts_what_was_pinned_and_is_finished_when_all_of_it_is
         get(f"/p/{third}")
         post(f"/remove/{store.push(third)['news_id']}")  # pinned, never read, deleted: it leaves the count
         assert [(d["pinned"], d["read"]) for d in store.days(rid)] == [(2, 2)]
-        post(f"/remove/{store.push(second)['news_id']}")  # read, then deleted: still read, but its words aren't shown
-        assert store.days(rid) == [{"day": day, "pinned": 2, "read": 2, "titles": [title], "abstracts": [abstract]}]
+        post(f"/remove/{store.push(second)['news_id']}")  # read, then deleted: it leaves the count too (out of 1)
+        assert store.days(rid) == [{"day": day, "pinned": 1, "read": 1, "titles": [title], "abstracts": [abstract]}]
         assert store.days(None) == []
         stray = store.new_reader(None)  # no first push time: what they tapped still counts
         store.interact(first, stray, "open")
