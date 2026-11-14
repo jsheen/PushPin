@@ -318,6 +318,7 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
 
     whose = f"{e(name)}’s" if name else ("Your" if owner else "A reader’s")
     title = f'{whose} {PIN_MARK}'  # "Justin’s 📌", with our pin standing in for the word PushPin
+    sub = '<p class="sub">Only you can see this page.</p>' if owner else ""
     ask_name = ('<form class="who"><input name="name" maxlength="40" placeholder="Your first name (optional)" '
                 'autocomplete="given-name"><button>Save</button></form>') if owner and not name else ""
     scripts = (OWNER_SCRIPT + PROFILE_SCRIPT) if owner else ""
@@ -327,7 +328,7 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
         intro = splash(title, stats)
     if owner:  # the pinned push first
         intro = pin_panel(pinned, fav_ids) if pinned else ""
-    body = (f'{intro}<div class="profile"><header><h1>{title}</h1>{count}{ask_name}</header>{top}'
+    body = (f'{intro}<div class="profile"><header><h1>{title}</h1>{count}{sub}{ask_name}</header>{top}'
             f'<section>{bottom}</section></div>{scripts}')
     return page(body).replace("<main>", '<main style="max-width:540px">', 1)
 
