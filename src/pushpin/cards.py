@@ -617,9 +617,9 @@ function draw(canvas, words, flip, animate, kind, delay) {
   requestAnimationFrame(frame);
 }
 // ---- share card ----
-// Tapping a dinosaur opens it as text to paste in any chat: a pin, then the dinosaur as its
-// headline's letters on a character grid, with spaces around it. It lines up in a monospace font;
-// in a chat's proportional one it leans and wobbles, which is part of the charm.
+// Tapping a dinosaur opens it as text to paste in any chat: the dinosaur as its headline's letters
+// on a character grid, with spaces around it and a pin in the top left corner. It lines up in a
+// monospace font; in a chat's proportional one it leans and wobbles, which is part of the charm.
 const COLS = 32;
 function textDino(title, kind) {
   const w = 400, h = 256, m = document.createElement('canvas'); m.width = w; m.height = h;
@@ -645,7 +645,9 @@ function textDino(title, kind) {
   }
   while (lines.length && !lines[0]) lines.shift();
   while (lines.length && !lines[lines.length - 1]) lines.pop();
-  return '📌\\n' + lines.join('\\n');
+  // the pin in the top left corner, on the dinosaur's top line: it takes about two columns
+  lines[0] = '📌' + (lines[0].startsWith('  ') ? lines[0].slice(2) : ' ' + lines[0]);
+  return lines.join('\\n');
 }
 let sheet = null;
 function share(title, kind) {

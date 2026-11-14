@@ -48,10 +48,11 @@ under the words so the shape reads at that size. The full page has all 29:
 
 ## 4. Sharing a dinosaur
 
-Tapping a dinosaur opens it as text, ready to paste into any chat: 📌 on its own line, then the
-dinosaur drawn with its headline's letters on a 32-character grid, with plain spaces around it. The
-spaces between words are dropped inside the body so it has no holes. **Share** opens the phone's
-share sheet with the text, and **Copy** copies it. Browsers without a share sheet only show Copy.
+Tapping a dinosaur opens it as text, ready to paste into any chat: the dinosaur drawn with its
+headline's letters on a 32-character grid, with plain spaces around it and 📌 in the top left
+corner, on the dinosaur's top line. The spaces between words are dropped inside the body so it has
+no holes. **Share** opens the phone's share sheet with the text, and **Copy** copies it. Browsers
+without a share sheet only show Copy.
 
 It lines up in a monospace font. In a chat's proportional font the rows shift a little, and that's
 fine.
@@ -61,8 +62,7 @@ fine.
 What two of the demo dinosaurs share as, a Brontosaurus and a Stegosaurus:
 
 ```
-📌
-                          Whatth
+📌                        Whatth
                          eTideLe
                        avesBe
            hind·WhattheTide
@@ -75,8 +75,7 @@ attheTideLeavesBehind·Wh
 ```
 
 ```
-📌
-             A   C
+📌           A   C
          i  tyL ear ns
 toL     oveItsRain·ACit yL
 earnsto LoveItsRain·ACityL
