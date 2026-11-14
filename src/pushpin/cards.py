@@ -16,8 +16,8 @@ does is stored under it. What they do on NYT isn't tracked.
 
 /me is the same profile without a pinned article: the articles they pinned but haven't read yet
 (tap to read, × to delete), how many articles they've read (tapped Read on) with the list (×
-deletes one), which they can make public, and how many pushes a day they want (light, medium or
-heavy). /u/<slug> is the profile for anyone with the link: the count and list only when public.
+deletes one) and how many pushes a day they want (light, medium or heavy). Only the reader sees
+their profile: there's no public page.
 """
 
 import argparse
@@ -98,7 +98,6 @@ box-sizing:border-box;box-shadow:0 24px 80px rgba(0,0,0,.35)}.sharecard::backdro
 .sharecard .x{position:absolute;top:6px;right:8px;font:28px/1 -apple-system,system-ui,sans-serif;border:0;background:none;color:var(--muted);padding:4px 8px;cursor:pointer}
 .sharecard .row{margin-top:14px}.sharecard .go{background:var(--fg);color:var(--bg)}
 .sharecard:has(.go[hidden]) .save{background:var(--fg);color:var(--bg)}.papier figcaption{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:center;margin-top:2px}
-.profile .sub{color:var(--muted);font-size:15px;margin:0}.profile header .toggle{margin:12px 0 6px}
 .profile section{border-top:1px solid var(--line);padding:24px 0 8px}
 .profile h2{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:0 0 12px}
 .profile .list li{display:flex;gap:12px;align-items:flex-start}.profile .list li>div{flex:1;min-width:0}
@@ -108,25 +107,8 @@ box-sizing:border-box;box-shadow:0 24px 80px rgba(0,0,0,.35)}.sharecard::backdro
 .del{font:inherit;font-size:20px;line-height:1;padding:2px 4px;border:0;background:none;color:var(--muted);cursor:pointer}
 .del:hover{color:var(--on)}
 .since{font-size:15px;color:var(--muted);margin:2px 0 6px}
-.toggle{display:flex;align-items:center;gap:8px;font-size:15px;margin:0 0 6px;cursor:pointer}
-.toggle input{width:18px;height:18px;margin:0}
-.share{font-size:14px;color:var(--muted);margin:0 0 12px;word-break:break-all}.share a{color:var(--link)}
-.splash{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
-padding:16px;background:var(--bg);z-index:10;cursor:pointer;outline:none;transition:opacity .6s ease,visibility .6s}
-.splash.gone{opacity:0;visibility:hidden}
-.splash>div{background:#fff;color:#121212;border-radius:20px;padding:48px 32px;text-align:center;
-width:min(100%,460px);box-sizing:border-box;box-shadow:0 16px 60px rgba(0,0,0,.3);font-size:24px;line-height:1.5;
-animation:splash-in .6s ease both}
-.splash strong{display:block;font:700 36px/1.2 Georgia,"Times New Roman",serif;margin-bottom:16px}
-.splash .stat{font-size:20px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#666}
-.splash .stat .n{color:#121212;margin-left:6px;letter-spacing:0}
-.splash .tap{margin-top:20px;font-size:14px;color:var(--muted);animation:splash-in .6s ease 1.2s both}
-.splash~.profile{opacity:0;transition:opacity .6s ease}.splash.gone~.profile{opacity:1}
-@keyframes splash-in{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:none}}
-@media (prefers-reduced-motion:reduce){.splash,.splash~.profile{transition:none}.splash>div,.splash .tap{animation:none}}
 .profile .readhead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 12px}
 .profile .readhead h2{margin:0}
-.profile .readpanel+.toggle{margin-top:4px}
 .note{font-size:14px;color:var(--on);min-height:1em;margin:0 0 8px}
 .pin{margin:0 0 40px}.pin .headline{font:700 26px/1.2 Georgia,"Times New Roman",serif;margin:6px 0 12px}
 .profile .volume{margin:24px 0 0}
@@ -181,12 +163,6 @@ push to pin it, then read it; that's how it learns what you like.</p>
 
 
 PROFILE_SCRIPT = """<script>
-const pub = document.querySelector("#public");
-if (pub) pub.addEventListener("change", async () => {
-  const r = await fetch("/public", {method: "POST", body: pub.checked ? "on" : "off"}).catch(() => null);
-  if (!r || !r.ok) { pub.checked = !pub.checked; return; }
-  document.querySelector(".share").hidden = !pub.checked;
-});
 // ×: delete an article from the profile, after a confirm
 document.querySelectorAll("button[data-del]").forEach(b => b.addEventListener("click", async () => {
   if (!confirm(b.dataset.confirm)) return;
@@ -208,8 +184,6 @@ addEventListener("pageshow", ev => { if (ev.persisted) location.reload(); });  /
 INERT_SCRIPT = """<script>
 document.querySelectorAll("button[data-volume]").forEach(b => b.addEventListener("click", () =>
   document.querySelectorAll("button[data-volume]").forEach(x => x.setAttribute("aria-pressed", x === b))));
-const pub = document.querySelector("#public");
-if (pub) pub.addEventListener("change", () => { document.querySelector(".share").hidden = !pub.checked; });
 // ×: gone from the list; a read one leaves its day's art too, so the pictures redraw
 document.querySelectorAll("button[data-del]").forEach(b => b.addEventListener("click", () => {
   const li = b.closest("li"), day = li.dataset.day, wasRead = !li.querySelector("a[data-read]"), title = li.querySelector("a").textContent;
@@ -240,33 +214,6 @@ def streak(read: list[dict], today: date) -> int:
     return n
 
 
-def splash(title: str, stats: list[tuple[str, int]]) -> str:
-    """A large white window in place of the page: fades in and stays until a tap, click or key,
-    then fades out as the page fades in; a tap on the page (off its links) brings it back. Each stat is a line like the page's headers: READ 4.
-    Without JavaScript it's skipped."""
-    lines = "".join(f'<div class="stat">{html.escape(label)} <span class="n">{value}</span></div>' for label, value in stats)
-    return (f'<div class="splash" role="button" tabindex="0" aria-label="Continue"><div><strong>{title}</strong>'
-            f'{lines}</div><p class="tap">Tap to continue</p></div>'
-            + SPLASH_SCRIPT)
-
-
-SPLASH_SCRIPT = """<noscript><style>.splash{display:none}.splash~.profile{opacity:1}</style></noscript><script>
-(() => {
-  const s = document.querySelector(".splash");
-  const go = () => s.classList.add("gone");
-  s.addEventListener("click", ev => { ev.stopPropagation(); go(); });
-  document.addEventListener("keydown", () => { if (!s.classList.contains("gone")) go(); });
-  // once it's gone, a tap on the page (not on a link or control) brings the card back
-  document.addEventListener("click", ev => {
-    if (!s.classList.contains("gone") || ev.target.closest("a, button, input, label, summary, dialog")) return;
-    s.classList.remove("gone");
-    s.focus();
-  });
-  s.focus();
-})();
-</script>"""
-
-
 def pin_panel(push: dict) -> str:
     """The article a push tap pinned, on top of the profile, with Read."""
     e = html.escape
@@ -277,88 +224,62 @@ def pin_panel(push: dict) -> str:
             f'</section>')
 
 
-def profile_page(reader: dict, read: list[dict], owner: bool, share_url: str = "",
-                 today: date | None = None, pinned: dict | None = None, caps: dict | None = None,
-                 unread: list[dict] | None = None, inert: bool = False) -> str:
-    """A reader's profile. `owner`: their own view (/me, or /p/<push_id> with that push's article
-    `pinned` on top), with the articles pinned but not read yet (`unread`: tap one to read it),
-    the delete buttons, the public toggle, pushes a day and always the list;
-    otherwise the public view (/u/<slug>), where the count and list only show if they made them
-    public. Article links go straight to NYT, so a visitor isn't counted as opening or reading.
-    `inert`: the owner's view for the demo, whose buttons
-    only change the page and never reach the server."""
+def profile_page(reader: dict, read: list[dict], today: date | None = None, pinned: dict | None = None,
+                 caps: dict | None = None, unread: list[dict] | None = None, inert: bool = False) -> str:
+    """A reader's own profile (/me, or /p/<push_id> with that push's article `pinned` on top): the
+    articles pinned but not read yet (`unread`: tap one to read it), the articles read, the delete
+    buttons and pushes a day. Only the reader sees it: there's no public page. Article links go
+    straight to NYT. `inert`: the demo's, whose buttons only change the page and never reach the server."""
     e = html.escape
     name = reader.get("name")
-    public = bool(reader.get("history_public"))
     read = sorted(read, key=lambda a: a.get("read_at") or "", reverse=True)  # most recently read first
 
-    def item(a, delete=False):
-        button = ""
-        if delete:  # the owner's Pinned and Read lists: delete it from the profile
-            ask = "Delete this article from your PushPin?"
-            button = (f'<button class="del" data-del="{e(a["news_id"])}" data-confirm="{e(ask)}" '
-                      f'aria-label="Delete">×</button>')
+    def item(a):  # a Pinned or Read article, with × to delete it from the profile
+        ask = "Delete this article from your PushPin?"
+        button = (f'<button class="del" data-del="{e(a["news_id"])}" data-confirm="{e(ask)}" '
+                  f'aria-label="Delete">×</button>')
         read_tap = f' data-read="{e(a["push_id"])}"' if a.get("push_id") else ""  # a pinned one: tapping reads it
         day = a.get("day") or (a.get("read_at") or "")[:10]  # which day's picture it's in (the demo redraws by it)
         return (f'<li{f' data-day="{e(day)}"' if day else ""}><div><a href="{e(a["url"] or "#")}"{read_tap}>{e(a["title"] or "Untitled")}</a>'
                 f'</div>{button}</li>')
 
     top = ""
-    waiting = [a for a in (unread or []) if not pinned or a["news_id"] != pinned["news_id"]] if owner else []
-    if waiting:  # only the owner sees what they pinned; the one on top isn't listed twice
+    waiting = [a for a in (unread or []) if not pinned or a["news_id"] != pinned["news_id"]]
+    if waiting:  # the one on top isn't listed twice
         top += (f'<section><h2>Pinned <span class="n">{len(waiting)}</span></h2>'
-                f'<p class="private">Always private: only you see what you’ve pinned. '
-                f'Tap a headline to read it and it moves to Read.</p><ul class="list">'
-                f'{"".join(item(a, True) for a in waiting)}</ul></section>')
+                f'<p class="private">Tap a headline to read it and it moves to Read.</p><ul class="list">'
+                f'{"".join(item(a) for a in waiting)}</ul></section>')
 
     n = len(read)
     first = date.fromisoformat(min(a["read_at"] for a in read)[:10]) if read else None
     since = f'<p class="since">Started reading on {first:%B} {first.day}, {first.year}</p>' if first else ""
     run = streak(read, today or date.today())
     on_a_roll = f' <span class="streak">(Daily streak <span class="n">{run}</span>)</span>' if run else ""
-    count = since if owner or public else ""  # the number itself is in the Read header below
-    # Read n (Daily streak d), with the Papier-mâché switch on the right, then the list. A private
-    # list on a public link shows only that header: no titles, so no switch and no dinosaurs.
-    shown = owner or public  # Papier-mâché only uses titles the page already shows
-    switch, hint, gallery, today_art = papier(read, today or date.today()) if shown else ("", "", "", "")
+    # Read n (Daily streak d), with the Papier-mâché switch on the right, then the list
+    switch, hint, gallery, today_art = papier(read, today or date.today())
     head = f'<div class="readhead"><h2>Read <span class="n">{n}</span>{on_a_roll}</h2>{switch}</div>'
     # with the pictures available, the list is split: today's reads under Today's read, then Past reads
     on_day = (today or date.today()).isoformat()
     now = [a for a in read if (a.get("read_at") or "")[:10] == on_day] if today_art else []
     before = [a for a in read if a not in now]
-    lists = (f'<h3 class="today-head">Today’s read</h3><ul class="list today-list">{"".join(item(a, owner) for a in now)}</ul>'
+    lists = (f'<h3 class="today-head">Today’s read</h3><ul class="list today-list">{"".join(item(a) for a in now)}</ul>'
              if now else "")
     if today_art and before:
         lists += '<h3 class="past-head">Past reads</h3>'
-    lists += f'<ul class="list">{"".join(item(a, owner) for a in before)}</ul>' if before or not today_art else ""
+    lists += f'<ul class="list">{"".join(item(a) for a in before)}</ul>' if before or not today_art else ""
     articles = (f'<div class="readpanel">{head}{today_art}{hint}{lists}'
                 f'{gallery}</div>' if read
                 else '<h2>Read</h2><p class="empty">Nothing yet. Tap Read on a push to start.</p>')
-    if owner:
-        bottom = (f'{articles}<p class="note" aria-live="polite"></p>'
-                  + volume_picker(reader.get("volume"), caps))  # always at the bottom
-    elif public:
-        bottom = articles
-    else:
-        bottom = f'<div class="readpanel">{head}</div>'
+    bottom = (f'{articles}<p class="note" aria-live="polite"></p>'
+              + volume_picker(reader.get("volume"), caps))  # always at the bottom
 
-    whose = f"{e(name)}’s" if name else ("Your" if owner else "A reader’s")
+    whose = f"{e(name)}’s" if name else "Your"
     title = f'{whose} {PIN_MARK}'  # "Justin’s 📌", with our pin standing in for the word PushPin
-    # the owner's header: who can see the page, and the switch that makes the reading public
-    sub = (f'<p class="sub">Only you can see this page unless you make your reading public.</p>'
-           f'<label class="toggle"><input type="checkbox" id="public"{" checked" if public else ""}> '
-           f'Make my reading public</label><p class="share"{"" if public else " hidden"}>Anyone with this link '
-           f'can see what you’ve read: <a href="{e(share_url)}">{e(share_url)}</a></p>') if owner else ""
     ask_name = ('<form class="who"><input name="name" maxlength="40" placeholder="Your first name (optional)" '
-                'autocomplete="given-name"><button>Save</button></form>') if owner and not name else ""
-    scripts = INERT_SCRIPT if inert else (OWNER_SCRIPT + PROFILE_SCRIPT) if owner else ""
-    intro = ""
-    if not owner:  # the public link opens with a short summary
-        stats = [("Read", n), *([("Daily streak", run)] if run else [])] if public else []
-        intro = splash(title, stats)
-    if owner:  # the pinned push first
-        intro = pin_panel(pinned) if pinned else ""
-    body = (f'{intro}<div class="profile"><header><h1>{title}</h1>{count}{sub}{ask_name}</header>{top}'
+                'autocomplete="given-name"><button>Save</button></form>') if not name else ""
+    scripts = INERT_SCRIPT if inert else OWNER_SCRIPT + PROFILE_SCRIPT
+    intro = pin_panel(pinned) if pinned else ""  # the pinned push first
+    body = (f'{intro}<div class="profile"><header><h1>{title}</h1>{since}{ask_name}</header>{top}'
             f'<section>{bottom}</section></div>{scripts}')
     return page(body).replace("<main>", '<main style="max-width:540px">', 1)
 
@@ -716,6 +637,7 @@ function fitted(w, h, text, inside, top) {
 }
 function draw(canvas, text, built, flip, animate, kind, delay, past) {
   const dpr = window.devicePixelRatio || 1; let w = Math.round(canvas.clientWidth), h = Math.round(w * 0.64);
+  if (!w) return;  // not laid out (hidden, or still loading): drawn again on the switch or a resize
   canvas.style.height = h + 'px'; canvas.width = w * dpr; canvas.height = h * dpr;
   const c = canvas.getContext('2d');
   // laid out in device pixels, so the type can be smaller than a CSS pixel allows: the shape reads
@@ -925,7 +847,7 @@ function build(animate) {  // the grid: every day but today, which has its own p
 // Today's read, on top of the panel in both modes (the list and the pictures): today's word art so far.
 const top = document.getElementById('papier-today');
 function today() {
-  if (!top) return;
+  if (!top || top.hidden) return;  // hidden (the plain list): drawn when the switch turns it on
   const d = days.find(x => x.day === TODAY) || {day: TODAY, titles: [], abstracts: []}, n = Math.min(d.titles.length, ART);
   top.innerHTML = '';
   const head = document.createElement('h3');
@@ -945,6 +867,7 @@ function set(value, animate) {
   sw.setAttribute('aria-pressed', on);
   box.hidden = hint.hidden = !on; lists.forEach(x => { x.hidden = on; });
   if (top) top.hidden = !on;  // the plain list has no art: Today's read and Past reads are just lists
+  if (on) today();  // redrawn: a resize or a deletion while it was hidden skipped it
   box.classList.remove('on');
   show(animate);
   try { localStorage.setItem('papier', on ? '1' : '0'); } catch (e) {}
@@ -996,7 +919,7 @@ def papier(read: list[dict], today: date | None = None) -> tuple[str, str, str, 
     return switch, hint, gallery, top
 
 
-# /demo: a public profile with made-up pushes and reads, to show the daily pictures (most finished, a few not). Nothing is stored: real
+# /demo: a profile with made-up pushes and reads, to show the daily pictures (most finished, a few not). Nothing is stored: real
 # opens and reads are the model's labels, so fake ones must never reach the database.
 DEMO_TITLES = [
     "The Quiet Return of the Night Train", "What the Tide Leaves Behind", "A City Learns to Love Its Rain",
@@ -1059,18 +982,11 @@ def demo_data() -> list[dict]:
     return read
 
 
-def demo_page() -> str:
-    """The demo reader's public link: what a visitor sees."""
-    return profile_page({"name": "Justin", "history_public": 1}, demo_data(), owner=False, today=date(2026, 10, 29))
-
-
-def demo_owner_page(share_url: str, caps: dict | None = None) -> str:
-    """The demo reader's own view, as if they'd just tapped today's third push: it pinned on top,
-    then the privacy switch, Pinned, Read with the pictures and pushes a day. The buttons only
-    change the page."""
-    return profile_page({"name": "Justin", "history_public": 0, "volume": "medium"}, demo_data(), owner=True,
-                        share_url=share_url, today=date(2026, 10, 29), pinned=DEMO_PIN, unread=DEMO_PINNED,
-                        caps=caps, inert=True)
+def demo_page(caps: dict | None = None) -> str:
+    """The demo reader's profile, as if they'd just tapped today's third push: it pinned on top,
+    then Pinned, Read with the pictures and pushes a day. The buttons only change the page."""
+    return profile_page({"name": "Justin", "volume": "medium"}, demo_data(), today=date(2026, 10, 29),
+                        pinned=DEMO_PIN, unread=DEMO_PINNED, caps=caps, inert=True)
 
 
 # today's third push, just tapped (pinned, not read yet: reading it would finish Oct 29's picture);
@@ -1177,15 +1093,13 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
       GET  /start              the welcome page: choose light / medium / heavy (creates the reader)
       POST /volume             body "light", "medium" or "heavy": pushes a day
       POST /name               body: the reader's first name
-      GET  /me                 this reader's profile: pinned, articles read, public toggle, pushes a day
+      GET  /me                 this reader's profile: pinned, articles read, pushes a day
       POST /remove/<news_id>   delete an article they pinned or read from their profile
-      POST /public             body "on" or "off": show the count and list on their public link
-      GET  /u/<slug>           a reader's public profile
       GET  /stats              {"readers": n} for autoscaling (KEDA), only with header
                                X-Api-Key = $CARDS_STATS_TOKEN; 404 when that isn't set
-      GET  /demo               a public profile with 63 made-up reads over 18 days of pictures; stores nothing
-      GET  /demo/me            the same reader's own view (pinned push, privacy switch, Pinned, pushes a day);
-                               its buttons only change the page; stores nothing
+      GET  /demo               a made-up reader's profile (pinned push, Pinned, 63 reads over 18 days of
+                               pictures, pushes a day); its buttons only change the page; stores nothing
+                               (/demo/me is the same page)
       GET  /health             liveness
 
     The iOS app's JSON API, on when PUSHPIN_SESSION_SECRET and PUSHPIN_APPLE_BUNDLE_ID are set.
@@ -1198,7 +1112,6 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
       POST   /api/read/<push_id>   Read was tapped
       POST   /api/volume           {"volume": "light" | "medium" | "heavy"}
       POST   /api/name             {"name"}
-      POST   /api/public           {"public": true | false}
       DELETE /api/articles/<news_id>  delete from Pinned / Read
       DELETE /api/account          delete the account and its data
     """
@@ -1208,10 +1121,9 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
     bundle_id = os.environ.get("PUSHPIN_APPLE_BUNDLE_ID")
     verify_apple = verify_apple or (lambda token: apple.verify_identity_token(token, bundle_id))
 
-    def profile_json(reader_id: str, base: str) -> dict:
+    def profile_json(reader_id: str) -> dict:
         reader, read = store.reader(reader_id), store.articles_read(reader_id)
-        return {"reader": {"name": reader["name"], "volume": reader["volume"] or DEFAULT_VOLUME, "public": bool(reader["history_public"])},
-                "share_url": f"{base}/u/{store.slug(reader_id)}", "caps": caps or {},
+        return {"reader": {"name": reader["name"], "volume": reader["volume"] or DEFAULT_VOLUME}, "caps": caps or {},
                 "pinned": store.pinned_unread(reader_id), "read": read,
                 "streak": streak(read, date.fromisoformat(store.now()[:10]))}
 
@@ -1236,14 +1148,8 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
             self.wfile.write(data)
 
         def _own_profile(self, reader_id: str, pinned: dict | None = None) -> str:
-            proto = self.headers.get("x-forwarded-proto") or "http"
-            share = f"{proto}://{self.headers.get('host') or 'localhost'}/u/{store.slug(reader_id)}"
-            return profile_page(store.reader(reader_id), store.articles_read(reader_id),
-                                owner=True, share_url=share, pinned=pinned, caps=caps, today=date.fromisoformat(store.now()[:10]),
+            return profile_page(store.reader(reader_id), store.articles_read(reader_id), pinned=pinned, caps=caps, today=date.fromisoformat(store.now()[:10]),
                                 unread=store.pinned_unread(reader_id))
-
-        def _base(self) -> str:
-            return f"{self.headers.get('x-forwarded-proto') or 'http'}://{self.headers.get('host') or 'localhost'}"
 
         def _api(self, method: str, path: str) -> None:
             """The iOS app's JSON API (see serve_cards)."""
@@ -1270,7 +1176,7 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
                     store.set_name(reader_id, str(body["name"]))
                 print(json.dumps({"event": "sign_in", "reader": reader_id, "new": new}))
                 reply(200, {"session": apple.make_session(reader_id, session_secret), "new": new,
-                            "profile": profile_json(reader_id, self._base())})
+                            "profile": profile_json(reader_id)})
                 return
             auth = self.headers.get("authorization") or ""
             reader_id = apple.read_session(auth.removeprefix("Bearer ").strip(), session_secret)
@@ -1279,14 +1185,14 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
                 return
             ok = True
             if (method, what) == ("GET", "me"):
-                reply(200, profile_json(reader_id, self._base()))
+                reply(200, profile_json(reader_id))
                 return
             elif (method, what) == ("POST", "open") and store.interact(arg, reader_id, "open"):
                 print(json.dumps({"event": "open", "push_id": arg, "reader": reader_id, "app": True}))
                 push = store.push(arg, reader_id)
                 push.pop("for_reader")
                 push["read"] = bool(push["read"])  # 0/1 from SQLite
-                reply(200, {"push": push, "profile": profile_json(reader_id, self._base())})
+                reply(200, {"push": push, "profile": profile_json(reader_id)})
                 return
             elif (method, what) == ("POST", "devices"):
                 ok = store.add_device(reader_id, str(body.get("token") or ""), bool(body.get("sandbox")))
@@ -1298,8 +1204,6 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
                 ok = store.set_volume(reader_id, str(body.get("volume")))
             elif (method, what) == ("POST", "name"):
                 ok = store.set_name(reader_id, str(body.get("name") or ""))
-            elif (method, what) == ("POST", "public"):
-                ok = store.set_history_public(reader_id, bool(body.get("public")))
             elif (method, what) == ("DELETE", "articles"):
                 ok = store.remove(reader_id, arg)
             elif (method, what) == ("DELETE", "account"):
@@ -1315,7 +1219,7 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
                 reply(404, {"error": "not found"})
             else:
                 print(json.dumps({"event": what, "arg": arg or None, "reader": reader_id, "app": True}))
-                reply(200, profile_json(reader_id, self._base()))
+                reply(200, profile_json(reader_id))
 
         def do_DELETE(self):
             route, rest = self._route()
@@ -1340,8 +1244,6 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
                 return
             if route == "remove":
                 ok = store.remove(reader_id, push_id)
-            elif route == "public":
-                ok = store.set_history_public(reader_id, body.strip() == "on")
             elif route == "name":
                 ok = store.set_name(reader_id, body)
             elif route == "volume":
@@ -1354,7 +1256,6 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
                 self._send(404, "unknown push", "text/plain")
                 return
             print(json.dumps({"event": route, "push_id": push_id or None, "reader": reader_id,
-                              **({"on": body.strip() != "off"} if route == "public" else {}),
                               **({"volume": body.strip()} if route == "volume" else {})}))
             self._send(200, "ok", "text/plain")
 
@@ -1370,11 +1271,8 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
                 self.wfile.write(data)
             elif route == "health":
                 self._send(200, "ok", "text/plain")
-            elif route == "demo" and push_id == "me":
-                proto = self.headers.get("x-forwarded-proto") or "http"
-                self._send(200, demo_owner_page(f"{proto}://{self.headers.get('host') or 'localhost'}/demo", caps))
-            elif route == "demo":
-                self._send(200, demo_page())
+            elif route == "demo" and push_id in ("", "me"):
+                self._send(200, demo_page(caps))
             elif route == "api":
                 self._api("GET", push_id)
             elif route == "stats" and stats_token and secrets.compare_digest(
@@ -1391,10 +1289,6 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
                     self._send(200, page("<h1>Your reading</h1><p>Open a push first; your profile starts there.</p>"))
                     return
                 self._send(200, self._own_profile(reader_id))
-            elif route == "u" and (other := store.reader_by_slug(push_id)) is not None:
-                rid = other["reader_id"]
-                self._send(200, profile_page(other, store.articles_read(rid), owner=False,
-                                             today=date.fromisoformat(store.now()[:10])))
             elif route == "p" and (push := store.push(push_id)) is not None:
                 reader_id, new = self._reader_id(), None
                 if reader_id is None:

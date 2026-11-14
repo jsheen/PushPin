@@ -247,7 +247,7 @@ def test_store_adds_volume_columns_to_an_older_database(tmp_path):
 
 
 
-def test_profile_and_public_history(setup):
+def test_profile_and_no_public_page(setup):
     n, store, sent, _db = setup
     for hour in (8, 12, 17, 21):
         n.cfg["daily_cap"] = 4
@@ -257,7 +257,7 @@ def test_profile_and_public_history(setup):
     server = cards.serve_cards(store, 0)
     base = f"http://127.0.0.1:{server.server_address[1]}"
     get, post = phone(base)
-    stranger_get, stranger_post = phone(base)
+    stranger_get, _ = phone(base)
     try:
         assert "Open a push first" in get("/me")
         for p in pushes:
@@ -273,23 +273,13 @@ def test_profile_and_public_history(setup):
             post(f"/favorite/{re.search(r'data-del="([^"]+)"', me).group(1)}")
         assert e.value.code == 404
 
-        link = re.search(r'href="(http://[^"]+/u/([^"]+))"', me)
-        public = stranger_get(f"/u/{link.group(2)}")
-        assert 'Justin’s <img class="pinmark"' in public and 'class="readhead"><h2>Read <span class="n">' in public and public.count('class="list"') == 0 and 'id="papier-on"' not in public and "on PushPin" not in public
-        assert public.count("<li>") == 0 and "articles read" not in public and "Started reading" not in public and "Crème" not in public
-        assert "/p/" not in public  # links go to NYT: a visitor isn't counted as opening the push
+        assert "public" not in me.lower() and "Only you can see" not in me and "/u/" not in me  # no public page
+        for path in ("/public",):
+            with pytest.raises(urllib.error.HTTPError) as e:
+                post(path, b"on")
+            assert e.value.code == 404
         with pytest.raises(urllib.error.HTTPError) as e:
-            stranger_post("/public", b"on")  # only the owner (by cookie) can change it
-        assert e.value.code == 403
-
-        post("/public", b"on")
-        public = stranger_get(f"/u/{link.group(2)}")
-        assert "Started reading on " in public and '<div class="stat">Read <span class="n">4</span></div>' in public and 'Read <span class="n">4</span>' in public and public.count("<li data-day=") == 4
-        post("/public", b"off")
-        private = stranger_get(f"/u/{link.group(2)}")  # just "Read 4": no titles, no dinosaurs
-        assert 'Read <span class="n">4</span>' in private and private.count('class="list"') == 0 and 'id="papier-on"' not in private
-        with pytest.raises(urllib.error.HTTPError) as e:
-            stranger_get("/u/nobody")
+            stranger_get("/u/anything")
         assert e.value.code == 404
     finally:
         server.shutdown()
@@ -306,25 +296,14 @@ def test_streak_counts_days_in_a_row():
     assert cards.streak([], today) == 0
 
 
-def test_public_profile_opens_with_a_summary():
+def test_profile_header_shows_the_streak_once():
     from datetime import date
     read = [{"news_id": "a", "title": "A", "url": "u", "read_at": "2026-11-13T09:00:00"},
             {"news_id": "b", "title": "B", "url": "u", "read_at": "2026-11-13T10:00:00"}]
-    reader = {"name": "Justin", "history_public": 1}
-    html = cards.profile_page(reader, read, owner=False, today=date(2026, 11, 13))
-    assert 'class="splash"' in html and ('<div class="stat">Read <span class="n">2</span></div>'
-                                    '<div class="stat">Daily streak <span class="n">1</span></div></div>') in html
-    assert 's.classList.remove("gone")' in html  # a tap on the page brings the card back
-    assert "day streak" not in html and 'Daily streak <span class="n">1</span>' in html  # box, then the header
-    private = cards.profile_page({**reader, "history_public": 0}, read, owner=False, today=date(2026, 11, 13))
-    assert 'class="splash"' in private and 'class="stat"' not in private  # the box keeps a private list's numbers out
-    assert '<h2>Read <span class="n">2</span> <span class="streak">(Daily streak <span class="n">1</span>)</span></h2>' in private
-    assert ">A</a>" not in private and 'id="papier-on"' not in private  # the header only: no titles, no dinosaurs
-    own = cards.profile_page(reader, read, owner=True, today=date(2026, 11, 13))
+    own = cards.profile_page({"name": "Justin"}, read, today=date(2026, 11, 13))
     assert 'class="splash"' not in own and own.count("Daily streak <span") == 1
     assert '<h2>Read <span class="n">2</span> <span class="streak">(Daily streak <span class="n">1</span>)</span></h2>' in own
-    lapsed = cards.profile_page(reader, read, owner=False, today=date(2026, 11, 20))
-    assert '<div class="stat">Read <span class="n">2</span></div></div>' in lapsed and "day streak" not in lapsed and "Daily streak <span" not in lapsed  # a 0 streak isn't shown
+    assert "Daily streak <span" not in cards.profile_page({"name": "Justin"}, read, today=date(2026, 11, 20))  # a 0 streak isn't shown
 
 
 def test_landing_lists_pinned_articles_not_yet_read(setup):
@@ -335,21 +314,17 @@ def test_landing_lists_pinned_articles_not_yet_read(setup):
     server = cards.serve_cards(store, 0)
     base = f"http://127.0.0.1:{server.server_address[1]}"
     get, post = phone(base)
-    stranger_get, _ = phone(base)
     try:
         assert "<h2>Pinned" not in get(f"/p/{first}")  # the one on top isn't listed again
         landing = get(f"/p/{second}")
         pinned = landing.split("<h2>Pinned")[1].split("</section>")[0]
         assert '<span class="n">1</span>' in pinned and f'data-read="{first}"' in pinned and f'data-read="{second}"' not in pinned
-        assert "Tap a headline to read it" in pinned and "Always private" in pinned
+        assert "Tap a headline to read it" in pinned and "Always private" not in pinned
         me = get("/me")
         assert me.count('<li><div><a') == 2 and 'Pinned <span class="n">2</span>' in me
         post(f"/read/{first}")  # read: moves from Pinned to Read
         me = get("/me")
         assert 'Pinned <span class="n">1</span>' in me and f'data-read="{second}"' in me and 'Read <span class="n">1</span>' in me
-        post("/public", b"on")
-        slug = re.search(r"/u/([^\"]+)", me).group(1)
-        assert "Pinned" not in stranger_get(f"/u/{slug}")  # pins stay private
         post(f"/read/{second}")
         assert "<h2>Pinned" not in get("/me")
     finally:
@@ -381,8 +356,7 @@ def test_reader_can_delete_pinned_and_read_articles(setup):
         assert "<h2>Pinned" not in me and f'data-del="{news[1]}"' not in me
         post(f"/remove/{news[0]}")  # out of Read, and the count
         me = get("/me")
-        assert "Nothing yet. Tap Read" in me and not store.articles_read(store.reader_by_slug(
-            re.search(r"/u/([^\"]+)", me).group(1))["reader_id"])
+        assert "Nothing yet. Tap Read" in me and not store.articles_read(store._rows("SELECT reader_id FROM readers")[0]["reader_id"])
         get(f"/p/{second}")  # reloading the same push doesn't bring it back
         assert "<h2>Pinned" not in get("/me")
         assert store._rows("SELECT COUNT(*) AS n FROM interactions")[0]["n"] == 4  # labels kept for the model
@@ -395,14 +369,14 @@ def test_profile_volume_is_at_the_bottom_and_medium_by_default(setup):
     n.run_slot(pd.Timestamp("2026-11-12 12:00"))
     push_id = sent[0][4].rsplit("/", 1)[1]
     reader = store.new_reader(store.push(push_id)["sent_ts"])
-    show = lambda: cards.profile_page(store.reader(reader), [], owner=True, pinned=store.push(push_id, reader))
+    show = lambda: cards.profile_page(store.reader(reader), [], pinned=store.push(push_id, reader))
     for volume in (None, "heavy"):  # before choosing (medium), and after
         if volume:
             store.set_volume(reader, volume)
         page = show()
         assert "How many pushes a day?" not in page and page.count('class="volume"') == 1
         assert f'data-volume="{volume or "medium"}" aria-pressed="true"' in page
-        assert page.index('class="pin"') < page.index('class="toggle"') < page.index('class="volume"')  # at the bottom
+        assert page.index('class="pin"') < page.index('class="profile"') < page.index('class="volume"')  # at the bottom
 
 
 def test_reader_not_labeled_for_pushes_before_they_joined(setup):
@@ -453,7 +427,7 @@ def test_tunnel_url_reads_quicktunnel_endpoint():
 def test_pinned_profile_escapes_html():
     pinned = {"push_id": 'x"</script>', "news_id": "N1", "title": "<b>T</b>", "section": "us",
               "url": "https://www.nytimes.com/a", "abstract": "a & b", "read": 0}
-    page = cards.profile_page({"reader_id": "r", "name": "<i>x</i>", "volume": "light"}, [], owner=True,
+    page = cards.profile_page({"reader_id": "r", "name": "<i>x</i>", "volume": "light"}, [],
                               pinned=pinned)
     assert "<b>T</b>" not in page and "a &amp; b" in page and "<i>x</i>" not in page
     assert 'data-read="x&quot;&lt;/script&gt;"' in page  # the id can't close a tag or script
@@ -521,11 +495,11 @@ def test_pushes_carry_the_icon_without_an_emoji_and_pages_serve_its_icons(setup)
         server.shutdown()
 
 
-def test_papier_mache_only_with_a_visible_read_list():
+def test_papier_mache_on_the_read_list():
     read = [{"news_id": f"N{i}", "title": f"T{i}</script>", "url": "https://x", "read_at": f"2026-11-1{i}T09:00"}
             for i in range(7)]
-    reader = {"name": "Jo", "history_public": 0}
-    own = cards.profile_page(reader, read, owner=True)
+    reader = {"name": "Jo"}
+    own = cards.profile_page(reader, read)
     assert 'id="papier-on"' in own and "Read 3 articles a day to make its picture · 0 finished" in own
     head = re.search(r'<div class="readhead">.*?</div>', own).group(0)
     assert 'id="papier-on"' in head and 'class="papier-hint" hidden' in own  # switch in the Read header; hint until on
@@ -539,12 +513,10 @@ def test_papier_mache_only_with_a_visible_read_list():
     data = re.search(r'id="papier-data"[^>]*>(.*?)</script>', own).group(1)
     assert data.endswith('{"day": "2026-11-10", "titles": ["T0<\\/script>"], "abstracts": [""]}]') and "</script>\"" not in data  # newest first, can't close the tag
     assert own.index(">T6&lt;/script&gt;<") < own.index(">T0&lt;/script&gt;<")  # the list: most recently read first
-    assert 'id="papier-on"' not in cards.profile_page(reader, read, owner=False)  # private list: no dinosaurs
-    assert 'id="papier-on"' in cards.profile_page({**reader, "history_public": 1}, read, owner=False)
-    assert 'id="papier-on"' not in cards.profile_page(reader, [], owner=True)
+    assert 'id="papier-on"' not in cards.profile_page(reader, [])
     same_day = [{**a, "read_at": f"2026-11-10T0{i}:00"} for i, a in enumerate(read)]  # 7 reads on one day
-    assert "· 1 finished ·" in cards.profile_page(reader, same_day, owner=True)  # the first 3 make it; the rest are just listed
-    assert "· 0 finished ·" in cards.profile_page(reader, same_day[:2], owner=True)  # 2 of 3
+    assert "· 1 finished ·" in cards.profile_page(reader, same_day)  # the first 3 make it; the rest are just listed
+    assert "· 0 finished ·" in cards.profile_page(reader, same_day[:2])  # 2 of 3
 
 
 def test_a_days_word_art_is_made_by_three_reads_that_day(setup):
@@ -590,15 +562,17 @@ def test_demo_page_shows_dinosaurs_and_stores_nothing(setup):
     assert store.reader_count() == 0 and db("SELECT COUNT(*) AS n FROM interactions")["n"].item() == 0
 
 
-def test_demo_owner_view_shows_what_the_reader_sees_and_stores_nothing(setup):
+def test_demo_shows_what_the_reader_sees_and_stores_nothing(setup):
     _n, store, _sent, db = setup
     server = cards.serve_cards(store, 0)
     try:
-        page = urllib.request.urlopen(f"http://127.0.0.1:{server.server_address[1]}/demo/me").read().decode()
+        page = urllib.request.urlopen(f"http://127.0.0.1:{server.server_address[1]}/demo").read().decode()
+        assert urllib.request.urlopen(f"http://127.0.0.1:{server.server_address[1]}/demo/me").read().decode() == page
     finally:
         server.shutdown()
     assert 'class="pin"' in page and "The Lantern Makers of the River Festival" in page  # today's push, pinned on top
-    assert 'id="public"' in page and "<h2>Pinned" in page and 'class="volume"' in page and 'id="papier-on"' in page
+    assert 'id="public"' not in page and "Always private" not in page and "Only you can see" not in page
+    assert "<h2>Pinned" in page and 'class="volume"' in page and 'id="papier-on"' in page
     assert 'Pinned <span class="n">5</span>' in page  # the pinned one on top isn't listed again
     assert '<ul class="list today-list">' in page and '<h3 class="past-head">Past reads</h3>' in page  # today's reads, then past ones
     assert page.index("today-list") < page.index("Past reads") < page.index("What the Tide Leaves Behind")
@@ -614,8 +588,8 @@ def test_demo_streak_differs_from_the_count():
 def test_everyone_gets_the_same_shape_each_day():
     read = [{"news_id": f"N{i}", "title": f"T{i}", "url": "u", "section": None, "read_at": f"2026-11-0{1 + i % 9}"}
             for i in range(10)]
-    a = cards.profile_page({"reader_id": "aaaa", "history_public": 0}, read, owner=True)
-    b = cards.profile_page({"reader_id": "bbbb", "history_public": 0}, read, owner=True)
+    a = cards.profile_page({"reader_id": "aaaa"}, read)
+    b = cards.profile_page({"reader_id": "bbbb"}, read)
     data = re.compile(r'<script type="application/json" id="papier-data"[^>]*>')
     assert data.search(a).group(0) == data.search(b).group(0) and "data-seed" not in a  # nothing per reader
     assert "aaaa" not in a.split('id="papier-data"')[1]  # the reader's id (their cookie) isn't on the page

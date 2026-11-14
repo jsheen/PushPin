@@ -58,7 +58,7 @@ def test_sign_in_creates_a_reader_once(api):
     forged = again["session"].rsplit(".", 1)[0] + ".00"
     assert call("GET", "/me", session=forged)[0] == 401
     status, me = call("GET", "/me", session=again["session"])
-    assert status == 200 and me["streak"] == 0 and me["share_url"].endswith(store.slug(me_id(store)))
+    assert status == 200 and me["streak"] == 0 and "share_url" not in me and "public" not in me["reader"]
 
 
 def me_id(store):
@@ -95,7 +95,7 @@ def test_app_pins_reads_and_deletes_its_account(api):
     assert call("POST", f"/favorite/{news_id}", {"on": True}, session)[0] == 404 and "creme" not in profile  # no Crème
     assert call("POST", "/volume", {"volume": "heavy"}, session)[1]["reader"]["volume"] == "heavy"
     assert call("POST", "/volume", {"volume": "max"}, session)[0] == 404
-    assert call("POST", "/public", {"public": True}, session)[1]["reader"]["public"] is True
+    assert call("POST", "/public", {"public": True}, session)[0] == 404  # no public page
     assert call("POST", "/open/nope", session=session)[0] == 404
 
     assert call("DELETE", "/account", session=session) == (200, {"ok": True})

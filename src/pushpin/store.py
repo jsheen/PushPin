@@ -12,9 +12,8 @@ Tables:
                 the configured zone) and sent_ts (Unix seconds)
   readers       one row per phone that opened a card or the start page: reader_id, name,
                 created_at, first_push_ts, volume (light / medium / heavy: how many pushes a day
-                they asked for, NULL = not chosen), volume_at (when they chose it), slug (the
-                random id in their public profile link, /u/<slug>; never the reader_id, which is
-                their login cookie) and history_public (1 = others see what they've read)
+                they asked for, NULL = not chosen), volume_at (when they chose it); slug and
+                history_public are unused, left from the public profile page (removed)
   interactions  one row per (push, reader, kind): created_at, minutes_after_push. kind = open
                 (the push was tapped: the click, which "pins" the article; not shown on the
                 profile) or read (Read was tapped on the pinned article: what the profile counts).
@@ -242,7 +241,7 @@ class Store:
     def reader(self, reader_id: str | None) -> dict | None:
         if not reader_id:
             return None
-        rows = self._rows("SELECT reader_id, name, volume, slug, history_public FROM readers WHERE reader_id = :r",
+        rows = self._rows("SELECT reader_id, name, volume FROM readers WHERE reader_id = :r",
                           r=reader_id)
         return rows[0] if rows else None
 
@@ -386,22 +385,6 @@ class Store:
         params = {"r": reader_id, "n": news_id}
         self._exec("INSERT INTO removed VALUES (:r, :n, :at) ON CONFLICT DO NOTHING", {**params, "at": self.now()})
         return True
-
-    def set_history_public(self, reader_id: str, public: bool) -> bool:
-        return self._exec("UPDATE readers SET history_public = :p WHERE reader_id = :r",
-                          {"p": int(public), "r": reader_id}).rowcount > 0
-
-    def slug(self, reader_id: str) -> str:
-        """The reader's public profile id, made on first use."""
-        self._exec("UPDATE readers SET slug = :s WHERE reader_id = :r AND slug IS NULL",
-                   {"s": secrets.token_urlsafe(6), "r": reader_id})
-        return self._rows("SELECT slug FROM readers WHERE reader_id = :r", r=reader_id)[0]["slug"]
-
-    def reader_by_slug(self, slug: str) -> dict | None:
-        if not slug:
-            return None
-        rows = self._rows("SELECT reader_id, name, slug, history_public FROM readers WHERE slug = :s", s=slug)
-        return rows[0] if rows else None
 
 
 class _NoLock:

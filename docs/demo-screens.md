@@ -16,7 +16,7 @@ The PushPin icon, the headline as the title and the abstract as the body.
 
 Tapping a push opens `/p/<push_id>`, which records the open (the click the model learns from) and
 shows the article pinned on top of the reader's profile. **Read** opens it on nytimes.com. Below
-are **Pinned** (tapped but not read yet, always private), **Read** with the count, daily streak and
+are **Pinned** (tapped but not read yet), **Read** with the count, daily streak and
 the day's pictures (section 3), and pushes a day. This sample reader, set up on a copy of the
 database, has read 6 of the 10 pushes they opened that day.
 
@@ -24,22 +24,20 @@ database, has read 6 of the 10 pushes they opened that day.
 
 ## 3. The demo profile
 
-`/demo` is a made-up Medium reader's public link: 63 reads over 18 days, with invented titles and
-abstracts. `/demo/me` is the same reader's own view, as if they'd just tapped today's push: privacy
-switch, Pinned, Read and pushes a day; its buttons only change the page. Neither stores anything.
+`/demo` is a made-up Medium reader's profile, as if they'd just tapped today's push: 63 reads over
+18 days with invented titles and abstracts, Pinned, Read and pushes a day. Its buttons only change
+the page, and it stores nothing. A profile is only ever seen by its reader; there's no public page.
 
-<img src="screens/demo-splash.png" width="300" alt="Demo title card: Justin's, Read 63, Daily streak 6, Tap to continue">
-<img src="screens/demo-profile.png" width="300" alt="Demo profile: Today's read 2 of 3 on top, then a grid of daily word art, symbols and dinosaurs taking turns">
-<img src="screens/demo-owner.png" width="300" alt="Demo owner view: today's pinned push with Read, the privacy switch, Pinned, Read with the word art, pushes a day">
-<img src="screens/demo-owner-list.png" width="300" alt="Demo owner view with Papier-mâché off: Today's read and Past reads as plain lists">
+<img src="screens/demo-owner.png" width="300" alt="Demo profile: today's pinned push with Read, Pinned, Read with Today's read 2 of 3 and a grid of daily word art (newest first), pushes a day">
+<img src="screens/demo-owner-list.png" width="300" alt="Demo profile with Papier-mâché off: Today's read and Past reads as plain lists, most recently read first">
 
 With **Papier-mâché** on, the first 3 articles read each day (whenever they were pinned) make that
 day's word art: a common symbol or a dinosaur, taking turns, the same shape for everyone that day,
 written in the articles' titles and abstracts. It fills in 1/3, 2/3, then it's finished; later
 reads are listed but don't change it, and × on a read article takes it out. **Today's read** is on
-top (Today's read · 2 of 3), then past days. Today's unread part stays hidden; a past day that
+top (Today's read · 2 of 3), then past days, newest first. Today's unread part stays hidden; a past day that
 stopped short shows the rest as a grey outline (Oct 19 · 2/3). With Papier-mâché off, Read is just
-two lists: Today's read and Past reads.
+two lists, Today's read and Past reads, most recently read first.
 
 ## 4. Sharing a picture
 

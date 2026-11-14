@@ -19,8 +19,7 @@ of it.
 A fixed rule assigns each reader to an arm, for example a hash of `reader_id`, so a reader always
 stays in the same arm and the assignment can be recomputed later. The arm is stored on the
 reader. In arms A and B the papier-mâché switch is hidden; in arm C it can't be turned off (or
-every change is logged), so the server knows who saw the pictures. `/demo` and public `/u/<slug>`
-pages are outside the test.
+every change is logged), so the server knows who saw the pictures. `/demo` is outside the test.
 
 ## Outcomes
 
