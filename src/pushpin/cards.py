@@ -21,7 +21,6 @@ heavy). /u/<slug> is the profile for anyone with the link: the count and list on
 """
 
 import argparse
-import hashlib
 import html
 import json
 import os
@@ -289,7 +288,7 @@ def profile_page(reader: dict, read: list[dict], owner: bool, share_url: str = "
     # Read n (Daily streak d), with the Papier-mâché switch on the right, then the list. A private
     # list on a public link shows only that header: no titles, so no switch and no dinosaurs.
     shown = owner or public  # Papier-mâché only uses titles the page already shows
-    switch, hint, gallery = papier(read, days, papier_seed(reader), today or date.today()) if shown else ("", "", "")
+    switch, hint, gallery = papier(read, days, today or date.today()) if shown else ("", "", "")
     head = f'<div class="readhead"><h2>Read <span class="n">{n}</span>{on_a_roll}</h2>{switch}</div>'
     articles = (f'<div class="readpanel">{head}{hint}<ul class="list">{"".join(item(a, owner) for a in read)}</ul>'
                 f'{gallery}</div>' if read
@@ -473,8 +472,9 @@ const SYMBOLS = {
     L(c, 7, 100, 62, 100, 112); c.lineWidth = 7; c.beginPath(); c.arc(88, 112, 12, 0, Math.PI); c.stroke();
     return null;
   },
-  house(c) {
+  house(c, p) {
     R(c, 130, 14, 16, 34, 1); P(c, 100, 4, 172, 62, 28, 62); R(c, 44, 58, 112, 68, 2);
+    if (p.solid) return null;  // the sticker's die-cut: the whole house, door and windows on white
     c.globalCompositeOperation = 'destination-out'; R(c, 90, 90, 22, 36, 2); R(c, 56, 72, 22, 20, 2); R(c, 124, 72, 22, 20, 2);
     c.globalCompositeOperation = 'source-over'; return null;
   },
@@ -567,11 +567,9 @@ const KINDS = (() => {
   }
   return out;
 })();
-// Each reader's own herd: a seed from the reader shuffles the species into their own order and
-// stretches each dinosaur's proportions a little (the knobs below, 0.92-1.08x), so no two readers'
-// dinosaurs match. Without a seed (the demo), the fixed order above and the knobs as drawn.
-const JITTER = {sauropod: ['bulk', 'neck', 'tail', 'head'], theropod: ['bulk', 'head', 'neck', 'arm'],
-  stegosaur: ['plates'], ankylosaur: ['bumps'], ceratopsian: ['frill', 'brow', 'nose', 'bulk'], hadrosaur: ['bulk']};
+// The same picture for everyone on a given day: the date picks the shape, from one fixed order
+// that starts with the snowman and a Brontosaurus on Oct 12, 2026, then the rest shuffled once, so
+// every shape comes up before any repeats. What differs between readers is the words.
 function rng(str) {  // a small seeded generator (string hash + mulberry32): the same seed, the same numbers
   let h = 1779033703 ^ str.length;
   for (let i = 0; i < str.length; i++) { h = Math.imul(h ^ str.charCodeAt(i), 3432918353); h = h << 13 | h >>> 19; }
@@ -580,30 +578,40 @@ function rng(str) {  // a small seeded generator (string hash + mulberry32): the
     t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296;
   };
 }
-function herd(seed) {
-  if (!seed) return k => KINDS[k % KINDS.length];
-  const order = KINDS.slice(), r = rng(seed);
-  for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
-  return k => {
-    const kind = order[k % order.length], rk = rng(seed + ':' + k), knobs = {...kind.knobs};
-    for (const key of JITTER[kind.plan] || []) knobs[key] = (knobs[key] ?? 1) * (0.92 + 0.16 * rk());
-    return {...kind, knobs};
-  };
-}
+const ORDER = (() => {
+  const first = ['Snowman', 'Brontosaurus'].map(n => KINDS.find(k => k.name === n));
+  const rest = KINDS.filter(k => !first.includes(k)), r = rng('pushpin:order');
+  for (let i = rest.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [rest[i], rest[j]] = [rest[j], rest[i]]; }
+  return [...first, ...rest];
+})();
+const EPOCH = Date.UTC(2026, 9, 12);
+const kindFor = day => {  // day: YYYY-MM-DD
+  const n = Math.round((Date.UTC(+day.slice(0, 4), +day.slice(5, 7) - 1, +day.slice(8, 10)) - EPOCH) / 864e5);
+  return ORDER[((n % ORDER.length) + ORDER.length) % ORDER.length];
+};
 // ---- end species ----
-function dino(c, w, h, flip, kind) {
+function dino(c, w, h, flip, kind, solid = false) {  // solid: no holes (eyes, door, windows), for a die-cut
   c.save();
   const s = Math.min(w / 200, h / 130);
   c.translate((w - 200 * s) / 2, (h - 130 * s) / 2);
   if (flip) { c.translate(200 * s, 0); c.scale(-1, 1); }
   c.scale(s, s);
   c.fillStyle = c.strokeStyle = '#000';
-  const eye = PLANS[kind.plan](c, kind.knobs);  // [x, y], a list of them, or null
+  const eye = solid ? (PLANS[kind.plan](c, {...kind.knobs, solid}), null) : PLANS[kind.plan](c, kind.knobs);  // [x, y], a list, or null
   c.globalCompositeOperation = 'destination-out';
   for (const [x, y] of eye ? (Array.isArray(eye[0]) ? eye : [eye]) : []) { c.beginPath(); c.arc(x, y, 2.8, 0, 7); c.fill(); }
   c.restore();
 }
 // Lays the words out inside the dinosaur's silhouette, w x h: [char, x, y] for each glyph.
+// Unfinished: only part of the shape is revealed, from one side, as far as the day's pushes have
+// been read. Returns the test for the revealed part and where it ends (x), or null when it's whole.
+function revealed(shape, W, H, built, flip) {
+  if (built >= 1) return {inside: shape, edge: null};
+  let x0 = W, x1 = 0;
+  for (let y = 0; y < H; y += 2) for (let x = 0; x < W; x++) if (shape(x, y)) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); }
+  const edge = flip ? x1 - (x1 - x0) * built : x0 + (x1 - x0) * built;
+  return {inside: (x, y) => shape(x, y) && (flip ? x >= edge : x <= edge), edge};
+}
 // Where the shape is, w x h: a test for whether a pixel is inside it.
 function silhouette(w, h, flip, kind) {
   const m = document.createElement('canvas'); m.width = w; m.height = h;
@@ -689,12 +697,8 @@ function draw(canvas, text, built, flip, animate, kind, delay, past) {
     lines.forEach((line, k) => c.fillText(line, W / 2, H / 2 + (k - (lines.length - 1) / 2) * size * 1.25));
     return;
   }
-  // Unfinished: only part of the shape is revealed, from one side, as far as the day's pushes have
-  // been read, and the read text fills just that part. Nothing else shows, so it's a guess what it is.
-  let x0 = W, x1 = 0;
-  for (let y = 0; y < H; y += 2) for (let x = 0; x < W; x++) if (shape(x, y)) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); }
-  const edge = flip ? x1 - (x1 - x0) * built : x0 + (x1 - x0) * built;
-  const inside = built >= 1 ? shape : (x, y) => shape(x, y) && (flip ? x >= edge : x <= edge);
+  // Unfinished: only part of the shape is revealed (see revealed), and the read text fills just that part.
+  const inside = revealed(shape, W, H, built, flip).inside;
   const {glyphs, fs} = fitted(W, H, text, inside, Math.round(W / 4));
   c.font = fs + 'px Georgia, "Times New Roman", serif'; c.textBaseline = 'middle'; c.fillStyle = ink;
   const start = performance.now() + delay, sweep = animate ? 600 : 0, fade = animate ? 240 : 0;
@@ -725,8 +729,8 @@ let pinImage = null;
 const pinIcon = () => pinImage ??= new Promise(ok => {
   const im = new Image(); im.onload = () => ok(im); im.onerror = () => ok(null); im.src = '/icon.png';
 });
-async function sticker(day, kind) {
-  const W = 1200, H = 768, shape = silhouette(W, H, day.flip, kind);
+async function sticker(day, kind, built = 1) {  // an unfinished day: just the part revealed so far
+  const W = 1200, H = 768, {inside: shape, edge} = revealed(silhouette(W, H, day.flip, kind), W, H, built, day.flip);
   const {glyphs, fs} = fitted(W, H, day.text, shape, Math.round(W / 4));
   let x0 = W, x1 = 0, y0 = H, y1 = 0;
   for (let y = 0; y < H; y += 2) for (let x = 0; x < W; x += 2) if (shape(x, y)) {
@@ -735,7 +739,8 @@ async function sticker(day, kind) {
   const B = 26, P = B + 34, ox = P - x0, oy = P - y0;  // border, then room for the shadow
   const out = document.createElement('canvas'); out.width = x1 - x0 + 2 * P; out.height = y1 - y0 + 2 * P;
   const mask = document.createElement('canvas'); mask.width = W; mask.height = H;
-  dino(mask.getContext('2d'), W, H, day.flip, kind);
+  const mc = mask.getContext('2d'); dino(mc, W, H, day.flip, kind, true);  // traced around the solid shape
+  if (edge !== null) day.flip ? mc.clearRect(0, 0, edge, H) : mc.clearRect(edge, 0, W - edge, H);
   const cut = document.createElement('canvas'); cut.width = out.width; cut.height = out.height;
   const cc = cut.getContext('2d');
   for (let a = 0; a < 48; a++) cc.drawImage(mask, ox + B * Math.cos(a * Math.PI / 24), oy + B * Math.sin(a * Math.PI / 24));
@@ -751,7 +756,7 @@ async function sticker(day, kind) {
   return out;
 }
 let sheet = null;
-function share(day, kind) {
+function share(day, kind, built = 1) {
   if (!sheet) {
     sheet = document.createElement('dialog'); sheet.className = 'sharecard';
     sheet.innerHTML = '<button type="button" class="x" aria-label="Close">×</button><img alt="">'
@@ -762,10 +767,10 @@ function share(day, kind) {
     document.body.append(sheet);
   }
   const img = sheet.querySelector('img'), go = sheet.querySelector('.go'), save = sheet.querySelector('.save'), copy = sheet.querySelector('.copy');
-  img.removeAttribute('src'); img.alt = 'A ' + kind.name + ' sticker made of the day’s articles';
+  img.removeAttribute('src'); img.alt = (built >= 1 ? 'A ' + kind.name : 'Part of a') + ' sticker made of the day’s articles';
   go.hidden = copy.hidden = true; save.removeAttribute('href'); copy.textContent = 'Copy';
   sheet.showModal();
-  sticker(day, kind).then(cv => {
+  sticker(day, kind, built).then(cv => {
     const url = cv.toDataURL('image/png'), name = 'pushpin-' + day.seed.split(':').pop() + '-' + kind.name.toLowerCase().replace(/[^a-z]+/g, '-') + '.png';
     img.src = url; save.href = url; save.download = name;
     cv.toBlob(b => {  // made before the tap on Share, which iOS needs to share a file
@@ -786,13 +791,12 @@ function share(day, kind) {
   });
 }
 // ---- end share card ----
-const kindOf = herd(data.dataset.seed || '');
 // A day's text: every read title, each followed by its abstract, and which way the shape faces.
 // The randomness (the facing here, which abstract words the shared text keeps) is seeded by the
 // reader and the day, so a picture is the same each time it's drawn and differs between days and
 // between readers who read the same articles the same day.
 function dayText(d) {
-  const seed = (data.dataset.seed || 'demo') + ':' + d.day, r = rng(seed);
+  const seed = 'pushpin:' + d.day, r = rng(seed);  // the same for everyone that day
   const flip = r() < 0.5;
   const parts = d.titles.map((title, i) => ({title, words: ((d.abstracts || [])[i] || '').split(/\\s+/).filter(Boolean)}));
   const last = parts[parts.length - 1];  // it ends with a period
@@ -806,22 +810,22 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 function build(animate) {
   box.innerHTML = '';
   days.forEach((d, k) => {  // one picture a day, oldest first, made of that day's read headlines
-    const kind = kindOf(k), day = dayText(d), done = d.sent > 0 && d.titles.length >= d.sent, built = d.sent ? Math.min(1, d.titles.length / d.sent) : 0;
+    const kind = kindFor(d.day), day = dayText(d), done = d.sent > 0 && d.titles.length >= d.sent, built = d.sent ? Math.min(1, d.titles.length / d.sent) : 0;
     const when = MONTHS[+d.day.slice(5, 7) - 1] + ' ' + +d.day.slice(8, 10);
     const fig = document.createElement('figure'), canvas = document.createElement('canvas'), cap = document.createElement('figcaption');
     canvas.setAttribute('role', 'img');
     canvas.setAttribute('aria-label', 'A ' + kind.name + ' for ' + when + ', ' + d.titles.length + ' of ' + d.sent + ' pushes read'
                         + (d.titles.length ? ': ' + d.titles.join('; ') : ''));
     cap.textContent = when + (done ? '' : ' · ' + d.titles.length + '/' + d.sent);
-    if (done) {  // finished: tap to share it
+    if (built > 0) {  // something read: tap to share it (unfinished, just the part revealed so far)
       const tap = document.createElement('button');
-      tap.type = 'button'; tap.className = 'dino'; tap.title = kind.name + ' · ' + when;
-      tap.setAttribute('aria-label', 'Share the ' + kind.name + ' for ' + when);
-      tap.append(canvas); tap.addEventListener('click', () => share(day, kind));
+      tap.type = 'button'; tap.className = 'dino'; tap.title = (done ? kind.name + ' · ' : '') + when;
+      tap.setAttribute('aria-label', 'Share the ' + (done ? kind.name : 'picture') + ' for ' + when);
+      tap.append(canvas); tap.addEventListener('click', () => share(day, kind, built));
       fig.append(tap);
     } else {
-      const still = document.createElement('div');  // not finished: nothing to share yet
-      still.className = 'dino still'; still.title = 'Read the rest of ' + when + '’s pushes to finish it';
+      const still = document.createElement('div');  // nothing read: nothing to share yet
+      still.className = 'dino still'; still.title = 'Read ' + when + '’s pushes to make its word art';
       still.append(canvas); fig.append(still);
     }
     fig.append(cap); box.append(fig);
@@ -849,13 +853,6 @@ let t; window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout
 })();</script>"""
 
 
-def papier_seed(reader: dict) -> str:
-    """The seed for a reader's own dinosaurs: from their id, which is their cookie, so it's hashed
-    (the page can be public); "" without one (the demo: the fixed order)."""
-    rid = reader.get("reader_id")
-    return hashlib.sha256(f"papier:{rid}".encode()).hexdigest()[:16] if rid else ""
-
-
 def papier_days(read: list[dict]) -> list[dict]:
     """Days from the reads alone, when the pushes sent aren't known: every day with reads, finished."""
     out: dict[str, dict] = {}
@@ -868,12 +865,11 @@ def papier_days(read: list[dict]) -> list[dict]:
     return list(out.values())
 
 
-def papier(read: list[dict], days: list[dict] | None = None, seed: str = "",
-           today: date | None = None) -> tuple[str, str, str]:
+def papier(read: list[dict], days: list[dict] | None = None, today: date | None = None) -> tuple[str, str, str]:
     """Papier-mâché for a Read list the page shows: the switch for the panel's header, the
     instructions (shown when it's on), and the pictures' container with their days and script.
     One picture a day, made of that day's read headlines and filled in as they're read: reading
-    all of the day's pushes finishes it. `seed` picks the reader's own order (see papier_seed)."""
+    all of the day's pushes finishes it. The date picks the shape, the same for everyone that day."""
     if not read:
         return "", "", ""
     days = days if days is not None else papier_days(read)
@@ -883,9 +879,9 @@ def papier(read: list[dict], days: list[dict] | None = None, seed: str = "",
     switch = ('<button type="button" class="pm" id="papier-on" aria-pressed="false">'
               '<span class="track"><span class="knob"></span></span>Papier-mâché</button>')
     hint = (f'<p class="papier-hint" hidden>Each day’s pushes make a picture: read them all to finish it · '
-            f'{done} finished · Tap a finished one to share it</p>')
+            f'{done} finished · Tap one to share it</p>')
     gallery = (f'<div class="papier" id="papier" hidden></div>'
-               f'<script type="application/json" id="papier-data" data-seed="{html.escape(seed)}" '
+               f'<script type="application/json" id="papier-data" '
                f'data-today="{(today or date.today()).isoformat()}">{data}</script>{PAPIER_SCRIPT}')
     return switch, hint, gallery
 

@@ -529,7 +529,7 @@ def test_papier_mache_only_with_a_visible_read_list():
     assert 'id="papier-on"' in own and "Each day’s pushes make a picture: read them all to finish it · 7 finished" in own
     head = re.search(r'<div class="readhead">.*?</div>', own).group(0)
     assert 'id="papier-on"' in head and 'class="papier-hint" hidden' in own  # switch in the Read header; hint until on
-    assert "Tap a finished one to share it" in own and "async function sticker(day, kind)" in own  # a finished one shares as a sticker
+    assert "Tap one to share it" in own and "async function sticker(day, kind, built = 1)" in own  # a finished one shares as a sticker
     assert "new ClipboardItem({'image/png': b})" in own and "textDino" not in own  # Copy copies the image; no text version
     assert "save.onclick" in own and "(pointer: coarse)" in own  # on a phone, Save goes through the share sheet (Save Image → Photos)
     assert "snowman(c)" in own and "Lightning bolt" in own  # common symbols, not just dinosaurs
@@ -585,7 +585,7 @@ def test_demo_page_shows_dinosaurs_and_stores_nothing(setup):
     assert len(data) == 18 and {"day": "2026-10-23", "sent": 4, "titles": [], "abstracts": []} in data  # a day with nothing read
     assert 'data-today="2026-10-29"' in page  # a past day with nothing read shows its outline; today shows a nudge
     assert all(len(d["abstracts"]) == len(d["titles"]) and all(d["abstracts"]) for d in data)  # titles and abstracts
-    assert "function dayText(d)" in page and "const seed = (data.dataset.seed || 'demo') + ':' + d.day, r = rng(seed)" in page  # seeded per reader and day
+    assert "function dayText(d)" in page and "const seed = 'pushpin:' + d.day" in page  # seeded by the day, the same for everyone
     assert store.reader_count() == 0 and db("SELECT COUNT(*) AS n FROM interactions")["n"].item() == 0
 
 
@@ -594,13 +594,12 @@ def test_demo_streak_differs_from_the_count():
     assert '<h2>Read <span class="n">63</span> <span class="streak">(Daily streak <span class="n">6</span>)</span></h2>' in page
 
 
-def test_each_reader_gets_their_own_dinosaurs():
+def test_everyone_gets_the_same_shape_each_day():
     read = [{"news_id": f"N{i}", "title": f"T{i}", "url": "u", "section": None, "read_at": f"2026-11-0{1 + i % 9}"}
             for i in range(10)]
-    seed = re.compile(r'id="papier-data" data-seed="([^"]*)"')
-    a = seed.search(cards.profile_page({"reader_id": "aaaa", "history_public": 0}, read, owner=True)).group(1)
-    b = seed.search(cards.profile_page({"reader_id": "bbbb", "history_public": 0}, read, owner=True)).group(1)
-    public = seed.search(cards.profile_page({"reader_id": "aaaa", "history_public": 1}, read, owner=False)).group(1)
-    assert a and b and a != b and public == a  # own herd, the same on the public link
-    assert "aaaa" not in a  # the id is the reader's cookie: hashed, never on the page
-    assert seed.search(cards.demo_page()).group(1) == ""  # the demo keeps the fixed order
+    a = cards.profile_page({"reader_id": "aaaa", "history_public": 0}, read, owner=True)
+    b = cards.profile_page({"reader_id": "bbbb", "history_public": 0}, read, owner=True)
+    data = re.compile(r'<script type="application/json" id="papier-data"[^>]*>')
+    assert data.search(a).group(0) == data.search(b).group(0) and "data-seed" not in a  # nothing per reader
+    assert "aaaa" not in a.split('id="papier-data"')[1]  # the reader's id (their cookie) isn't on the page
+    assert "const kind = kindFor(d.day)" in a and "rng('pushpin:order')" in a  # the date picks the shape
