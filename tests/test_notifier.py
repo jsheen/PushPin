@@ -168,7 +168,7 @@ def test_readers_tracked_separately(setup):
 
         pin = me_get(f"/p/{first}")  # my first tap pins it and creates my reader id
         assert 'class="pin"' in pin and "About Story" in pin and 'Your <img class="pinmark"' in pin and "Your first name" in pin
-        assert 'href="https://www.nytimes.com/' in pin and f'data-read="{first}"' in pin and "☆ Put in Crème" in pin
+        assert 'href="https://www.nytimes.com/' in pin and f'data-read="{first}"' in pin and "Put in Crème" not in pin  # Crème after reading
         assert "🔖" not in pin and "data-kind" not in pin and "/saved" not in pin  # no Save any more
         assert "Nothing yet. Tap Read" in pin  # pinning isn't reading
         me_post("/name", b"Justin")
@@ -213,8 +213,11 @@ def test_volume_choice_sets_the_daily_cap(setup):
         with pytest.raises(urllib.error.HTTPError) as e:
             post("/volume", b"lots")
         assert e.value.code == 404
+        assert 'location.assign("/me")' in start  # choosing on the welcome page goes on to the profile
         post("/volume", b"light")
         assert 'data-volume="light" aria-pressed="true"' in get("/start")
+        me = get("/me")  # a newcomer's profile: empty, but there
+        assert "Nothing yet. Tap Read on a push to start." in me and 'data-volume="light" aria-pressed="true"' in me
     finally:
         server.shutdown()
     assert store.volume() == "light" and n.daily_cap() == 1
@@ -329,17 +332,24 @@ def test_public_profile_opens_with_a_summary():
     assert '<div class="stat">Read <span class="n">2</span></div></div>' in lapsed and "day streak" not in lapsed and "Daily streak <span" not in lapsed  # a 0 streak isn't shown
 
 
-def test_pinned_push_can_go_in_the_creme_unread(setup):
+def test_only_read_articles_go_in_the_creme(setup):
     n, store, sent, _db = setup
     n.run_slot(pd.Timestamp("2026-11-12 12:00"))
     push_id = sent[0][4].rsplit("/", 1)[1]
+    news_id = store.push(push_id)["news_id"]
     server = cards.serve_cards(store, 0)
     get, post = phone(f"http://127.0.0.1:{server.server_address[1]}")
     try:
-        news_id = re.search(r'class="creme" data-fav="([^"]+)"', get(f"/p/{push_id}")).group(1)
-        post(f"/favorite/{news_id}")  # pinned, never read: still allowed in the Crème
         pin = get(f"/p/{push_id}")
-        assert "★ In your Crème" in pin and "Nothing yet. Tap Read" in pin
+        assert 'class="read"' in pin and 'class="creme"' not in pin  # just pinned: Read, no Crème yet
+        with pytest.raises(urllib.error.HTTPError):
+            post(f"/favorite/{news_id}")  # pinned, never read: not allowed in the Crème
+        assert not store.favorites(store._rows("SELECT reader_id FROM readers")[0]["reader_id"])
+        post(f"/read/{push_id}")
+        assert "☆ Put in Crème" in get(f"/p/{push_id}")  # read: now it can go in
+        post(f"/favorite/{news_id}")
+        pin = get(f"/p/{push_id}")
+        assert "★ In your Crème" in pin
         assert "<h2>Crème</h2><p class=\"private\">Put your favorite article here.</p><ul class=\"list\"><li>" in pin
     finally:
         server.shutdown()
@@ -359,8 +369,8 @@ def test_landing_lists_pinned_articles_not_yet_read(setup):
         landing = get(f"/p/{second}")
         pinned = landing.split("<h2>Pinned")[1].split("</section>")[0]
         assert '<span class="n">1</span>' in pinned and f'data-read="{first}"' in pinned and f'data-read="{second}"' not in pinned
-        assert 'class="star"' in pinned  # straight into the Crème from the list too
-        assert "Always private" in pinned
+        assert 'class="star"' not in pinned  # no Crème until it's read
+        assert "Tap a headline to read it" in pinned and "Always private" in pinned
         me = get("/me")
         assert me.count('<li><div><a') == 2 and 'Pinned <span class="n">2</span>' in me
         post(f"/read/{first}")  # read: moves from Pinned to Read
@@ -385,14 +395,18 @@ def test_reader_can_delete_pinned_and_read_articles(setup):
     get, post = phone(base)
     _, stranger_post = phone(base)
     try:
-        news = [re.search(r'class="creme" data-fav="([^"]+)"', get(f"/p/{p}")).group(1) for p in (first, second)]
+        get(f"/p/{first}"), get(f"/p/{second}")
+        news = [store.push(p)["news_id"] for p in (first, second)]
         post(f"/read/{first}")
-        post(f"/favorite/{news[1]}")  # pinned, unread, in the Crème
+        me = get("/me")
+        assert f'data-del="{news[1]}"' in me and "<h2>Pinned" in me  # the second, pinned and unread
+        post(f"/read/{second}")
+        post(f"/favorite/{news[1]}")  # read, in the Crème
         me = get("/me")
         assert f'data-del="{news[0]}"' in me and f'data-del="{news[1]}"' in me and "It also leaves your Crème." in me
         with pytest.raises(urllib.error.HTTPError):
             stranger_post(f"/remove/{news[1]}")  # not theirs
-        post(f"/remove/{news[1]}")  # out of Pinned and the Crème
+        post(f"/remove/{news[1]}")  # out of Read and the Crème
         me = get("/me")
         assert "<h2>Pinned" not in me and "Nothing yet. Tap ☆" in me and f'data-del="{news[1]}"' not in me
         post(f"/remove/{news[0]}")  # out of Read, and the count
@@ -401,7 +415,7 @@ def test_reader_can_delete_pinned_and_read_articles(setup):
             re.search(r"/u/([^\"]+)", me).group(1))["reader_id"])
         get(f"/p/{second}")  # reloading the same push doesn't bring it back
         assert "<h2>Pinned" not in get("/me")
-        assert store._rows("SELECT COUNT(*) AS n FROM interactions")[0]["n"] == 3  # labels kept for the model
+        assert store._rows("SELECT COUNT(*) AS n FROM interactions")[0]["n"] == 4  # labels kept for the model
     finally:
         server.shutdown()
 

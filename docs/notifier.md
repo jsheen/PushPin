@@ -45,20 +45,23 @@ Each slot:
 Tapping a notification **pins** its article: the open is recorded (the click the model learns
 from; it isn't shown anywhere) and the reader lands on their profile, served by the `cards`
 service (`src/pushpin/cards.py`) and made public by the `tunnel` service, with that article on
-top (headline and abstract) and two choices:
+top (headline and abstract) and a Read button:
 
 - **Read** is a plain nytimes.com link, so iOS opens the NYT app if it's installed and Safari
   otherwise. Reading needs the reader's own NYT login there, as usual. The tap is recorded as a
   read (a beacon to `/read/<push_id>`); what they do on NYT isn't.
-- **☆ Put in Crème** makes it their **Crème**, the one article they liked most. Any pinned
-  article can be the Crème, read or not; picking another replaces it.
+- **☆ Put in Crème** appears once they've read it, and makes it their **Crème**, the one
+  article they liked most. Only read articles can be the Crème (the server refuses others);
+  picking another replaces it. After choosing on the welcome page (`/start`), the reader goes
+  on to their profile, `/me`.
 
 Below the pinned article is the rest of the profile, the same page as `/me`: the Crème, then
 **Pinned**, every other article they tapped a push for but haven't read yet (tapping one's
-headline reads it, ☆ makes it the Crème; only the reader sees this list), how many articles
+headline reads it and moves it to Read, as a note there says; no ☆ until then; only the reader
+sees this list), how many articles
 they've read (tapped Read on) and the list, where ☆ also picks the Crème, and
-**Pushes a day** (Light, Medium or Heavy, see below; asked right under the pinned article until
-they choose). A **Make my reading public** checkbox shows the count and list on their public
+**Pushes a day** (Light, Medium or Heavy, see below; always at the bottom, medium until they
+choose). A **Make my reading public** checkbox shows the count and list on their public
 link, `/u/<slug>`, which uses a separate random id, not the reader cookie. Visitors always see the
 Crème, and see the count and list only when public. Links there go straight to NYT, so a
 visitor's tap isn't counted as an open or a read. The count, list, streak and "Started reading
@@ -170,7 +173,7 @@ the Mac is awake and Docker is running:
 |-------|-------------|---------|
 | `scores` | slot × candidate article | `slot_time`, article (`title`, `section`, `subcategory`, `url`, `published`), every model feature, `p_click`, `p_return`, `novelty`, `push_score`, `is_top`, `passes_policy`, `sent`, `push_id`, `sent_at`, `sent_ts` (Unix seconds) |
 | `readers` | phone that opened a card or `/start` | `reader_id` (the cookie), `name` (optional), `created_at`, `first_push_ts`, `volume` (`light` / `medium` / `heavy`, NULL = not chosen), `volume_at`, `slug` (public profile id), `history_public` (1 = count and list public) |
-| `favorites` | reader's Crème (one article, any they pinned) | `reader_id`, `news_id`, `created_at` |
+| `favorites` | reader's Crème (one article they've read) | `reader_id`, `news_id`, `created_at` |
 | `interactions` | push × reader × kind | `kind` (`open` = the click that pins it, `read` = Read tapped; older `save` rows are from before saves were dropped), `created_at`, `minutes_after_push` |
 | `labeled` (view) | sent push × reader | the push's `scores` row plus `reader_id`, `reader_name`, `reader_volume`, `label` (1 = opened, 0 = not opened within 24 h, NULL = pending), `read` (1 = tapped Read) |
 | `articles` | article read from the feeds | text, URL, publish time, mapped MIND subcategory |

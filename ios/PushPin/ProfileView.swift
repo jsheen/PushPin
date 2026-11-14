@@ -34,14 +34,12 @@ struct ProfileView: View {
                             Text("Tap a push to pin it here.").foregroundStyle(.secondary)
                         }
                         ForEach(p.pinned) { a in
-                            ArticleRow(article: a, starred: p.creme.contains { $0.newsId == a.newsId }) {
-                                read(a)
-                            } star: {
-                                Task { await state.setCreme(a.newsId) }
-                            }
+                            ArticleRow(article: a) { read(a) }  // no star: the Crème is for read articles
                             .swipeActions { Button("Delete", role: .destructive) { Task { await state.remove(a.newsId) } } }
                         }
-                    } header: { Label("Pinned", systemImage: "pin.fill") }
+                    } header: { Label("Pinned", systemImage: "pin.fill") } footer: {
+                        if !p.pinned.isEmpty { Text("Read one to move it to Read, where you can put it in your Crème.") }
+                    }
 
                     Section {
                         ForEach(p.read) { a in

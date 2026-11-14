@@ -124,6 +124,7 @@ OWNER_SCRIPT = """<script>
 document.querySelectorAll("button[data-volume]").forEach(b => b.addEventListener("click", async () => {
   const r = await fetch("/volume", {method: "POST", body: b.dataset.volume}).catch(() => null);
   if (!r || !r.ok) return;
+  if (location.pathname === "/start") return location.assign("/me");  // welcome page: on to the profile
   document.querySelectorAll("button[data-volume]").forEach(x => x.setAttribute("aria-pressed", x === b));
   const hint = document.querySelector(".volume .hint");
   if (hint) hint.textContent = "Saved. You can change it on your profile.";
@@ -236,24 +237,26 @@ SPLASH_SCRIPT = """<noscript><style>.splash{display:none}.splash~.profile{opacit
 
 
 def pin_panel(push: dict, creme: set[str]) -> str:
-    """The article a push tap pinned, on top of the profile: Read, or put it in the Crème."""
+    """The article a push tap pinned, on top of the profile: Read, and once it's read, put it in
+    the Crème (only read articles go there)."""
     e = html.escape
     on = push["news_id"] in creme
+    creme_row = (f'<div class="row"><button class="creme" data-fav="{e(push["news_id"])}" '
+                 f'aria-pressed="{"true" if on else "false"}">{"★ In your Crème" if on else "☆ Put in Crème"}'
+                 f'</button></div>') if push.get("read") else ""
     return (f'<section class="pin"><div class="kicker">{e(push["section"] or "")}</div>'
             f'<div class="headline">{e(push["title"] or "")}</div><p class="abstract">{e(push["abstract"] or "")}</p>'
             # a plain link to nytimes.com (not a redirect) lets iOS open it in the NYT app when installed
             f'<a class="read" href="{e(push["url"] or "#")}" data-read="{e(push["push_id"])}">Read</a>'
-            f'<div class="row"><button class="creme" data-fav="{e(push["news_id"])}" '
-            f'aria-pressed="{"true" if on else "false"}">{"★ In your Crème" if on else "☆ Put in Crème"}</button></div>'
-            f'</section>')
+            f'{creme_row}</section>')
 
 
 def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: bool, share_url: str = "",
                  today: date | None = None, pinned: dict | None = None, caps: dict | None = None,
                  unread: list[dict] | None = None) -> str:
     """A reader's profile. `owner`: their own view (/me, or /p/<push_id> with that push's article
-    `pinned` on top), with the articles pinned but not read yet (`unread`, each with Read and a
-    star), the star buttons, the public toggle, pushes a day and always the list;
+    `pinned` on top), with the articles pinned but not read yet (`unread`: tap one to read it; no
+    star until it's read), the star buttons, the public toggle, pushes a day and always the list;
     otherwise the public view (/u/<slug>), where the count and list only show if they made them
     public. Article links go straight to NYT, so a visitor isn't counted as opening or reading."""
     e = html.escape
@@ -284,8 +287,9 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
     waiting = [a for a in (unread or []) if not pinned or a["news_id"] != pinned["news_id"]] if owner else []
     if waiting:  # only the owner sees what they pinned; the one on top isn't listed twice
         top += (f'<section><h2>Pinned <span class="n">{len(waiting)}</span></h2>'
-                f'<p class="private">Always private: only you see what you’ve pinned.</p><ul class="list">'
-                f'{"".join(item(a, True, True) for a in waiting)}</ul></section>')
+                f'<p class="private">Tap a headline to read it; it moves to Read, where you can put it in '
+                f'your Crème. Always private: only you see what you’ve pinned.</p><ul class="list">'
+                f'{"".join(item(a, False, True) for a in waiting)}</ul></section>')
 
     n = len(read)
     first = date.fromisoformat(min(a["read_at"] for a in read)[:10]) if read else None

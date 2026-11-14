@@ -381,6 +381,13 @@ class Store:
         return bool(self._rows("""SELECT 1 FROM interactions i JOIN scores s ON s.push_id = i.push_id AND s.sent
             WHERE i.reader_id = :r AND s.news_id = :n LIMIT 1""", r=reader_id, n=news_id))
 
+    def has_read(self, reader_id: str, news_id: str) -> bool:
+        """Whether this reader tapped Read on a push of this article."""
+        if not self._has_scores():
+            return False
+        return bool(self._rows("""SELECT 1 FROM interactions i JOIN scores s ON s.push_id = i.push_id AND s.sent
+            WHERE i.reader_id = :r AND s.news_id = :n AND i.kind = 'read' LIMIT 1""", r=reader_id, n=news_id))
+
     def favorites(self, reader_id: str | None) -> list[dict]:
         """This reader's favorites (the Crème), in the order they were picked: news_id, title, url."""
         if not reader_id or not self._has_scores():
@@ -390,14 +397,17 @@ class Store:
             WHERE f.reader_id = :r AND {KEPT} GROUP BY f.news_id, f.created_at ORDER BY f.created_at, f.news_id""", r=reader_id)
 
     def set_favorite(self, reader_id: str, news_id: str, on: bool = True) -> str:
-        """Pick (or drop) an article the reader pinned as a favorite. Past MAX_FAVORITES, the
-        oldest pick makes room. Returns "ok", or "unknown" (not an article they pinned)."""
+        """Pick (or drop) an article the reader has read as a favorite. Past MAX_FAVORITES, the
+        oldest pick makes room. Returns "ok", "unknown" (not an article they pinned) or "unread"
+        (pinned but not read yet: only read articles go in the Crème)."""
         params = {"r": reader_id, "n": news_id}
         if not on:
             self._exec("DELETE FROM favorites WHERE reader_id = :r AND news_id = :n", params)
             return "ok"
         if not self.pinned(reader_id, news_id):
             return "unknown"
+        if not self.has_read(reader_id, news_id):
+            return "unread"
         current = [f["news_id"] for f in self.favorites(reader_id)]
         if news_id in current:
             return "ok"
