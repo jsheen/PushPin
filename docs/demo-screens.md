@@ -2,7 +2,7 @@
 
 Screens from the web version of PushPin (ntfy push → card server pages) at iPhone width. The pages
 are real screenshots of the card server; the lock screen is a mockup built from a real push sent on
-November 13, 2026.
+November 13, 2026. The flow is: Push -> Pin (which happens just by clicking the push) -> Read (which has papier-mâché mode).
 
 ## 1. A push arrives
 
