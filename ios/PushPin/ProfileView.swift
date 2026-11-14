@@ -38,7 +38,7 @@ struct ProfileView: View {
                             .swipeActions { Button("Delete", role: .destructive) { Task { await state.remove(a.newsId) } } }
                         }
                     } header: { Label("Pinned", systemImage: "pin.fill") } footer: {
-                        if !p.pinned.isEmpty { Text("Read one to move it to Read, where you can put it in your Crème.") }
+                        if !p.pinned.isEmpty { Text("Read one and it moves to Read.") }
                     }
 
                     Section {

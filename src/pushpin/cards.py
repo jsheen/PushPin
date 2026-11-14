@@ -287,8 +287,8 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
     waiting = [a for a in (unread or []) if not pinned or a["news_id"] != pinned["news_id"]] if owner else []
     if waiting:  # only the owner sees what they pinned; the one on top isn't listed twice
         top += (f'<section><h2>Pinned <span class="n">{len(waiting)}</span></h2>'
-                f'<p class="private">Tap a headline to read it; it moves to Read, where you can put it in '
-                f'your Crème. Always private: only you see what you’ve pinned.</p><ul class="list">'
+                f'<p class="private">Tap a headline to read it and it moves to Read. '
+                f'Always private: only you see what you’ve pinned.</p><ul class="list">'
                 f'{"".join(item(a, False, True) for a in waiting)}</ul></section>')
 
     n = len(read)

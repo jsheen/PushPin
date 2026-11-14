@@ -57,8 +57,8 @@ top (headline and abstract) and a Read button:
 
 Below the pinned article is the rest of the profile, the same page as `/me`: the Crème, then
 **Pinned**, every other article they tapped a push for but haven't read yet (tapping one's
-headline reads it and moves it to Read, as a note there says; no ☆ until then; only the reader
-sees this list), how many articles
+headline reads it and moves it to Read, as a note there says, with no ☆ until then; only the
+reader sees this list), how many articles
 they've read (tapped Read on) and the list, where ☆ also picks the Crème, and
 **Pushes a day** (Light, Medium or Heavy, see below; always at the bottom, medium until they
 choose). A **Make my reading public** checkbox shows the count and list on their public
