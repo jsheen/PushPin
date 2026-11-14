@@ -526,7 +526,7 @@ def test_papier_mache_only_with_a_visible_read_list():
             for i in range(7)]
     reader = {"name": "Jo", "history_public": 0}
     own = cards.profile_page(reader, read, owner=True)
-    assert 'id="papier-on"' in own and "Each day’s pinned pushes make a picture: read them all to finish it · 7 finished" in own
+    assert 'id="papier-on"' in own and "Read 3 articles a day to make its picture · 0 finished" in own
     head = re.search(r'<div class="readhead">.*?</div>', own).group(0)
     assert 'id="papier-on"' in head and 'class="papier-hint" hidden' in own  # switch in the Read header; hint until on
     assert "Tap one to share it" in own and "async function sticker(day, kind, built = 1, past = false)" in own  # a finished one shares as a sticker
@@ -537,45 +537,38 @@ def test_papier_mache_only_with_a_visible_read_list():
     assert panel.index('class="list"') < panel.index('id="papier"')  # one panel, no fold
     assert "<details" not in own and 'class="plus"' not in own
     data = re.search(r'id="papier-data"[^>]*>(.*?)</script>', own).group(1)
-    assert data.startswith('[{"day": "2026-11-10", "pinned": 1, "read": 1, "titles": ["T0<\\/script>"], "abstracts": [""]}') and "</script>\"" not in data  # oldest first, can't close the tag
+    assert data.startswith('[{"day": "2026-11-10", "titles": ["T0<\\/script>"], "abstracts": [""]}') and "</script>\"" not in data  # oldest first, can't close the tag
     assert 'id="papier-on"' not in cards.profile_page(reader, read, owner=False)  # private list: no dinosaurs
     assert 'id="papier-on"' in cards.profile_page({**reader, "history_public": 1}, read, owner=False)
     assert 'id="papier-on"' not in cards.profile_page(reader, [], owner=True)
-    assert "read them all to finish it · 1 finished" in cards.profile_page(reader, read[:1], owner=True)
-    half = [{"day": "2026-11-10", "pinned": 2, "read": 1, "titles": ["T0"]}]  # one of two pinned read: not finished
-    assert "· 0 finished ·" in cards.profile_page(reader, read[:1], owner=True, days=half)
+    same_day = [{**a, "read_at": f"2026-11-10T0{i}:00"} for i, a in enumerate(read)]  # 7 reads on one day
+    assert "· 1 finished ·" in cards.profile_page(reader, same_day, owner=True)  # the first 3 make it; the rest are just listed
+    assert "· 0 finished ·" in cards.profile_page(reader, same_day[:2], owner=True)  # 2 of 3
 
 
-def test_a_days_picture_counts_what_was_pinned_and_is_finished_when_all_of_it_is_read(setup):
+def test_a_days_word_art_is_made_by_three_reads_that_day(setup):
     n, store, sent, _db = setup
-    n.cfg["daily_cap"] = 3
-    for hour in (9, 12, 17):
+    n.cfg["daily_cap"] = 4
+    for hour in (8, 12, 17, 21):
         n.run_slot(pd.Timestamp(f"2026-11-12 {hour}:00"))
-    first, second, third = (a[4].rsplit("/", 1)[1] for a in sent)
+    pushes = [a[4].rsplit("/", 1)[1] for a in sent]
     server = cards.serve_cards(store, 0)
     get, post = phone(f"http://127.0.0.1:{server.server_address[1]}")
+    art = lambda: json.loads(re.search(r'id="papier-data"[^>]*>(.*?)</script>', get("/me")).group(1))
     try:
-        get(f"/p/{first}")
-        post(f"/read/{first}")
-        rid = store._rows("SELECT reader_id FROM readers")[0]["reader_id"]
-        title, abstract = store.push(first)["title"], store.push(first)["abstract"]
-        day = store._rows("SELECT sent_at FROM scores WHERE push_id = :p", p=first)[0]["sent_at"][:10]  # when it was sent
-        # the other two were sent but never tapped: they don't count, so 1 of 1 pinned is read
-        assert store.days(rid) == [{"day": day, "pinned": 1, "read": 1, "titles": [title], "abstracts": [abstract]}]
-        assert "· 1 finished ·" in get("/me")
-        get(f"/p/{second}")  # pinned, not read: 1 of 2
-        assert [(d["pinned"], d["read"]) for d in store.days(rid)] == [(2, 1)] and "· 0 finished ·" in get("/me")
-        post(f"/read/{second}")
-        assert [(d["pinned"], d["read"]) for d in store.days(rid)] == [(2, 2)] and "· 1 finished ·" in get("/me")
-        get(f"/p/{third}")
-        post(f"/remove/{store.push(third)['news_id']}")  # pinned, never read, deleted: it leaves the count
-        assert [(d["pinned"], d["read"]) for d in store.days(rid)] == [(2, 2)]
-        post(f"/remove/{store.push(second)['news_id']}")  # read, then deleted: it leaves the count too (out of 1)
-        assert store.days(rid) == [{"day": day, "pinned": 1, "read": 1, "titles": [title], "abstracts": [abstract]}]
-        assert store.days(None) == []
-        stray = store.new_reader(None)  # no first push time: what they tapped still counts
-        store.interact(first, stray, "open")
-        assert [(d["pinned"], d["read"]) for d in store.days(stray)] == [(1, 0)]
+        for p in pushes:
+            get(f"/p/{p}")  # all four pinned: pins don't count toward the art
+        post(f"/read/{pushes[0]}"), post(f"/read/{pushes[1]}")
+        assert [len(d["titles"]) for d in art()] == [2] and "· 0 finished ·" in get("/me")  # 2 of 3
+        post(f"/read/{pushes[2]}")
+        assert "· 1 finished ·" in get("/me")  # 3 read: finished
+        post(f"/read/{pushes[3]}")
+        days = art()
+        assert len(days[0]["titles"]) == 4 and set(days[0]["abstracts"]) == {store.push(p)["abstract"] for p in pushes}  # listed; art uses the first 3
+        post(f"/remove/{store.push(pushes[0])['news_id']}")  # a read one deleted: it leaves; the 4th moves into the art
+        assert [len(d["titles"]) for d in art()] == [3] and "· 1 finished ·" in get("/me")
+        post(f"/remove/{store.push(pushes[1])['news_id']}")
+        assert "· 0 finished ·" in get("/me")  # back to 2 of 3
     finally:
         server.shutdown()
 
@@ -587,10 +580,10 @@ def test_demo_page_shows_dinosaurs_and_stores_nothing(setup):
         page = urllib.request.urlopen(f"http://127.0.0.1:{server.server_address[1]}/demo").read().decode()
     finally:
         server.shutdown()
-    assert 'id="papier-on"' in page and "14 finished" in page and "Justin’s" in page and "Crème" not in page
+    assert 'id="papier-on"' in page and "15 finished" in page and "Justin’s" in page and "Crème" not in page
     data = json.loads(re.search(r'id="papier-data"[^>]*>(.*?)</script>', page).group(1))
-    assert len(data) == 18 and {"day": "2026-10-23", "pinned": 2, "read": 0, "titles": [], "abstracts": []} in data  # pinned, nothing read
-    assert 'data-today="2026-10-29"' in page  # a past day with nothing read shows its outline; today shows a nudge
+    assert len(data) == 17 and "2026-10-23" not in [d["day"] for d in data]  # a day with no reads has no art
+    assert 'data-today="2026-10-29"' in page and 'data-art="3"' in page  # 3 reads make a day's art
     assert all(len(d["abstracts"]) == len(d["titles"]) and all(d["abstracts"]) for d in data)  # titles and abstracts
     assert "function dayText(d)" in page and "const seed = 'pushpin:' + d.day" in page  # seeded by the day, the same for everyone
     assert store.reader_count() == 0 and db("SELECT COUNT(*) AS n FROM interactions")["n"].item() == 0
@@ -625,4 +618,4 @@ def test_everyone_gets_the_same_shape_each_day():
     data = re.compile(r'<script type="application/json" id="papier-data"[^>]*>')
     assert data.search(a).group(0) == data.search(b).group(0) and "data-seed" not in a  # nothing per reader
     assert "aaaa" not in a.split('id="papier-data"')[1]  # the reader's id (their cookie) isn't on the page
-    assert "const kind = kindFor(d.day)" in a and "rng('pushpin:order')" in a  # the date picks the shape
+    assert "kindFor(d.day)" in a and "rng('pushpin:order')" in a  # the date picks the shape

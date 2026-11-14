@@ -347,13 +347,13 @@ class Store:
     # --- profile: articles read, public history
 
     def articles_read(self, reader_id: str | None) -> list[dict]:
-        """Every article this reader tapped Read on, most recent first: news_id, title, section,
-        url, read_at. The tap on Read is what's recorded, not reading on NYT."""
+        """Every article this reader tapped Read on, most recent first: news_id, title, abstract,
+        section, url, read_at. The tap on Read is what's recorded, not reading on NYT."""
         if not reader_id or not self._has_scores():
             return []
-        return self._rows(f"""SELECT s.news_id, MAX(s.title) AS title, MAX(s.section) AS section, MAX(s.url) AS url,
-                MIN(i.created_at) AS read_at
-            FROM interactions i JOIN scores s ON s.push_id = i.push_id AND s.sent
+        return self._rows(f"""SELECT s.news_id, MAX(s.title) AS title, MAX(a.abstract) AS abstract, MAX(s.section) AS section,
+                MAX(s.url) AS url, MIN(i.created_at) AS read_at
+            FROM interactions i JOIN scores s ON s.push_id = i.push_id AND s.sent LEFT JOIN articles a ON a.news_id = s.news_id
             WHERE i.kind = 'read' AND i.reader_id = :r AND {KEPT}
             GROUP BY s.news_id ORDER BY read_at DESC""", r=reader_id)
 
@@ -377,32 +377,6 @@ class Store:
         return bool(self._rows("""SELECT 1 FROM interactions i JOIN scores s ON s.push_id = i.push_id AND s.sent
             WHERE i.reader_id = :r AND s.news_id = :n LIMIT 1""", r=reader_id, n=news_id))
 
-    def days(self, reader_id: str | None) -> list[dict]:
-        """Each day this reader pinned pushes (tapped them), oldest first: day (YYYY-MM-DD, local, the
-        day the push was sent), pinned (how many they tapped, read or not), read (how many of those
-        they tapped Read on, on any day since), and titles and abstracts of the read ones, in send
-        order. Reading everything pinned that day finishes its picture; pushes never tapped don't
-        count, and neither does an article deleted from the profile, read or not (2 pinned and 3
-        read, one of either deleted: out of 4)."""
-        if not reader_id or not self._has_scores():
-            return []
-        rows = self._rows(f"""SELECT SUBSTR(s.sent_at, 1, 10) AS day, s.push_id, s.title, a.abstract,
-                EXISTS (SELECT 1 FROM interactions i2 WHERE i2.push_id = s.push_id AND i2.reader_id = :r
-                        AND i2.kind = 'read') AS read, {KEPT} AS kept
-            FROM scores s JOIN interactions i ON i.push_id = s.push_id AND i.reader_id = :r AND i.kind = 'open'
-                LEFT JOIN articles a ON a.news_id = s.news_id
-            WHERE s.sent ORDER BY s.sent_ts, s.push_id""", r=reader_id)
-        out: dict[str, dict] = {}
-        for row in rows:
-            if not row["kept"]:  # deleted from the profile: it leaves the count
-                continue
-            d = out.setdefault(row["day"], {"day": row["day"], "pinned": 0, "read": 0, "titles": [], "abstracts": []})
-            d["pinned"] += 1
-            if row["read"]:
-                d["read"] += 1
-                d["titles"].append(row["title"] or "Untitled")
-                d["abstracts"].append(row["abstract"] or "")
-        return list(out.values())
 
     def remove(self, reader_id: str, news_id: str) -> bool:
         """Delete an article the reader pinned or read from their profile: it leaves Pinned and

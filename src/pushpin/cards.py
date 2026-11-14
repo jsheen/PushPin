@@ -84,7 +84,8 @@ box-shadow:0 1px 2px rgba(0,0,0,.3);transition:transform .25s ease}
 .papier.on{opacity:1}.papier[hidden]{display:none}
 .papier-today{margin:0 0 18px}.papier-today h3{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:0 0 6px}
 .papier-today figure{margin:0 auto;width:min(100%,340px)}.papier-today canvas{display:block;width:100%}
-.readpanel .today-list{margin:0 0 6px}.readpanel .past-head{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:22px 0 2px}
+.readpanel .today-list{margin:0 0 6px}.readpanel .today-head{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:0 0 2px}
+.readpanel .today-head[hidden],.papier-today[hidden]{display:none}.readpanel .past-head{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:22px 0 2px}
 .readpanel .past-head[hidden]{display:none}.papier figure{margin:0}
 .papier figure canvas{display:block;width:100%}.papier .still,.papier-today .still{cursor:default}.papier .still:hover,.papier-today .still:hover{background:none}
 .papier canvas{display:block;width:100%}.papier .dino,.papier-today .dino{display:block;box-sizing:border-box;width:100%;padding:4px 2px;border:0;border-radius:8px;background:none;cursor:pointer;
@@ -209,7 +210,7 @@ document.querySelectorAll("button[data-volume]").forEach(b => b.addEventListener
   document.querySelectorAll("button[data-volume]").forEach(x => x.setAttribute("aria-pressed", x === b))));
 const pub = document.querySelector("#public");
 if (pub) pub.addEventListener("change", () => { document.querySelector(".share").hidden = !pub.checked; });
-// ×: gone from the list, and out of its day's count (read or pinned), so the pictures redraw
+// ×: gone from the list; a read one leaves its day's art too, so the pictures redraw
 document.querySelectorAll("button[data-del]").forEach(b => b.addEventListener("click", () => {
   const li = b.closest("li"), day = li.dataset.day, wasRead = !li.querySelector("a[data-read]"), title = li.querySelector("a").textContent;
   li.remove();
@@ -217,10 +218,10 @@ document.querySelectorAll("button[data-del]").forEach(b => b.addEventListener("c
   const n = h && h.querySelector(".n");
   if (n) n.textContent = Math.max(0, +n.textContent - 1);  // the header's count
   const el = document.getElementById("papier-data"), days = el && JSON.parse(el.textContent), d = days && days.find(x => x.day === day);
-  if (!d) return;
-  d.pinned -= 1;
-  if (wasRead) { d.read -= 1; const i = d.titles.indexOf(title); if (i >= 0) { d.titles.splice(i, 1); d.abstracts.splice(i, 1); } }
-  if (d.pinned <= 0) days.splice(days.indexOf(d), 1);
+  if (!d || !wasRead) return;  // pins don't count toward the art
+  const i = d.titles.indexOf(title);
+  if (i >= 0) { d.titles.splice(i, 1); d.abstracts.splice(i, 1); }
+  if (!d.titles.length) days.splice(days.indexOf(d), 1);
   el.textContent = JSON.stringify(days); dispatchEvent(new Event("papier:update"));
 }));
 const who = document.querySelector(".who");
@@ -278,14 +279,13 @@ def pin_panel(push: dict) -> str:
 
 def profile_page(reader: dict, read: list[dict], owner: bool, share_url: str = "",
                  today: date | None = None, pinned: dict | None = None, caps: dict | None = None,
-                 unread: list[dict] | None = None, days: list[dict] | None = None, inert: bool = False) -> str:
+                 unread: list[dict] | None = None, inert: bool = False) -> str:
     """A reader's profile. `owner`: their own view (/me, or /p/<push_id> with that push's article
     `pinned` on top), with the articles pinned but not read yet (`unread`: tap one to read it),
     the delete buttons, the public toggle, pushes a day and always the list;
     otherwise the public view (/u/<slug>), where the count and list only show if they made them
     public. Article links go straight to NYT, so a visitor isn't counted as opening or reading.
-    `days`: the pushes sent each day and which were read (Store.days), for the pictures; without
-    it, each day with reads counts as finished. `inert`: the owner's view for the demo, whose buttons
+    `inert`: the owner's view for the demo, whose buttons
     only change the page and never reach the server."""
     e = html.escape
     name = reader.get("name")
@@ -319,13 +319,14 @@ def profile_page(reader: dict, read: list[dict], owner: bool, share_url: str = "
     # Read n (Daily streak d), with the Papier-mâché switch on the right, then the list. A private
     # list on a public link shows only that header: no titles, so no switch and no dinosaurs.
     shown = owner or public  # Papier-mâché only uses titles the page already shows
-    switch, hint, gallery, today_art = papier(read, days, today or date.today()) if shown else ("", "", "", "")
+    switch, hint, gallery, today_art = papier(read, today or date.today()) if shown else ("", "", "", "")
     head = f'<div class="readhead"><h2>Read <span class="n">{n}</span>{on_a_roll}</h2>{switch}</div>'
     # with the pictures available, the list is split: today's reads under Today's read, then Past reads
     on_day = (today or date.today()).isoformat()
     now = [a for a in read if (a.get("read_at") or "")[:10] == on_day] if today_art else []
     before = [a for a in read if a not in now]
-    lists = (f'<ul class="list today-list">{"".join(item(a, owner) for a in now)}</ul>' if now else "")
+    lists = (f'<h3 class="today-head">Today’s read</h3><ul class="list today-list">{"".join(item(a, owner) for a in now)}</ul>'
+             if now else "")
     if today_art and before:
         lists += '<h3 class="past-head">Past reads</h3>'
     lists += f'<ul class="list">{"".join(item(a, owner) for a in before)}</ul>' if before or not today_art else ""
@@ -368,7 +369,7 @@ PAPIER_SCRIPT = """<script>(() => {
 const sw = document.getElementById('papier-on'), box = document.getElementById('papier');
 const data = document.getElementById('papier-data');
 let days = JSON.parse(data.textContent);
-const panel = sw.closest('.readpanel'), lists = panel.querySelectorAll('.list, .past-head'), hint = panel.querySelector('.papier-hint');
+const panel = sw.closest('.readpanel'), lists = panel.querySelectorAll('.list, .past-head, .today-head'), hint = panel.querySelector('.papier-hint');
 let on = false, built = false;
 const E = (c, x, y, rx, ry, r = 0) => { c.beginPath(); c.ellipse(x, y, rx, ry, r, 0, 7); c.fill(); };
 const R = (c, x, y, w, h, r) => { c.beginPath(); c.roundRect(x, y, w, h, r); c.fill(); };
@@ -870,7 +871,8 @@ function share(day, kind, built = 1, past = false) {
 function dayText(d) {
   const seed = 'pushpin:' + d.day, r = rng(seed);  // the same for everyone that day
   const flip = r() < 0.5;
-  const parts = d.titles.map((title, i) => ({title, words: ((d.abstracts || [])[i] || '').split(/\\s+/).filter(Boolean)}));
+  const parts = d.titles.slice(0, +data.dataset.art || 3)  // the first reads make the art
+    .map((title, i) => ({title, words: ((d.abstracts || [])[i] || '').split(/\\s+/).filter(Boolean)}));
   const last = parts[parts.length - 1];  // it ends with a period
   if (last && last.words.length) { if (!/[.!?]["”’]?$/.test(last.words[last.words.length - 1])) last.words[last.words.length - 1] += '.'; }
   else if (last && !/[.!?]["”’]?$/.test(last.title)) last.title += '.';
@@ -881,13 +883,14 @@ function dayText(d) {
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 // One day's picture: a figure with the canvas (tap to share it) and, in the grid, its date caption.
 function picture(d, k, animate, caption = true) {
-  const kind = kindFor(d.day), day = dayText(d), done = d.pinned > 0 && d.read >= d.pinned, built = d.pinned ? Math.min(1, d.read / d.pinned) : 0;
+  // the first ART reads make the art: 1 of 3, 2 of 3, then finished; later ones don't change it
+  const n = Math.min(d.titles.length, ART), kind = kindFor(d.day), day = dayText(d), done = n >= ART, built = n / ART;
   const past = d.day < (data.dataset.today || '');
   const when = MONTHS[+d.day.slice(5, 7) - 1] + ' ' + +d.day.slice(8, 10);
   const fig = document.createElement('figure'), canvas = document.createElement('canvas');
   canvas.setAttribute('role', 'img');
-  canvas.setAttribute('aria-label', 'A ' + kind.name + ' for ' + when + ', ' + d.read + ' of ' + d.pinned + ' pinned pushes read'
-                      + (d.titles.length ? ': ' + d.titles.join('; ') : ''));
+  canvas.setAttribute('aria-label', 'A ' + kind.name + ' for ' + when + ', ' + n + ' of ' + ART + ' read'
+                      + (n ? ': ' + d.titles.slice(0, ART).join('; ') : ''));
   if (built > 0 || past) {  // tap to share it (unfinished: today, the part revealed; a past day, the whole die-cut, blank where missed)
     const tap = document.createElement('button'), named = done || past;
     tap.type = 'button'; tap.className = 'dino'; tap.title = (named ? kind.name + ' · ' : '') + when;
@@ -901,12 +904,12 @@ function picture(d, k, animate, caption = true) {
   }
   if (caption) {
     const cap = document.createElement('figcaption');
-    cap.textContent = when + (done ? '' : ' · ' + d.read + '/' + d.pinned);
+    cap.textContent = when + (done ? '' : ' · ' + n + '/' + ART);
     fig.append(cap);
   }
   return [fig, () => draw(canvas, day.text, built, day.flip, animate, kind, animate ? Math.min(k, 40) * 45 : 0, past)];
 }
-const TODAY = data.dataset.today || '';
+const TODAY = data.dataset.today || '', ART = +data.dataset.art || 3;
 function build(animate) {  // the grid: every day but today, which has its own place on top
   box.innerHTML = '';
   days.filter(d => d.day !== TODAY).forEach((d, k) => {
@@ -918,10 +921,10 @@ function build(animate) {  // the grid: every day but today, which has its own p
 const top = document.getElementById('papier-today');
 function today() {
   if (!top) return;
-  const d = days.find(x => x.day === TODAY) || {day: TODAY, pinned: 0, read: 0, titles: [], abstracts: []};
+  const d = days.find(x => x.day === TODAY) || {day: TODAY, titles: [], abstracts: []}, n = Math.min(d.titles.length, ART);
   top.innerHTML = '';
   const head = document.createElement('h3');
-  head.textContent = 'Today’s read' + (d.pinned ? ' · ' + d.read + ' of ' + d.pinned + ' pinned today' : '');  // older pins count toward their own days
+  head.textContent = 'Today’s read' + (n ? ' · ' + n + ' of ' + ART : '');
   const [fig, paint] = picture(d, 0, false, false);
   top.append(head, fig); paint();
 }
@@ -936,6 +939,7 @@ function set(value, animate) {
   on = value; built = false;
   sw.setAttribute('aria-pressed', on);
   box.hidden = hint.hidden = !on; lists.forEach(x => { x.hidden = on; });
+  if (top) top.hidden = !on;  // the plain list has no art: Today's read and Past reads are just lists
   box.classList.remove('on');
   show(animate);
   try { localStorage.setItem('papier', on ? '1' : '0'); } catch (e) {}
@@ -949,40 +953,41 @@ addEventListener('papier:update', () => { days = JSON.parse(data.textContent); t
 })();</script>"""
 
 
+ART_READS = 3  # reads that make a day's word art: 1 of 3, 2 of 3, then finished
+
+
 def papier_days(read: list[dict]) -> list[dict]:
-    """Days from the reads alone, when what was pinned isn't known: every day with reads, finished."""
+    """The days with reads, oldest first: day (YYYY-MM-DD, when they were read), and the titles and
+    abstracts read that day in reading order. The first ART_READS make the day's word art; later
+    ones are still listed under Read but don't change it. Pins don't count."""
     out: dict[str, dict] = {}
     for a in sorted(read, key=lambda a: a["read_at"] or ""):
-        d = out.setdefault(a["read_at"][:10], {"day": a["read_at"][:10], "pinned": 0, "read": 0, "titles": [], "abstracts": []})
-        d["pinned"] += 1
-        d["read"] += 1
+        d = out.setdefault(a["read_at"][:10], {"day": a["read_at"][:10], "titles": [], "abstracts": []})
         d["titles"].append(a["title"] or "Untitled")
         d["abstracts"].append(a.get("abstract") or "")
     return list(out.values())
 
 
-def papier(read: list[dict], days: list[dict] | None = None, today: date | None = None) -> tuple[str, str, str, str]:
+def papier(read: list[dict], today: date | None = None) -> tuple[str, str, str, str]:
     """Papier-mâché for a Read list the page shows: the switch for the panel's header, the
     instructions (shown when it's on), the pictures' container with their days and script, and the
     place for today's read (today's word art so far), on top of the panel in both modes.
-    One picture a day the reader pinned pushes, made of the ones they read and filled in as they
-    read them: reading everything pinned that day finishes it (3 read and 2 still pinned: 3/5). The
-    date picks the shape, the same for everyone that day."""
+    One picture a day with reads, made of the first ART_READS articles read that day (whenever they
+    were pinned) and filled in as they're read: 1 of 3, 2 of 3, then finished. The date picks the
+    shape, the same for everyone that day."""
     if not read:
         return "", "", "", ""
-    days = days if days is not None else papier_days(read)
-    data = json.dumps([{"day": d["day"], "pinned": d["pinned"], "read": d["read"], "titles": d["titles"],
-                        "abstracts": d.get("abstracts") or []}
-                       for d in days]).replace("</", "<\\/")
-    done = sum(1 for d in days if d["pinned"] and d["read"] >= d["pinned"])
+    days = papier_days(read)
+    data = json.dumps(days).replace("</", "<\\/")
+    done = sum(1 for d in days if len(d["titles"]) >= ART_READS)
     switch = ('<button type="button" class="pm" id="papier-on" aria-pressed="false">'
               '<span class="track"><span class="knob"></span></span>Papier-mâché</button>')
-    hint = (f'<p class="papier-hint" hidden>Each day’s pinned pushes make a picture: read them all to finish it · '
+    hint = (f'<p class="papier-hint" hidden>Read {ART_READS} articles a day to make its picture · '
             f'{done} finished · Tap one to share it</p>')
     top = '<div class="papier-today" id="papier-today"></div>'  # today's read, filled in by the script
     gallery = (f'<div class="papier" id="papier" hidden></div>'
                f'<script type="application/json" id="papier-data" '
-               f'data-today="{(today or date.today()).isoformat()}">{data}</script>{PAPIER_SCRIPT}')
+               f'data-today="{(today or date.today()).isoformat()}" data-art="{ART_READS}">{data}</script>{PAPIER_SCRIPT}')
     return switch, hint, gallery, top
 
 
@@ -1036,35 +1041,31 @@ DEMO_TITLES = [
 ]
 
 
-def demo_data() -> tuple[list[dict], list[dict]]:
-    """The demo reader: a Medium reader (4 pushes a day) from Oct 12 to today, Oct 29: most days all
-    read, a few not finished, nothing read on Oct 23, and the last six days in a row: Read 63, Daily
-    streak 6. Returns the reads and the days (Store.days' shape)."""
-    read, by_day, k = [], {}, 0
-    for day, pinned, n in DEMO_DAYS:
-        d = {"day": f"2026-10-{day:02d}", "pinned": pinned, "read": n, "titles": [], "abstracts": []}
+def demo_data() -> list[dict]:
+    """The demo reader's reads: a Medium reader from Oct 12 to today, Oct 29, reading 2 to 4 a day
+    (3 make a day's word art), none on Oct 23, and the last six days in a row: Read 63, Daily
+    streak 6."""
+    read, k = [], 0
+    for day, n in DEMO_DAYS:
         for j in range(n):
             read.append({"news_id": f"DEMO{k}", "title": DEMO_TITLES[k], "abstract": DEMO_ABSTRACTS[k],
-                         "url": "https://www.nytimes.com", "section": None, "read_at": f"{d['day']}T{8 + 4 * j:02d}:00"})
-            d["titles"].append(DEMO_TITLES[k]); d["abstracts"].append(DEMO_ABSTRACTS[k]); k += 1
-        by_day[d["day"]] = d
-    return read, list(by_day.values())
+                         "url": "https://www.nytimes.com", "section": None, "read_at": f"2026-10-{day:02d}T{8 + 4 * j:02d}:00"})
+            k += 1
+    return read
 
 
 def demo_page() -> str:
     """The demo reader's public link: what a visitor sees."""
-    read, days = demo_data()
-    return profile_page({"name": "Justin", "history_public": 1}, read, owner=False, today=date(2026, 10, 29), days=days)
+    return profile_page({"name": "Justin", "history_public": 1}, demo_data(), owner=False, today=date(2026, 10, 29))
 
 
 def demo_owner_page(share_url: str, caps: dict | None = None) -> str:
     """The demo reader's own view, as if they'd just tapped today's third push: it pinned on top,
     then the privacy switch, Pinned, Read with the pictures and pushes a day. The buttons only
     change the page."""
-    read, days = demo_data()
-    return profile_page({"name": "Justin", "history_public": 0, "volume": "medium"}, read, owner=True,
+    return profile_page({"name": "Justin", "history_public": 0, "volume": "medium"}, demo_data(), owner=True,
                         share_url=share_url, today=date(2026, 10, 29), pinned=DEMO_PIN, unread=DEMO_PINNED,
-                        days=days, caps=caps, inert=True)
+                        caps=caps, inert=True)
 
 
 # today's third push, just tapped (pinned, not read yet: reading it would finish Oct 29's picture);
@@ -1081,10 +1082,10 @@ DEMO_PINNED = [  # most recently pinned first: today's, then two from Oct 23, tw
           ("A Night Bus Driver's Favorite Stops", "2026-10-15")]))]
 
 
-# (day of October, pushes pinned, read): 18 days, 14 finished; the unread pins are DEMO_PINNED
-DEMO_DAYS = [(12, 4, 4), (13, 4, 4), (14, 4, 4), (15, 4, 3), (16, 4, 4), (17, 4, 4), (18, 4, 4), (19, 4, 2),
-             (20, 4, 4), (21, 4, 4), (22, 4, 4), (23, 2, 0), (24, 4, 4), (25, 4, 4), (26, 4, 4), (27, 4, 4),
-             (28, 4, 4), (29, 3, 2)]
+# (day of October, articles read): 18 days; 3 make the word art, so Oct 15 is finished on 3,
+# Oct 19 stops at 2 of 3, Oct 23 has none, and today (the 29th) has 2 so far
+DEMO_DAYS = [(12, 4), (13, 4), (14, 4), (15, 3), (16, 4), (17, 4), (18, 4), (19, 2), (20, 4), (21, 4), (22, 4),
+             (23, 0), (24, 4), (25, 4), (26, 4), (27, 4), (28, 4), (29, 2)]
 
 
 # made up, like the titles: one line each, in the same order
@@ -1234,7 +1235,7 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
             share = f"{proto}://{self.headers.get('host') or 'localhost'}/u/{store.slug(reader_id)}"
             return profile_page(store.reader(reader_id), store.articles_read(reader_id),
                                 owner=True, share_url=share, pinned=pinned, caps=caps, today=date.fromisoformat(store.now()[:10]),
-                                unread=store.pinned_unread(reader_id), days=store.days(reader_id))
+                                unread=store.pinned_unread(reader_id))
 
         def _base(self) -> str:
             return f"{self.headers.get('x-forwarded-proto') or 'http'}://{self.headers.get('host') or 'localhost'}"
@@ -1387,7 +1388,7 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
                 self._send(200, self._own_profile(reader_id))
             elif route == "u" and (other := store.reader_by_slug(push_id)) is not None:
                 rid = other["reader_id"]
-                self._send(200, profile_page(other, store.articles_read(rid), owner=False, days=store.days(rid),
+                self._send(200, profile_page(other, store.articles_read(rid), owner=False,
                                              today=date.fromisoformat(store.now()[:10])))
             elif route == "p" and (push := store.push(push_id)) is not None:
                 reader_id, new = self._reader_id(), None
