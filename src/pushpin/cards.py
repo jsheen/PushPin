@@ -84,7 +84,7 @@ box-shadow:0 1px 2px rgba(0,0,0,.3);transition:transform .25s ease}
 .papier-hint{font-size:14px;color:var(--muted);margin:0 0 14px}
 .papier{opacity:0;transition:opacity .5s ease;margin-top:4px}.papier.on{opacity:1}.papier figure{width:80%;margin:0 0 26px}.papier figure.right{margin-left:auto}
 .papier canvas{display:block;width:100%}.papier figcaption{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:center;margin-top:6px}
-.profile .sub{color:var(--muted);font-size:15px;margin:0}
+.profile .sub{color:var(--muted);font-size:15px;margin:0}.profile header .toggle{margin:12px 0 6px}
 .profile section{border-top:1px solid var(--line);padding:24px 0 8px}
 .profile h2{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:0 0 12px}
 .profile .list li{display:flex;gap:12px;align-items:flex-start}.profile .list li>div{flex:1;min-width:0}
@@ -287,8 +287,8 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
     waiting = [a for a in (unread or []) if not pinned or a["news_id"] != pinned["news_id"]] if owner else []
     if waiting:  # only the owner sees what they pinned; the one on top isn't listed twice
         top += (f'<section><h2>Pinned <span class="n">{len(waiting)}</span></h2>'
-                f'<p class="private">Tap a headline to read it and it moves to Read. '
-                f'Always private: only you see what you’ve pinned.</p><ul class="list">'
+                f'<p class="private">Always private: only you see what you’ve pinned. '
+                f'Tap a headline to read it and it moves to Read.</p><ul class="list">'
                 f'{"".join(item(a, False, True) for a in waiting)}</ul></section>')
 
     n = len(read)
@@ -306,10 +306,7 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
                 f'{gallery}</div>' if read
                 else '<h2>Read</h2><p class="empty">Nothing yet. Tap Read on a push to start.</p>')
     if owner:
-        bottom = (f'{articles}<label class="toggle"><input type="checkbox" id="public"{" checked" if public else ""}> '
-                  f'Make my reading public</label><p class="share"{"" if public else " hidden"}>Anyone with this link '
-                  f'can see what you’ve read: <a href="{e(share_url)}">{e(share_url)}</a></p>'
-                  f'<p class="note" aria-live="polite"></p>'
+        bottom = (f'{articles}<p class="note" aria-live="polite"></p>'
                   + volume_picker(reader.get("volume"), caps))  # always at the bottom
     elif public:
         bottom = articles
@@ -318,7 +315,11 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
 
     whose = f"{e(name)}’s" if name else ("Your" if owner else "A reader’s")
     title = f'{whose} {PIN_MARK}'  # "Justin’s 📌", with our pin standing in for the word PushPin
-    sub = '<p class="sub">Only you can see this page.</p>' if owner else ""
+    # the owner's header: who can see the page, and the switch that makes the reading public
+    sub = (f'<p class="sub">Only you can see this page unless you make your reading public.</p>'
+           f'<label class="toggle"><input type="checkbox" id="public"{" checked" if public else ""}> '
+           f'Make my reading public</label><p class="share"{"" if public else " hidden"}>Anyone with this link '
+           f'can see what you’ve read: <a href="{e(share_url)}">{e(share_url)}</a></p>') if owner else ""
     ask_name = ('<form class="who"><input name="name" maxlength="40" placeholder="Your first name (optional)" '
                 'autocomplete="given-name"><button>Save</button></form>') if owner and not name else ""
     scripts = (OWNER_SCRIPT + PROFILE_SCRIPT) if owner else ""
