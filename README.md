@@ -27,7 +27,8 @@ On a held-out day (1.22M candidates):
   this is evaluated on impressions with 50+ candidates, and calibration was fit across all
   candidates at population scale, not per slice. MIND only logs impressions with a click, so small
   impressions click far more and large ones far less than the average the model learned.
-  Thresholds still rank pushes correctly; the absolute CTRs are in MIND feed units.
+  Raising the threshold still sends fewer, better pushes (actual CTR rises from 5.3% to 10.3%);
+  only the predicted levels are too high.
 
 Details: [docs/model.md](docs/model.md) and [docs/analysis.md](docs/analysis.md).
 
