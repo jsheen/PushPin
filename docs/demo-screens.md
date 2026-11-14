@@ -48,15 +48,39 @@ under the words so the shape reads at that size. The full page has all 29:
 
 ## 4. Sharing a dinosaur
 
-Tapping a dinosaur opens its share card: a 1080 × 1080 square on cream paper. The PushPin pin
-is at the top, then a newspaper masthead, then the dinosaur, drawn large from its headline.
-**Share** opens the phone's share sheet with the image, and **Save image** downloads it. Browsers
-that can't share files only show Save image.
+Tapping a dinosaur opens it as text, ready to paste into any chat: 📌 on its own line, then the
+dinosaur drawn in braille characters. **Share** opens the phone's share sheet with the text, and
+**Copy** copies it. Browsers without a share sheet only show Copy.
 
-The masthead is a placeholder, `[Newspaper Name]`, set by `NEWSPAPER` in `src/pushpin/cards.py`.
+Chat apps use proportional fonts, so ordinary letters wouldn't line up into a shape. Braille
+characters, including the blank one (U+2800), are all one width, and each one holds 2 × 4 dots of
+the dinosaur's outline, 22 characters across.
 
-<img src="screens/share-sheet.png" width="300" alt="Share sheet on the demo profile: a Brontosaurus card with Share and Save image buttons">
-<img src="screens/share-card.png" width="300" alt="The shared image: the PushPin pin, the [Newspaper Name] masthead, a Triceratops made of the headline The Last Typewriter Repairman in Ohio">
+<img src="screens/share-sheet.png" width="300" alt="Share sheet on the demo profile: a Triceratops drawn in braille text, with Share and Copy buttons">
+
+What the first two demo dinosaurs share as:
+
+```
+📌
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⣾⣿⣻⣷
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣴⣿⣿⡿⠛⠁
+⠀⠀⠀⠀⠀⠀⢀⣠⣴⣶⣶⣶⣶⣶⣤⣿⣿⡿⠋
+⠀⠀⠀⣠⣶⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠁
+⠀⣠⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡟
+⠚⠛⠛⠉⠉⠉⠉⠙⣿⡿⣿⡿⢿⣿⡟⣿⡇
+⠀⠀⠀⠀⠀⠀⠀⠀⠿⠃⠿⠃⠘⠿⠃⠿⠃
+```
+
+```
+📌
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢰⣿⣿⣿⣿⣿⣿⣦
+⠀⠀⠀⠀⠀⠀⠀⠀⢀⣀⣤⣤⣤⣴⣿⣿⣿⣿⣿⣿⣿⡿
+⠀⠀⠀⠀⢀⣠⣤⣾⣿⣿⣿⣿⣿⣿⣿⣿⠉⠉⠉⠉⠉⠁
+⠀⠀⣠⣴⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠛⠆
+⠐⠛⠛⠋⠉⠉⠻⠿⢿⣿⣿⣿⣿⡇
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⣿⣿⣿⣿⡇
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠻⠿⠛⠿⠃
+```
 
 ## Before the first push: the welcome page
 
@@ -72,8 +96,10 @@ screenshot each page with headless Chrome at `--window-size=390,844 --force-devi
 Put each page in a 390 px-wide `<iframe>`, because headless Chrome won't lay out a window that
 narrow.
 
-The share screens need a tap, so they were driven over the DevTools protocol instead. Set the
-device metrics to 390 × 844 at 2x with `mobile: true` and the light color scheme, open `/demo`, and
-click the splash. Stub `navigator.canShare` to return true, because headless Chrome can't share
-files and would hide the button. Then click a `.papier .dino`. The card image is the dialog
-`<img>`'s data URL, saved as is.
+The share screen needs a tap, so it was driven over the DevTools protocol instead. Set the device
+metrics to 390 × 844 at 2x with `mobile: true` and the dark color scheme, open `/demo`, and click the
+splash. Stub `navigator.share`, because headless Chrome doesn't have it and would hide the button.
+Then click a `.papier .dino`. The shared text is the dialog `<pre>`'s text.
+
+The other screenshots that show dinosaurs (`push-tapped.png` and both demo profiles) were taken the
+same way: dark mode, with the page's full height as the window for the full-page ones.

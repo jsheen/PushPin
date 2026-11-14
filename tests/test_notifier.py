@@ -560,8 +560,7 @@ def test_papier_mache_only_with_a_visible_read_list():
     assert 'id="papier-on"' in own and "Every article you read makes a new dinosaur · 7 dinosaurs so far" in own
     head = re.search(r'<div class="readhead">.*?</div>', own).group(0)
     assert 'id="papier-on"' in head and 'class="papier-hint" hidden' in own  # switch in the Read header; hint until on
-    assert "Tap one to share it" in own and 'data-paper="[Newspaper Name]"' in own  # each dinosaur opens a share card
-    assert "navigator.share" in own and "'/icon.png'" in own  # the card carries the PushPin mark
+    assert "Tap one to share it" in own and "navigator.share({text})" in own  # each dinosaur shares as text
     panel = own[own.index('<div class="readpanel">'):]
     assert panel.index('class="list"') < panel.index('id="papier"')  # one panel, no fold
     assert "<details" not in own and 'class="plus"' not in own

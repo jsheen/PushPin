@@ -37,8 +37,8 @@ Details: [docs/model.md](docs/model.md) and [docs/analysis.md](docs/analysis.md)
 The notifier scores live NYT RSS articles and pushes to phones through [ntfy](https://ntfy.sh)
 or the iOS app. Readers choose a volume: light (2 a day: morning, night), medium (4) or heavy (8).
 Tapping a push opens the reader's profile. Every article they read becomes a very small
-papier-mâché dinosaur made of its headline, and tapping one makes a square card to share: the
-PushPin pin, a newspaper masthead (a placeholder for now) and the dinosaur. Every
+papier-mâché dinosaur made of its headline, and tapping one turns it into text to share in any
+chat: 📌 and the dinosaur drawn in braille characters. Every
 push and tap is logged as labeled data that MIND lacks. The plan is to retrain the model each week
 on these logs. It can also deploy to GCP for about
 $1/month.

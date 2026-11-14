@@ -89,11 +89,11 @@ box-shadow:0 1px 2px rgba(0,0,0,.3);transition:transform .25s ease}
 .papier .dino:active{transform:scale(.94)}
 .sharecard{border:0;padding:44px 16px 16px;border-radius:18px;background:var(--bg);color:var(--fg);width:min(92vw,420px);
 box-sizing:border-box;box-shadow:0 24px 80px rgba(0,0,0,.35)}.sharecard::backdrop{background:rgba(0,0,0,.55)}
-.sharecard img{display:block;width:100%;aspect-ratio:1;border-radius:6px;background:#f6f1e7;box-shadow:0 2px 10px rgba(0,0,0,.12)}
+.sharecard pre{margin:0 auto;width:fit-content;max-width:100%;padding:12px 16px;border-radius:18px;background:var(--btn);
+font:15px/1.15 -apple-system,system-ui,sans-serif;white-space:pre;overflow-x:auto}
 .sharecard .x{position:absolute;top:6px;right:8px;font:28px/1 -apple-system,system-ui,sans-serif;border:0;background:none;color:var(--muted);padding:4px 8px;cursor:pointer}
 .sharecard .row{margin-top:14px}.sharecard .go{background:var(--fg);color:var(--bg)}
-.sharecard .save{flex:1;text-align:center;font-weight:600;padding:12px;border-radius:10px;background:var(--btn);color:var(--fg);text-decoration:none}
-.sharecard:has(.go[hidden]) .save{background:var(--fg);color:var(--bg)}.papier figcaption{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:center;margin-top:6px}
+.sharecard:has(.go[hidden]) .copy{background:var(--fg);color:var(--bg)}.papier figcaption{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:center;margin-top:6px}
 .profile .sub{color:var(--muted);font-size:15px;margin:0}.profile header .toggle{margin:12px 0 6px}
 .profile section{border-top:1px solid var(--line);padding:24px 0 8px}
 .profile h2{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:0 0 12px}
@@ -347,7 +347,6 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
 
 # Papier-mâché: the read titles as concrete poetry. Every article read makes a very small dinosaur
 # out of its title, in a grid of them; tapping one shares it as a card.
-NEWSPAPER = "[Newspaper Name]"  # the masthead on a dinosaur's share card: a placeholder until there's a partner paper
 PAPIER_SCRIPT = """<script>(() => {
 const sw = document.getElementById('papier-on'), box = document.getElementById('papier');
 const data = document.getElementById('papier-data'), titles = JSON.parse(data.textContent);
@@ -618,64 +617,56 @@ function draw(canvas, words, flip, animate, kind, delay) {
   requestAnimationFrame(frame);
 }
 // ---- share card ----
-// Tapping a dinosaur opens its card: a 1080 x 1080 square image on paper, with
-// the PushPin mark on top, the newspaper's masthead and the dinosaur made of its headline.
-const PAPER = '#f6f1e7', INK = '#1a1714', SERIF = 'Georgia, "Times New Roman", serif';
-const paper = data.dataset.paper || '';
-let logo = null;
-const pin = () => logo ??= new Promise(ok => {
-  const im = new Image(); im.onload = () => ok(im); im.onerror = () => ok(null); im.src = '/icon.png';
-});
-async function card(words, kind) {
-  const W = 1080, H = 1080, M = 84, cv = document.createElement('canvas');
-  cv.width = W; cv.height = H;
-  const c = cv.getContext('2d');
-  c.fillStyle = PAPER; c.fillRect(0, 0, W, H);
-  c.strokeStyle = INK; c.lineWidth = 1.5; c.strokeRect(36, 36, W - 72, H - 72);   // a thin frame
-  c.lineWidth = 0.75; c.strokeRect(46, 46, W - 92, H - 92);
-  const im = await pin(), size = 96;                                                 // the PushPin mark
-  if (im) c.drawImage(im, (W - size) / 2, 84, size, size);
-  c.fillStyle = INK; c.textAlign = 'center'; c.textBaseline = 'alphabetic';
-  c.font = '700 58px ' + SERIF; c.fillText(paper, W / 2, 268);                      // the masthead
-  c.fillRect(M, 302, W - 2 * M, 3); c.fillRect(M, 311, W - 2 * M, 1);
-  const dw = W - 2 * M, dh = Math.round(dw * 0.64), fs = Math.round(dw / 58);     // the dinosaur
-  const glyphs = layout(dw, dh, words, false, kind, fs);
-  c.font = fs + 'px ' + SERIF; c.textAlign = 'left'; c.textBaseline = 'middle';
-  // centered by its words' box in the space below the rules (the drawing grid has room to spare)
-  let x0 = dw, x1 = 0, y0 = dh, y1 = 0;
-  for (const [ch, x, y] of glyphs) { x0 = Math.min(x0, x); x1 = Math.max(x1, x + c.measureText(ch).width); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
-  const dx = Math.round(W / 2 - (x0 + x1) / 2), dy = Math.round((311 + H - 46) / 2 - (y0 + y1) / 2);
-  const ghost = document.createElement('canvas'); ghost.width = dw; ghost.height = dh;           // its faint silhouette
-  const gc = ghost.getContext('2d'); dino(gc, dw, dh, false, kind);
-  gc.globalCompositeOperation = 'source-in'; gc.fillStyle = INK; gc.fillRect(0, 0, dw, dh);
-  c.globalAlpha = 0.1; c.drawImage(ghost, dx, dy); c.globalAlpha = 1;
-  c.fillStyle = INK; for (const g of glyphs) c.fillText(g[0], dx + g[1], dy + g[2]);
-  return cv;
+// Tapping a dinosaur opens it as text to paste in any chat: a pin, then the dinosaur in braille.
+// Chat apps set text in proportional fonts, where letters won't line up into a shape; braille
+// cells (blank U+2800 included) are all one width, and each holds 2 x 4 dots of the silhouette.
+const COLS = 22, BITS = [[0x01, 0x08], [0x02, 0x10], [0x04, 0x20], [0x40, 0x80]];
+function braille(kind) {
+  const w = 400, h = 256, m = document.createElement('canvas'); m.width = w; m.height = h;
+  const mc = m.getContext('2d'); dino(mc, w, h, false, kind);
+  const a = mc.getImageData(0, 0, w, h).data, on = (x, y) => a[(y * w + x) * 4 + 3] > 127;
+  let x0 = w, x1 = 0, y0 = h, y1 = 0;  // crop to the dinosaur
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (on(x, y)) {
+    x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+  }
+  const dots = COLS * 2, step = (x1 - x0 + 1) / dots, rows = Math.ceil((y1 - y0 + 1) / step / 4);
+  const dot = (dx, dy) => {  // a dot is on when most of its patch is inside the silhouette
+    let n = 0, t = 0;
+    for (let y = Math.floor(y0 + dy * step); y < Math.min(y1 + 1, y0 + (dy + 1) * step); y++)
+      for (let x = Math.floor(x0 + dx * step); x < Math.min(x1 + 1, x0 + (dx + 1) * step); x++) { t++; if (on(x, y)) n++; }
+    return t && n / t > 0.45;
+  };
+  const lines = [];
+  for (let r = 0; r < rows; r++) {
+    let line = '';
+    for (let col = 0; col < COLS; col++) {
+      let bits = 0;
+      for (let j = 0; j < 4; j++) for (let i = 0; i < 2; i++) if (dot(col * 2 + i, r * 4 + j)) bits |= BITS[j][i];
+      line += String.fromCharCode(0x2800 + bits);
+    }
+    lines.push(line.replace(/⠀+$/, ''));  // trailing blanks only; leading ones keep the shape
+  }
+  while (lines.length && !lines[0]) lines.shift();
+  while (lines.length && !lines[lines.length - 1]) lines.pop();
+  return '📌\\n' + lines.join('\\n');
 }
 let sheet = null;
-function share(words, kind) {
+function share(kind) {
   if (!sheet) {
     sheet = document.createElement('dialog'); sheet.className = 'sharecard';
-    sheet.innerHTML = '<button type="button" class="x" aria-label="Close">×</button><img alt="">'
-      + '<div class="row"><button type="button" class="go">Share</button><a class="save" download>Save image</a></div>';
+    sheet.innerHTML = '<button type="button" class="x" aria-label="Close">×</button><pre></pre>'
+      + '<div class="row"><button type="button" class="go">Share</button><button type="button" class="copy">Copy</button></div>';
     sheet.querySelector('.x').addEventListener('click', () => sheet.close());
     sheet.addEventListener('click', ev => { if (ev.target === sheet) sheet.close(); });  // the backdrop
     document.body.append(sheet);
   }
-  const img = sheet.querySelector('img'), go = sheet.querySelector('.go'), save = sheet.querySelector('.save');
-  img.removeAttribute('src'); img.alt = 'A ' + kind.name + ' made of the headline ' + words[0] + ', from PushPin';
-  go.hidden = true; save.removeAttribute('href');
+  const text = braille(kind), pre = sheet.querySelector('pre'), go = sheet.querySelector('.go'), copy = sheet.querySelector('.copy');
+  pre.textContent = text; pre.setAttribute('aria-label', 'A ' + kind.name + ' drawn in text');
+  go.hidden = !navigator.share;
+  go.onclick = () => navigator.share({text}).catch(() => null);
+  copy.textContent = 'Copy';
+  copy.onclick = () => navigator.clipboard.writeText(text).then(() => { copy.textContent = 'Copied'; }, () => null);
   sheet.showModal();
-  card(words, kind).then(cv => {
-    const url = cv.toDataURL('image/png'), name = 'pushpin-' + kind.name.toLowerCase().replace(/[^a-z]+/g, '-') + '.png';
-    img.src = url; save.href = url; save.download = name;
-    // made before the tap, so Share runs inside it (iOS only shares from a tap)
-    cv.toBlob(b => {
-      const file = new File([b], name, {type: 'image/png'}), payload = {files: [file], title: kind.name};
-      go.hidden = !(navigator.canShare && navigator.canShare(payload));
-      go.onclick = () => navigator.share(payload).catch(() => null);
-    }, 'image/png');
-  });
 }
 // ---- end share card ----
 const kindOf = herd(data.dataset.seed || '');
@@ -687,7 +678,7 @@ function build(animate) {
     canvas.setAttribute('aria-label', 'A ' + kind.name + ' made of the title: ' + title);
     tap.type = 'button'; tap.className = 'dino'; tap.title = kind.name + ' · ' + title;
     tap.setAttribute('aria-label', 'Share the ' + kind.name + ': ' + title);
-    tap.append(canvas); tap.addEventListener('click', () => share([title], kind));
+    tap.append(canvas); tap.addEventListener('click', () => share(kind));
     box.append(tap);
     draw(canvas, [title], k % 2 === 1, animate, kind, animate ? Math.min(k, 40) * 45 : 0);  // they hatch one after another
   });
@@ -735,8 +726,7 @@ def papier(read: list[dict], seed: str = "") -> tuple[str, str, str]:
     hint = (f'<p class="papier-hint" hidden>Every article you read makes a new dinosaur · {note}'
             f' · Tap one to share it</p>')
     gallery = (f'<div class="papier" id="papier" hidden></div>'
-               f'<script type="application/json" id="papier-data" data-seed="{html.escape(seed)}" '
-               f'data-paper="{html.escape(NEWSPAPER)}">{data}</script>{PAPIER_SCRIPT}')
+               f'<script type="application/json" id="papier-data" data-seed="{html.escape(seed)}">{data}</script>{PAPIER_SCRIPT}')
     return switch, hint, gallery
 
 
