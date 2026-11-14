@@ -23,6 +23,11 @@ On a held-out day (1.22M candidates):
 - **Targeting:** the top pick is clicked 16.7% of the time vs. 9.1% for a random pick.
 - **Novelty:** friction 0.2 triples the share of never-shown subcategories for about 3 points of CTR.
 - **Send policy:** the default sends 0.41 pushes per active user-day at 7.9% CTR, vs. 5.3% for sending everything.
+  The model over-predicts here (8.1% predicted vs. 5.3% actual when sending everything) because
+  this is evaluated on impressions with 50+ candidates, and calibration was fit across all
+  candidates at population scale, not per slice. MIND only logs impressions with a click, so small
+  impressions click far more and large ones far less than the average the model learned.
+  Thresholds still rank pushes correctly; the absolute CTRs are in MIND feed units.
 
 Details: [docs/model.md](docs/model.md) and [docs/analysis.md](docs/analysis.md).
 
