@@ -749,11 +749,14 @@ function distances(rgba, w, h) {
   for (let y = 0; y < h; y++) { for (let x = 0; x < w; x++) f[x] = d[y * w + x]; pass(w); for (let x = 0; x < w; x++) d[y * w + x] = out[x]; }
   return d;
 }
-async function sticker(day, kind, built = 1) {  // an unfinished day: just the part revealed so far
-  const W = 1200, H = 768, {inside: shape, edge} = revealed(silhouette(W, H, day.flip, kind), W, H, built, day.flip);
-  const {glyphs, fs} = fitted(W, H, day.text, shape, Math.round(W / 4));
+// An unfinished day: today, just the part revealed so far; a day that's over, the whole shape with
+// the grey of what was missed, the words in the part that was read (a missed day: all grey).
+async function sticker(day, kind, built = 1, past = false) {
+  const W = 1200, H = 768, whole = silhouette(W, H, day.flip, kind), missed = past && built < 1;
+  const {inside: shape, edge} = revealed(whole, W, H, built, day.flip), outline = missed ? whole : shape;
+  const {glyphs, fs} = built > 0 ? fitted(W, H, day.text, shape, Math.round(W / 4)) : {glyphs: [], fs: 10};
   let x0 = W, x1 = 0, y0 = H, y1 = 0;
-  for (let y = 0; y < H; y += 2) for (let x = 0; x < W; x += 2) if (shape(x, y)) {
+  for (let y = 0; y < H; y += 2) for (let x = 0; x < W; x += 2) if (outline(x, y)) {
     x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
   }
   // border, room for the shadow, and the pin's own corner (top left): the die-cut's edge always
@@ -762,7 +765,7 @@ async function sticker(day, kind, built = 1) {  // an unfinished day: just the p
   const out = document.createElement('canvas'); out.width = x1 - x0 + 2 * P + room; out.height = y1 - y0 + 2 * P + room;
   const mask = document.createElement('canvas'); mask.width = W; mask.height = H;
   const mc = mask.getContext('2d'); dino(mc, W, H, day.flip, kind, true);  // traced around the solid shape
-  if (edge !== null) day.flip ? mc.clearRect(0, 0, edge, H) : mc.clearRect(edge, 0, W - edge, H);
+  if (edge !== null && !missed) day.flip ? mc.clearRect(0, 0, edge, H) : mc.clearRect(edge, 0, W - edge, H);
   const cut = document.createElement('canvas'); cut.width = out.width; cut.height = out.height;
   const cc = cut.getContext('2d');
   // the border: every pixel within B of the shape, by true distance, with a soft edge, so thin
@@ -777,6 +780,12 @@ async function sticker(day, kind, built = 1) {  // an unfinished day: just the p
   const c = out.getContext('2d');
   c.shadowColor = 'rgba(0,0,0,.28)'; c.shadowBlur = 24; c.shadowOffsetY = 8; c.drawImage(cut, 0, 0);
   c.shadowColor = 'transparent';
+  if (missed) {  // the grey of what could have been
+    const ghost = document.createElement('canvas'); ghost.width = W; ghost.height = H;
+    const gc = ghost.getContext('2d'); dino(gc, W, H, day.flip, kind);
+    gc.globalCompositeOperation = 'source-in'; gc.fillStyle = STICKER_INK; gc.fillRect(0, 0, W, H);
+    c.globalAlpha = 0.15; c.drawImage(ghost, ox, oy); c.globalAlpha = 1;
+  }
   c.font = fs + 'px Georgia, "Times New Roman", serif'; c.textBaseline = 'middle'; c.fillStyle = STICKER_INK;
   for (const g of glyphs) c.fillText(g[0], ox + g[1], oy + g[2]);
   const im = await pinIcon();
@@ -784,7 +793,7 @@ async function sticker(day, kind, built = 1) {  // an unfinished day: just the p
   return out;
 }
 let sheet = null;
-function share(day, kind, built = 1) {
+function share(day, kind, built = 1, past = false) {
   if (!sheet) {
     sheet = document.createElement('dialog'); sheet.className = 'sharecard';
     sheet.innerHTML = '<button type="button" class="x" aria-label="Close">×</button><img alt="">'
@@ -795,10 +804,10 @@ function share(day, kind, built = 1) {
     document.body.append(sheet);
   }
   const img = sheet.querySelector('img'), go = sheet.querySelector('.go'), save = sheet.querySelector('.save'), copy = sheet.querySelector('.copy');
-  img.removeAttribute('src'); img.alt = (built >= 1 ? 'A ' + kind.name : 'Part of a') + ' sticker made of the day’s articles';
+  img.removeAttribute('src'); img.alt = (built >= 1 ? 'A ' + kind.name + ' sticker made of the day’s articles' : past ? 'A ' + kind.name + ' sticker, grey where the day’s pushes went unread' : 'Part of a sticker made of the day’s articles');
   go.hidden = copy.hidden = true; save.removeAttribute('href'); copy.textContent = 'Copy';
   sheet.showModal();
-  sticker(day, kind, built).then(cv => {
+  sticker(day, kind, built, past).then(cv => {
     const url = cv.toDataURL('image/png'), name = 'pushpin-' + day.seed.split(':').pop() + '-' + kind.name.toLowerCase().replace(/[^a-z]+/g, '-') + '.png';
     img.src = url; save.href = url; save.download = name;
     cv.toBlob(b => {  // made before the tap on Share, which iOS needs to share a file
@@ -839,25 +848,26 @@ function build(animate) {
   box.innerHTML = '';
   days.forEach((d, k) => {  // one picture a day, oldest first, made of that day's read headlines
     const kind = kindFor(d.day), day = dayText(d), done = d.sent > 0 && d.titles.length >= d.sent, built = d.sent ? Math.min(1, d.titles.length / d.sent) : 0;
+    const past = d.day < (data.dataset.today || '');
     const when = MONTHS[+d.day.slice(5, 7) - 1] + ' ' + +d.day.slice(8, 10);
     const fig = document.createElement('figure'), canvas = document.createElement('canvas'), cap = document.createElement('figcaption');
     canvas.setAttribute('role', 'img');
     canvas.setAttribute('aria-label', 'A ' + kind.name + ' for ' + when + ', ' + d.titles.length + ' of ' + d.sent + ' pushes read'
                         + (d.titles.length ? ': ' + d.titles.join('; ') : ''));
     cap.textContent = when + (done ? '' : ' · ' + d.titles.length + '/' + d.sent);
-    if (built > 0) {  // something read: tap to share it (unfinished, just the part revealed so far)
-      const tap = document.createElement('button');
-      tap.type = 'button'; tap.className = 'dino'; tap.title = (done ? kind.name + ' · ' : '') + when;
-      tap.setAttribute('aria-label', 'Share the ' + (done ? kind.name : 'picture') + ' for ' + when);
-      tap.append(canvas); tap.addEventListener('click', () => share(day, kind, built));
+    if (built > 0 || past) {  // tap to share it (unfinished: today, the part revealed; a past day, what was missed in grey)
+      const tap = document.createElement('button'), named = done || past;
+      tap.type = 'button'; tap.className = 'dino'; tap.title = (named ? kind.name + ' · ' : '') + when;
+      tap.setAttribute('aria-label', 'Share the ' + (named ? kind.name : 'picture') + ' for ' + when);
+      tap.append(canvas); tap.addEventListener('click', () => share(day, kind, built, past));
       fig.append(tap);
     } else {
-      const still = document.createElement('div');  // nothing read: nothing to share yet
+      const still = document.createElement('div');  // today, nothing read: nothing to share yet
       still.className = 'dino still'; still.title = 'Read ' + when + '’s pushes to make its word art';
       still.append(canvas); fig.append(still);
     }
     fig.append(cap); box.append(fig);
-    draw(canvas, day.text, built, day.flip, animate, kind, animate ? Math.min(k, 40) * 45 : 0, d.day < (data.dataset.today || ''));
+    draw(canvas, day.text, built, day.flip, animate, kind, animate ? Math.min(k, 40) * 45 : 0, past);
   });
 }
 function show(animate) {

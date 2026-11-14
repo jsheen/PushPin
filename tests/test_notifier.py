@@ -529,7 +529,7 @@ def test_papier_mache_only_with_a_visible_read_list():
     assert 'id="papier-on"' in own and "Each day’s pushes make a picture: read them all to finish it · 7 finished" in own
     head = re.search(r'<div class="readhead">.*?</div>', own).group(0)
     assert 'id="papier-on"' in head and 'class="papier-hint" hidden' in own  # switch in the Read header; hint until on
-    assert "Tap one to share it" in own and "async function sticker(day, kind, built = 1)" in own  # a finished one shares as a sticker
+    assert "Tap one to share it" in own and "async function sticker(day, kind, built = 1, past = false)" in own  # a finished one shares as a sticker
     assert "new ClipboardItem({'image/png': b})" in own and "textDino" not in own  # Copy copies the image; no text version
     assert "save.onclick" in own and "(pointer: coarse)" in own  # on a phone, Save goes through the share sheet (Save Image → Photos)
     assert "snowman(c)" in own and "Lightning bolt" in own  # common symbols, not just dinosaurs
