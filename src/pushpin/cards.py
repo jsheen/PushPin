@@ -22,6 +22,7 @@ link: the Crème always, the count and list only when public.
 """
 
 import argparse
+import hashlib
 import html
 import json
 import os
@@ -293,7 +294,7 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
     # Read n (Daily streak d), with the Papier-mâché switch on the right, then the list. A private
     # list on a public link shows only that header: no titles, so no switch and no dinosaurs.
     shown = owner or public  # Papier-mâché only uses titles the page already shows
-    switch, hint, gallery = papier(read) if shown else ("", "", "")
+    switch, hint, gallery = papier(read, papier_seed(reader)) if shown else ("", "", "")
     head = f'<div class="readhead"><h2>Read <span class="n">{n}</span>{on_a_roll}</h2>{switch}</div>'
     articles = (f'<div class="readpanel">{head}{hint}<ul class="list">{"".join(item(a, owner, owner) for a in read)}</ul>'
                 f'{gallery}</div>' if read
@@ -332,7 +333,7 @@ def profile_page(reader: dict, read: list[dict], favorites: list[dict], owner: b
 PAPIER_PER = 5
 PAPIER_SCRIPT = """<script>(() => {
 const sw = document.getElementById('papier-on'), box = document.getElementById('papier');
-const titles = JSON.parse(document.getElementById('papier-data').textContent), PER = %PER%;
+const data = document.getElementById('papier-data'), titles = JSON.parse(data.textContent), PER = %PER%;
 const panel = sw.closest('.readpanel'), list = panel.querySelector('.list'), hint = panel.querySelector('.papier-hint');
 let on = false, built = false;
 const E = (c, x, y, rx, ry, r = 0) => { c.beginPath(); c.ellipse(x, y, rx, ry, r, 0, 7); c.fill(); };
@@ -500,6 +501,29 @@ const KINDS = (() => {
   while (queues.some(q => q.length)) for (const q of queues) if (q.length) out.push(q.shift());
   return out;
 })();
+// Each reader's own herd: a seed from the reader shuffles the species into their own order and
+// stretches each dinosaur's proportions a little (the knobs below, 0.92-1.08x), so no two readers'
+// dinosaurs match. Without a seed (the demo), the fixed order above and the knobs as drawn.
+const JITTER = {sauropod: ['bulk', 'neck', 'tail', 'head'], theropod: ['bulk', 'head', 'neck', 'arm'],
+  stegosaur: ['plates'], ankylosaur: ['bumps'], ceratopsian: ['frill', 'brow', 'nose', 'bulk'], hadrosaur: ['bulk']};
+function rng(str) {  // a small seeded generator (string hash + mulberry32): the same seed, the same numbers
+  let h = 1779033703 ^ str.length;
+  for (let i = 0; i < str.length; i++) { h = Math.imul(h ^ str.charCodeAt(i), 3432918353); h = h << 13 | h >>> 19; }
+  return () => {
+    h = h + 0x6D2B79F5 | 0; let t = Math.imul(h ^ h >>> 15, 1 | h);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+function herd(seed) {
+  if (!seed) return k => KINDS[k % KINDS.length];
+  const order = KINDS.slice(), r = rng(seed);
+  for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+  return k => {
+    const kind = order[k % order.length], rk = rng(seed + ':' + k), knobs = {...kind.knobs};
+    for (const key of JITTER[kind.plan]) knobs[key] = (knobs[key] ?? 1) * (0.92 + 0.16 * rk());
+    return {...kind, knobs};
+  };
+}
 // ---- end species ----
 function dino(c, w, h, flip, kind) {
   c.save();
@@ -562,6 +586,7 @@ function draw(canvas, words, built, flip, animate, kind) {
   };
   requestAnimationFrame(frame);
 }
+const kindOf = herd(data.dataset.seed || '');
 function build(animate) {
   box.innerHTML = '';
   const n = titles.length, count = Math.max(1, Math.ceil(n / PER));
@@ -570,7 +595,7 @@ function build(animate) {
     const fig = document.createElement('figure'), canvas = document.createElement('canvas');
     const cap = document.createElement('figcaption');
     canvas.setAttribute('role', 'img');
-    const kind = KINDS[k % KINDS.length];
+    const kind = kindOf(k);
     canvas.setAttribute('aria-label', 'A ' + kind.name + ' made of the titles: ' + group.join('; '));
     cap.textContent = (k + 1) + ' · ' + kind.name + (built >= 1 ? '' : ' · ' + group.length + ' of ' + PER + ' read');
     fig.className = k % 2 ? 'right' : 'left';  // a zig-zag down the page, each facing the middle
@@ -599,9 +624,17 @@ let t; window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout
 })();</script>""".replace("%PER%", str(PAPIER_PER))
 
 
-def papier(read: list[dict]) -> tuple[str, str, str]:
+def papier_seed(reader: dict) -> str:
+    """The seed for a reader's own dinosaurs: from their id, which is their cookie, so it's hashed
+    (the page can be public); "" without one (the demo: the fixed order)."""
+    rid = reader.get("reader_id")
+    return hashlib.sha256(f"papier:{rid}".encode()).hexdigest()[:16] if rid else ""
+
+
+def papier(read: list[dict], seed: str = "") -> tuple[str, str, str]:
     """Papier-mâché for a Read list the page shows: the switch for the panel's header, the
-    instructions (shown when it's on), and the dinosaurs' container with their titles and script."""
+    instructions (shown when it's on), and the dinosaurs' container with their titles and script.
+    `seed` picks the reader's own herd (see papier_seed)."""
     if not read:
         return "", "", ""
     titles = [a["title"] or "Untitled" for a in sorted(read, key=lambda a: a["read_at"] or "")]  # oldest first
@@ -612,7 +645,7 @@ def papier(read: list[dict]) -> tuple[str, str, str]:
               '<span class="track"><span class="knob"></span></span>Papier-mâché</button>')
     hint = f'<p class="papier-hint" hidden>Every {PAPIER_PER} articles you read makes a new dinosaur · {note}</p>'
     gallery = (f'<div class="papier" id="papier" hidden></div>'
-               f'<script type="application/json" id="papier-data">{data}</script>{PAPIER_SCRIPT}')
+               f'<script type="application/json" id="papier-data" data-seed="{html.escape(seed)}">{data}</script>{PAPIER_SCRIPT}')
     return switch, hint, gallery
 
 

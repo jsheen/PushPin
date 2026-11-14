@@ -547,7 +547,7 @@ def test_papier_mache_only_with_a_visible_read_list():
     panel = own[own.index('<div class="readpanel">'):]
     assert panel.index('class="list"') < panel.index('id="papier"')  # one panel, no fold
     assert "<details" not in own and 'class="plus"' not in own
-    data = re.search(r'id="papier-data">(.*?)</script>', own).group(1)
+    data = re.search(r'id="papier-data"[^>]*>(.*?)</script>', own).group(1)
     assert data.startswith('["T0<\\/script>"') and "</script>\"" not in data  # oldest first, can't close the tag
     assert 'id="papier-on"' not in cards.profile_page(reader, read, [], owner=False)  # private list: no dinosaurs
     assert 'id="papier-on"' in cards.profile_page({**reader, "history_public": 1}, read, [], owner=False)
@@ -569,3 +569,15 @@ def test_demo_page_shows_dinosaurs_and_stores_nothing(setup):
 def test_demo_streak_differs_from_the_count():
     page = cards.demo_page()
     assert '<h2>Read <span class="n">29</span> <span class="streak">(Daily streak <span class="n">6</span>)</span></h2>' in page
+
+
+def test_each_reader_gets_their_own_dinosaurs():
+    read = [{"news_id": f"N{i}", "title": f"T{i}", "url": "u", "section": None, "read_at": f"2026-11-0{1 + i % 9}"}
+            for i in range(10)]
+    seed = re.compile(r'id="papier-data" data-seed="([^"]*)"')
+    a = seed.search(cards.profile_page({"reader_id": "aaaa", "history_public": 0}, read, [], owner=True)).group(1)
+    b = seed.search(cards.profile_page({"reader_id": "bbbb", "history_public": 0}, read, [], owner=True)).group(1)
+    public = seed.search(cards.profile_page({"reader_id": "aaaa", "history_public": 1}, read, [], owner=False)).group(1)
+    assert a and b and a != b and public == a  # own herd, the same on the public link
+    assert "aaaa" not in a  # the id is the reader's cookie: hashed, never on the page
+    assert seed.search(cards.demo_page()).group(1) == ""  # the demo keeps the fixed order
