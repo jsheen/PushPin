@@ -729,6 +729,26 @@ let pinImage = null;
 const pinIcon = () => pinImage ??= new Promise(ok => {
   const im = new Image(); im.onload = () => ok(im); im.onerror = () => ok(null); im.src = '/icon.png';
 });
+// Squared distance from every pixel to the nearest pixel of the shape (alpha over half), w x h: the
+// exact Euclidean distance transform, one dimension at a time (Felzenszwalb and Huttenlocher).
+function distances(rgba, w, h) {
+  const INF = 1e20, d = new Float64Array(w * h);
+  for (let i = 0; i < w * h; i++) d[i] = rgba[4 * i + 3] > 127 ? 0 : INF;
+  const n = Math.max(w, h), f = new Float64Array(n), out = new Float64Array(n), v = new Int32Array(n), z = new Float64Array(n + 1);
+  const pass = len => {  // the lower envelope of parabolas over f[0..len)
+    let k = 0; v[0] = 0; z[0] = -INF; z[1] = INF;
+    for (let q = 1; q < len; q++) {
+      let s = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);
+      while (s <= z[k]) { k--; s = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]); }
+      k++; v[k] = q; z[k] = s; z[k + 1] = INF;
+    }
+    k = 0;
+    for (let q = 0; q < len; q++) { while (z[k + 1] < q) k++; out[q] = (q - v[k]) * (q - v[k]) + f[v[k]]; }
+  };
+  for (let x = 0; x < w; x++) { for (let y = 0; y < h; y++) f[y] = d[y * w + x]; pass(h); for (let y = 0; y < h; y++) d[y * w + x] = out[y]; }
+  for (let y = 0; y < h; y++) { for (let x = 0; x < w; x++) f[x] = d[y * w + x]; pass(w); for (let x = 0; x < w; x++) d[y * w + x] = out[x]; }
+  return d;
+}
 async function sticker(day, kind, built = 1) {  // an unfinished day: just the part revealed so far
   const W = 1200, H = 768, {inside: shape, edge} = revealed(silhouette(W, H, day.flip, kind), W, H, built, day.flip);
   const {glyphs, fs} = fitted(W, H, day.text, shape, Math.round(W / 4));
@@ -736,23 +756,30 @@ async function sticker(day, kind, built = 1) {  // an unfinished day: just the p
   for (let y = 0; y < H; y += 2) for (let x = 0; x < W; x += 2) if (shape(x, y)) {
     x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
   }
-  const B = 26, P = B + 34, ox = P - x0, oy = P - y0;  // border, then room for the shadow
-  const out = document.createElement('canvas'); out.width = x1 - x0 + 2 * P; out.height = y1 - y0 + 2 * P;
+  // border, room for the shadow, and the pin's own corner (top left), clear of the words
+  const B = 26, P = B + 34, PIN = 72, room = 44, ox = P + room - x0, oy = P + room - y0;
+  const out = document.createElement('canvas'); out.width = x1 - x0 + 2 * P + room; out.height = y1 - y0 + 2 * P + room;
   const mask = document.createElement('canvas'); mask.width = W; mask.height = H;
   const mc = mask.getContext('2d'); dino(mc, W, H, day.flip, kind, true);  // traced around the solid shape
   if (edge !== null) day.flip ? mc.clearRect(0, 0, edge, H) : mc.clearRect(edge, 0, W - edge, H);
   const cut = document.createElement('canvas'); cut.width = out.width; cut.height = out.height;
   const cc = cut.getContext('2d');
-  for (let a = 0; a < 48; a++) cc.drawImage(mask, ox + B * Math.cos(a * Math.PI / 24), oy + B * Math.sin(a * Math.PI / 24));
+  // the border: every pixel within B of the shape, by true distance, with a soft edge, so thin
+  // tips get a smooth, even border instead of the ridges of stamped copies
   cc.drawImage(mask, ox, oy);
-  cc.globalCompositeOperation = 'source-in'; cc.fillStyle = '#fff'; cc.fillRect(0, 0, cut.width, cut.height);
+  const px = cc.getImageData(0, 0, cut.width, cut.height), d = distances(px.data, cut.width, cut.height);
+  for (let i = 0; i < d.length; i++) {
+    const a = Math.max(0, Math.min(1, B + 0.5 - Math.sqrt(d[i])));
+    px.data[4 * i] = px.data[4 * i + 1] = px.data[4 * i + 2] = 255; px.data[4 * i + 3] = Math.round(255 * a);
+  }
+  cc.putImageData(px, 0, 0);
   const c = out.getContext('2d');
   c.shadowColor = 'rgba(0,0,0,.28)'; c.shadowBlur = 24; c.shadowOffsetY = 8; c.drawImage(cut, 0, 0);
   c.shadowColor = 'transparent';
   c.font = fs + 'px Georgia, "Times New Roman", serif'; c.textBaseline = 'middle'; c.fillStyle = STICKER_INK;
   for (const g of glyphs) c.fillText(g[0], ox + g[1], oy + g[2]);
   const im = await pinIcon();
-  if (im) c.drawImage(im, 8, 8, 84, 84);
+  if (im) c.drawImage(im, 6, 6, PIN, PIN);
   return out;
 }
 let sheet = null;
