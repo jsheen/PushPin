@@ -50,5 +50,55 @@ randomized, so readers are the unit of analysis:
 Clicks are also the model's training labels, so the arm is kept as a feature or filter when
 retraining. That way clicks the dinosaurs encourage don't bias the model.
 
-With a handful of readers this won't reach significance. The point is that the experiment is
-wired up and the readout is defined.
+## Sample size
+
+Rough numbers to detect a 20% relative lift in CTR (8% → 9.6%), two-sided α = 0.05, 80% power:
+
+| Step | Value |
+|------|-------|
+| Pushes per arm if pushes were independent | ≈ 4,900 |
+| Pushes per light reader over 4 weeks | ≈ 56 (2 a day) |
+| Within-reader correlation (ICC, assumed) | 0.05 |
+| Design effect, 1 + (56 − 1) × 0.05 | ≈ 3.75 |
+| Pushes per arm, adjusted | ≈ 18,400 |
+| Readers per arm | ≈ 330 |
+| Readers in total (3 arms) | ≈ 1,000 |
+
+Medium and heavy readers get more pushes, which lowers this somewhat; the ICC is a guess until
+real data gives one. With 10 readers per arm, only a difference of about 9 points (CTR roughly
+doubling) would be detectable. So with a class-sized group this is a pilot: it shows the
+experiment runs end to end and what the readout looks like, not a conclusive result.
+
+## Timeline
+
+How a feature like this typically ships at a large tech or media company (not the NYT's actual
+process, which isn't public here):
+
+| Stage | Typical length | What happens |
+|-------|----------------|--------------|
+| Build | Weeks to months | Design, engineering, privacy/legal review, instrumentation |
+| Ramp | Days | Behind a feature flag to 1–5% of users, to catch bugs and check the logging |
+| Test | 1–4 weeks | The A/B test; at least a full week for weekday/weekend cycles, longer for slow effects like opt-outs or a novelty bump that fades. Many tests run at once on separate users |
+| Roll out | Weeks to months | Gradual release to everyone if it wins, often with a small holdout kept on the old version to see whether the effect lasts |
+
+Idea to full launch is usually a quarter or more. At NYT scale, ~1,000 readers enroll within
+minutes; here, enrollment is the bottleneck.
+
+For PushPin, the compressed version:
+
+| Piece | Effort |
+|-------|--------|
+| Arm assignment, hiding the dinosaurs switch, arm A sending (the same top headline to everyone, every slot) | ~1 day |
+| Readout query and per-reader analysis (bootstrap, clustered standard errors) | ~1 day |
+| Weekly retraining job (see below) | 2–3 days |
+| Running the test | 2–4 weeks |
+
+## Retraining during the test
+
+The plan is to retrain each week, and that is part of what arms B and C are. Two cautions:
+
+- **Leakage between arms.** A model trained on everyone's clicks lets dinosaur-driven clicks from
+  arm C shape arm B's pushes. Train with the arm as a feature, or pool B and C and say so.
+- **Small data.** A few hundred pushes a week is too few to retrain XGBoost from scratch. Update
+  the calibration weekly and retrain on MIND plus the logs (the `scores` table stores each
+  candidate's features; the `labeled` view gives the labels).
