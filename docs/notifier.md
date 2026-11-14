@@ -18,7 +18,7 @@ NYT RSS feeds ──▶ notifier ──HTTP──▶ scorer  (model + MIND user 
 
 The notifier schedules itself; nothing external triggers it. Its main loop:
 
-1. Works out the next slot from `slot_hours` in `configs/notifier.yml` (8, 12, 17, 21 by default)
+1. Works out the next slot from `slot_hours` in `configs/notifier.yml` (every two hours from 7 to 21 by default)
    and the current time in `timezone` (New York).
 2. Sleeps until that slot, waking at least every 5 minutes to recheck the clock. That way a
    Mac that was asleep notices it's past due as soon as it wakes.
@@ -36,7 +36,7 @@ Each slot:
    (see below).
 3. Picks the top article with the push objective (friction from `configs/objective.yml`).
 4. Sends it through [ntfy](https://ntfy.sh) if it passes the send policy and the reader's daily
-   cap (see [Push volume](#push-volume)): 1, 2 or 4 a day for light, medium or heavy, and 3
+   cap (see [Push volume](#push-volume)): 2, 4 or 8 a day for light, medium or heavy, and 3
    until they choose.
 5. Writes every candidate to the database.
 
@@ -73,8 +73,8 @@ place.
 
 ## Push volume
 
-Each reader picks how many pushes a day they want: **Light** (1), **Medium** (up to 2) or
-**Heavy** (up to 4, every slot), set by `volume_caps` in `configs/notifier.yml`. Until they
+Each reader picks how many pushes a day they want: **Light** (up to 2), **Medium** (up to 4) or
+**Heavy** (up to 8, every slot), set by `volume_caps` in `configs/notifier.yml`. Until they
 choose, the cap is `daily_cap` (3). The cap is a ceiling: a slot only sends if its top article
 clears the send policy, so a quiet news day sends fewer.
 

@@ -4,14 +4,14 @@ The same pipeline, deployed on Cloud Run, with the database on Neon's free Postg
 
 | Piece | Runs on | Why there |
 |-------|---------|-----------|
-| Scorer | **Cloud Run** service, private (`deploy/cloudrun/scorer.yaml`) | Busy only at the four slots, so it scales to zero between them. A cold start loads the state in ~35 s (measured locally, 1.1 GB). The bucket is mounted read-only; Chroma is copied to the in-memory disk because its SQLite files don't like network filesystems. |
+| Scorer | **Cloud Run** service, private (`deploy/cloudrun/scorer.yaml`) | Busy only at the eight slots, so it scales to zero between them. A cold start loads the state in ~35 s (measured locally, 1.1 GB). The bucket is mounted read-only; Chroma is copied to the in-memory disk because its SQLite files don't like network filesystems. |
 | Card server | **Cloud Run** service, public (`deploy/cloudrun/cards.yaml`) | Bursty: scales with taps, down to zero. Its `run.app` HTTPS address replaces the tunnel and never changes. |
 | Notifier slot | **Cloud Run job** (`deploy/cloudrun/notifier-job.yaml`) + **Cloud Scheduler** | Runs four times a day and exits. It calls the private scorer with an ID token (`PUSHPIN_SCORER_AUTH=gcp`). |
 | Database | **Neon** Postgres (free tier) | Shared by the card server and the job; replicas can't share a SQLite file. |
 | Images | **Artifact Registry**, built by **Cloud Build** (`deploy/cloudbuild.yaml`) | x86 images from the ARM Mac, without building locally. |
 
 ```
-Cloud Scheduler ─(8, 12, 17, 21)─▶ notifier job ──ID token──▶ scorer (private, 0↔1 instance)
+Cloud Scheduler ─(7, 9, …, 21)─▶ notifier job ──ID token──▶ scorer (private, 0↔1 instance)
                                         │      │                    ▲
                                      ntfy.sh   Neon ◀── cards (public HTTPS)     gs://pushpin-data (read-only mount)
                                         ▼                   ▲

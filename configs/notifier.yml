@@ -2,10 +2,10 @@
 # Secrets live in .env, not here: NTFY_TOPIC (your private topic name) and optionally
 # CLICK_BASE_URL (where your phone can reach this container's click tracker).
 timezone: America/New_York
-slot_hours: [8, 12, 17, 21]     # local push times
+slot_hours: [7, 9, 11, 13, 15, 17, 19, 21]  # local push times
 lookback_hours: 12              # candidates: unpushed articles published in this window
 daily_cap: 3                    # until the reader picks a volume; overrides objective.yml's send.daily_cap (2)
-volume_caps: {light: 1, medium: 2, heavy: 4}  # pushes a day for each choice on the card (4 slots a day)
+volume_caps: {light: 2, medium: 4, heavy: 8}  # pushes a day for each choice on the card (8 slots a day)
 user_id: null                   # null = a brand-new user (no history: cold start); or a MIND id, e.g. U12345, as a persona
 objective: configs/objective.yml  # friction, threshold, risk_penalty
 ntfy_server: https://ntfy.sh

@@ -120,7 +120,7 @@ deploy)
   uri="https://run.googleapis.com/v2/projects/$PROJECT/locations/$REGION/jobs/pushpin-notifier:run"
   verb=create
   [[ $APPLY == 1 ]] && gcloud scheduler jobs describe pushpin-slots --location $REGION >/dev/null 2>&1 && verb=update
-  run gcloud scheduler jobs $verb http pushpin-slots --location $REGION --schedule "'0 8,12,17,21 * * *'" \
+  run gcloud scheduler jobs $verb http pushpin-slots --location $REGION --schedule "'0 7,9,11,13,15,17,19,21 * * *'" \
     --time-zone America/New_York --uri $uri --http-method POST --oauth-service-account-email $RUN_SA
   echo "# try a slot now: gcloud run jobs execute pushpin-notifier --region $REGION --wait"
   ;;

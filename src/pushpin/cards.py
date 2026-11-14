@@ -141,7 +141,7 @@ def page(body: str) -> str:
     return PAGE.replace("%BODY%", body)
 
 
-VOLUME_LABELS = {"light": ("Light", "1 a day"), "medium": ("Medium", "up to 2"), "heavy": ("Heavy", "up to 4")}
+VOLUME_LABELS = {"light": ("Light", "up to 2"), "medium": ("Medium", "up to 4"), "heavy": ("Heavy", "up to 8")}
 
 
 def volume_picker(current: str | None, caps: dict | None = None) -> str:
