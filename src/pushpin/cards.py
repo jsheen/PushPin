@@ -673,9 +673,15 @@ function draw(canvas, text, built, flip, animate, kind, delay) {
   const W = w * dpr, H = h * dpr, shape = silhouette(W, H, flip, kind);
   [w, h] = [W, H];
   const css = getComputedStyle(document.documentElement), ink = css.getPropertyValue('--fg').trim() || '#121212';
-  if (built <= 0) {  // nothing read yet: just a question mark, no hint of the shape
-    c.font = Math.round(H * 0.4) + 'px Georgia, "Times New Roman", serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
-    c.fillStyle = css.getPropertyValue('--muted').trim() || '#666'; c.fillText('?', W / 2, H / 2);
+  if (built <= 0) {  // nothing read yet: a nudge in its place, no hint of the shape
+    const size = Math.max(9 * dpr, Math.round(H * 0.12)), lines = [];
+    c.font = size + 'px -apple-system, system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillStyle = css.getPropertyValue('--muted').trim() || '#666';
+    for (const word of 'Start reading to make this day’s word art'.split(' ')) {  // wrapped to the cell
+      const line = lines.length ? lines[lines.length - 1] + ' ' + word : word;
+      if (lines.length && c.measureText(line).width <= W * 0.9) lines[lines.length - 1] = line; else lines.push(word);
+    }
+    lines.forEach((line, k) => c.fillText(line, W / 2, H / 2 + (k - (lines.length - 1) / 2) * size * 1.25));
     return;
   }
   // Unfinished: only part of the shape is revealed, from one side, as far as the day's pushes have

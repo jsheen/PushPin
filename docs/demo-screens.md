@@ -34,7 +34,8 @@ Each day's pushes make one papier-mâché picture, a common symbol (snowman, hea
 or a dinosaur, written in the titles and abstracts read that day, each used once. The type is
 sized so the text fills the whole shape, thin parts included. A picture is revealed from one side
 as the day's pushes are read, with no outline of the rest, so it's a guess what it will be until
-all of them are read (Oct 15 · 3/4). A day with nothing read is just a "?" (Oct 23 · 0/4).
+all of them are read (Oct 15 · 3/4). A day with nothing read says "Start reading to make this
+day's word art" (Oct 23 · 0/4).
 
 ## 4. Sharing a picture
 
