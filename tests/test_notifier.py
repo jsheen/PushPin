@@ -537,7 +537,8 @@ def test_papier_mache_only_with_a_visible_read_list():
     assert panel.index('class="list"') < panel.index('id="papier"')  # one panel, no fold
     assert "<details" not in own and 'class="plus"' not in own
     data = re.search(r'id="papier-data"[^>]*>(.*?)</script>', own).group(1)
-    assert data.startswith('[{"day": "2026-11-10", "titles": ["T0<\\/script>"], "abstracts": [""]}') and "</script>\"" not in data  # oldest first, can't close the tag
+    assert data.endswith('{"day": "2026-11-10", "titles": ["T0<\\/script>"], "abstracts": [""]}]') and "</script>\"" not in data  # newest first, can't close the tag
+    assert own.index(">T6&lt;/script&gt;<") < own.index(">T0&lt;/script&gt;<")  # the list: most recently read first
     assert 'id="papier-on"' not in cards.profile_page(reader, read, owner=False)  # private list: no dinosaurs
     assert 'id="papier-on"' in cards.profile_page({**reader, "history_public": 1}, read, owner=False)
     assert 'id="papier-on"' not in cards.profile_page(reader, [], owner=True)

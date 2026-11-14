@@ -290,6 +290,7 @@ def profile_page(reader: dict, read: list[dict], owner: bool, share_url: str = "
     e = html.escape
     name = reader.get("name")
     public = bool(reader.get("history_public"))
+    read = sorted(read, key=lambda a: a.get("read_at") or "", reverse=True)  # most recently read first
 
     def item(a, delete=False):
         button = ""
@@ -961,7 +962,7 @@ ART_READS = 3  # reads that make a day's word art: 1 of 3, 2 of 3, then finished
 
 
 def papier_days(read: list[dict]) -> list[dict]:
-    """The days with reads, oldest first: day (YYYY-MM-DD, when they were read), and the titles and
+    """The days with reads, most recent first: day (YYYY-MM-DD, when they were read), and the titles and
     abstracts read that day in reading order. The first ART_READS make the day's word art; later
     ones are still listed under Read but don't change it. Pins don't count."""
     out: dict[str, dict] = {}
@@ -969,7 +970,7 @@ def papier_days(read: list[dict]) -> list[dict]:
         d = out.setdefault(a["read_at"][:10], {"day": a["read_at"][:10], "titles": [], "abstracts": []})
         d["titles"].append(a["title"] or "Untitled")
         d["abstracts"].append(a.get("abstract") or "")
-    return list(out.values())
+    return list(out.values())[::-1]  # newest day first; within a day, reading order (it builds the art)
 
 
 def papier(read: list[dict], today: date | None = None) -> tuple[str, str, str, str]:
