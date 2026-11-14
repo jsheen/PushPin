@@ -707,22 +707,35 @@ function textDino(day, kind) {
     for (let r = 0; r < rows; r++) { const row = []; for (let c = 0; c < cols; c++) { const v = cell(c, r); row.push(v); count += v; } cells.push(row); }
     return {cells, count};
   };
-  // Each title and abstract word at most once, no spaces inside the shape (so it has no holes):
-  // the widest grid the words can fill, then random abstract words dropped until they just fit.
+  // Each title and abstract word at most once, no spaces inside the shape (so it has no holes),
+  // starting with the first title and ending on the period. The widest grid the words can fill,
+  // then abstract words from the middle of each abstract dropped (its first and last stay, so each
+  // still starts and ends a sentence) until the letters fill the shape exactly.
   const parts = day.parts.map(p => ({title: p.title.replace(/\\s+/g, ''), words: p.words.map(x => x.replace(/\\s+/g, ''))}));
-  const join = () => parts.map(p => p.title + (p.words.length ? '—' + p.words.join('') : '')).join('·');
-  let total = join().length, g = null;
-  for (let cols = COLS; cols >= 10 && !g; cols--) { const t = grid(cols); if (t.count <= total) g = t; }
-  g ??= grid(10);
-  const r = rng(day.seed + ':share'), pool = [];
-  parts.forEach((p, i) => p.words.forEach((_, j) => pool.push([i, j, r()])));
+  const join = () => parts.map(p => p.title + (p.words.length ? '—' + p.words.filter(Boolean).join('') : '')).join('·');
+  const pool = [];  // the words that may go: [part, word, random order]
+  const r = rng(day.seed + ':share');
+  parts.forEach((p, i) => p.words.forEach((_, j) => { if (j > 0 && j < p.words.length - 1) pool.push([i, j, r()]); }));
   pool.sort((a, b) => a[2] - b[2]);
+  let total = join().length;
+  const least = total - pool.reduce((n, [i, j]) => n + parts[i].words[j].length, 0);
+  let g = null;
+  for (let cols = COLS; cols >= 10 && !g; cols--) { const t = grid(cols); if (t.count <= total && t.count >= least) g = t; }
+  g ??= grid(10);
+  const kept = [];
   for (const [i, j] of pool) {
-    const n = parts[i].words[j].length + (parts[i].words.filter(Boolean).length === 1 ? 1 : 0);  // the dash goes with the last word
-    if (total - n >= g.count) { parts[i].words[j] = ''; total -= n; }
+    const n = parts[i].words[j].length;
+    if (total - n >= g.count) { parts[i].words[j] = ''; total -= n; } else kept.push([i, j, n]);
   }
-  parts.forEach(p => { p.words = p.words.filter(Boolean); });
-  const letters = join().slice(0, g.count).padEnd(g.count, '·');  // a few letters over, at most: cut at the end
+  // a few letters over: drop kept middle words that add up to exactly that many (subset sum)
+  const over = total - g.count, best = new Map([[0, []]]);
+  for (const k of kept) for (const [sum, picks] of [...best]) {
+    const next = sum + k[2];
+    if (next <= over && !best.has(next)) best.set(next, [...picks, k]);
+  }
+  for (const [i, j, n] of best.get(over) || []) { parts[i].words[j] = ''; total -= n; }
+  let letters = join();
+  if (letters.length !== g.count) letters = letters.slice(0, g.count - 1).padEnd(g.count - 1, '·') + '.';  // no exact fit: still end on a period
   let i = 0;
   const lines = g.cells.map(row => row.map(v => v ? letters[i++] : ' ').join('').trimEnd());
   while (lines.length && !lines[0]) lines.shift();
@@ -752,18 +765,19 @@ function share(day, kind) {
 }
 // ---- end share card ----
 const kindOf = herd(data.dataset.seed || '');
-// A day's text: every read title, each followed by some of its abstract's words (picked at
-// random, kept in order), starting at a random point, and which way the shape faces. The randomness
-// is seeded by the reader and the day, so a picture is the same each time it's drawn, no two days
-// match, and two readers who read the same articles the same day still get different pictures.
+// A day's text: every read title, each followed by its abstract, and which way the shape faces.
+// The randomness (the facing here, which abstract words the shared text keeps) is seeded by the
+// reader and the day, so a picture is the same each time it's drawn and differs between days and
+// between readers who read the same articles the same day.
 function dayText(d) {
   const seed = (data.dataset.seed || 'demo') + ':' + d.day, r = rng(seed);
   const flip = r() < 0.5;
   const parts = d.titles.map((title, i) => ({title, words: ((d.abstracts || [])[i] || '').split(/\\s+/).filter(Boolean)}));
-  const text = parts.length ? parts.map(p => {
-    const kept = p.words.filter(() => r() < 0.55);  // the picture on the profile: some of each abstract
-    return kept.length ? p.title + ' — ' + kept.join(' ') : p.title;
-  }).join(' · ') : '·';
+  const last = parts[parts.length - 1];  // it ends with a period
+  if (last && last.words.length) { if (!/[.!?]["”’]?$/.test(last.words[last.words.length - 1])) last.words[last.words.length - 1] += '.'; }
+  else if (last && !/[.!?]["”’]?$/.test(last.title)) last.title += '.';
+  // the picture on the profile: every title with its whole abstract (the shared text drops words to fit)
+  const text = parts.length ? parts.map(p => p.words.length ? p.title + ' — ' + p.words.join(' ') : p.title).join(' · ') : '·';
   return {text, flip, parts, seed};
 }
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];

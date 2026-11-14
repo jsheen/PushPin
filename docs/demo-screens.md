@@ -42,26 +42,26 @@ It opens on a title card and goes to the profile when tapped.
 <img src="screens/demo-profile.png" width="300" alt="Demo profile: Read 29, a grid of small papier-mâché pictures, one a day: a snowman, dinosaurs, a heart, a star, a moon, a tree and more, a few unfinished">
 
 Each day's pushes make one small papier-mâché picture out of the articles read that day: their
-titles and some of their abstracts' words, each used once, in type sized so they fill the shape
-(bigger on a day with one article, smaller on a busy one). The pictures are common symbols
-(snowman, heart, star, sun, moon, pine tree, umbrella, house, cat, fish, apple, cloud, lightning
-bolt, coffee cup, flower, music note, balloon), taking turns with the dinosaurs. A picture fills
-in from one side as the day's pushes are read and is finished only when all of them are. An
-unfinished one is pencilled in, with how many were read under its date (Oct 9 · 2/3); a day with
-nothing read is a blank outline (Oct 14 · 0/2). The demo has 22 days, 18 of them finished, and
-they all fit on one screen. A faint silhouette sits under the words so each shape reads at this
-size.
+titles and whole abstracts, each used once, in type sized so they fill the shape (bigger on a day
+with one article, smaller on a busy one). The pictures are common symbols (snowman, heart, star,
+sun, moon, pine tree, umbrella, house, cat, fish, apple, cloud, lightning bolt, coffee cup,
+flower, music note, balloon), taking turns with the dinosaurs. A picture fills in from one side as
+the day's pushes are read and is finished only when all of them are. An unfinished one is
+pencilled in, with how many were read under its date (Oct 9 · 2/3); a day with nothing read is a
+blank outline (Oct 14 · 0/2). The demo has 22 days, 18 of them finished, and they all fit on one
+screen. A faint silhouette sits under the words so each shape reads at this size.
 
 ## 4. Sharing a picture
 
 Tapping a finished picture opens it as text, ready to paste into any chat: the shape spelled out
 in the letters of that day's read articles, with plain spaces around it and 📌 in the top left
-corner, on the top line. Nothing repeats: every title appears once, each followed by as many of
-its abstract's words as fit (random ones are dropped until the letters fill the shape exactly),
-and the grid is as wide as the words can fill, up to 32 characters. The spaces between words are
-dropped inside the shape so it has no holes. **Share** opens the phone's share sheet with the
-text, and **Copy** copies it. Browsers without a share sheet only show Copy. Unfinished pictures
-can't be shared yet.
+corner, on the top line. It starts at the beginning of the day's first title and ends on a period,
+and nothing repeats. Every title appears once, followed by its abstract's first and last words and
+as many of the words in between as fit: random middle words are dropped until the letters fill the
+shape exactly. The grid is as wide as the words can fill, up to 32 characters. The spaces between
+words are dropped inside the shape so it has no holes. **Share** opens the phone's share sheet
+with the text, and **Copy** copies it. Browsers without a share sheet only show Copy. Unfinished
+pictures can't be shared yet.
 
 Each picture is unique. A generator seeded with the reader and the day picks which abstract words
 are kept and which way the shape faces, and each reader has their own order of shapes. Different
@@ -90,12 +90,12 @@ al         ogthe         sh
         shore.·TheQ
          uietRetur
         noftheNight
-      Train—Sleeperar
-      erollingagaintr
-      avelerstradeair
-      portsforslowerw
-        ayacrossthe
-          country
+      Train—Sleeperca
+      rsarerollingaga
+      inastravelerstr
+      adeforaslowerwa
+        yacrossthec
+          ountry.
 ```
 
 ```
