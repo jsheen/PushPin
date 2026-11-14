@@ -6,7 +6,8 @@ uses a real push the notifier sent on November 13, 2026.
 
 ## 1. A push arrives
 
-The notifier sends the article's headline as the title (📌 first) and its abstract as the body.
+The notification shows the PushPin icon, the article's headline as the title, and its abstract as
+the body.
 
 <img src="screens/push-notification.png" width="300" alt="Lock screen with a PushPin notification">
 
