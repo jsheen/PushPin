@@ -654,7 +654,7 @@ function draw(canvas, text, built, flip, animate, kind, delay) {
   const W = w * dpr, H = h * dpr;
   const {glyphs, fs} = fitted(W, H, text, silhouette(W, H, flip, kind), Math.round(W / 4));
   [w, h] = [W, H];
-  // a faint silhouette under the words: legs and spikes too thin for a letter still show
+  // unfinished: a faint silhouette under the words shows the outline still to fill (finished: words only)
   const ghost = document.createElement('canvas'); ghost.width = w; ghost.height = h;
   const gc = ghost.getContext('2d'); dino(gc, w, h, flip, kind);
   c.font = fs + 'px Georgia, "Times New Roman", serif'; c.textBaseline = 'middle';
@@ -668,7 +668,7 @@ function draw(canvas, text, built, flip, animate, kind, delay) {
     c.clearRect(0, 0, w, h);
     let busy = false;
     const shown = fade ? Math.min(1, Math.max(0, (now - start) / (sweep + fade))) : 1;
-    c.globalAlpha = 0.12 * shown; c.drawImage(ghost, 0, 0);
+    if (built < 1) { c.globalAlpha = 0.12 * shown; c.drawImage(ghost, 0, 0); }
     if (shown < 1) busy = true;
     for (const g of glyphs) {
       const along = flip ? 1 - g[1] / w : g[1] / w;

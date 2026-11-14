@@ -49,7 +49,8 @@ flower, music note, balloon), taking turns with the dinosaurs. A picture fills i
 the day's pushes are read and is finished only when all of them are. An unfinished one is
 pencilled in, with how many were read under its date (Oct 9 · 2/3); a day with nothing read is a
 blank outline (Oct 14 · 0/2). The demo has 22 days, 18 of them finished, and they all fit on one
-screen. A faint silhouette sits under the words so each shape reads at this size.
+screen. An unfinished picture has a faint grey silhouette under its words, showing the outline
+still to fill; a finished one is just the words.
 
 ## 4. Sharing a picture
 
