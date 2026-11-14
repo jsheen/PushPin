@@ -39,7 +39,7 @@ or the iOS app. Readers choose a volume: light (2 a day: morning, night), medium
 Tapping a push opens the reader's profile. Each day's pushes make a small papier-mâché picture (a
 snowman, a heart, a star, a dinosaur...) out of the titles and abstracts of the articles read, and
 it's finished only when the reader has read all of that day's pushes. Tapping a finished one turns
-it into a sticker to share in any chat. Each day's picture is unique to that day and reader. Every
+it into a card to share in any chat. Each day's picture is unique to that day and reader. Every
 push and tap is logged as labeled data that MIND lacks. The plan is to retrain the model each week
 on these logs. It can also deploy to GCP for about $1/month.
 

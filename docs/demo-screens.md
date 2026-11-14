@@ -40,20 +40,18 @@ today's word art".
 
 ## 4. Sharing a picture
 
-Tapping a finished picture makes it a sticker: everything read that day, every title with its
-whole abstract, written into the shape on a white die-cut with a soft shadow and the PushPin pin
-in the corner, as a PNG with a transparent background. It looks the same in any chat, in light or
-dark mode, and each one is unique to its reader and day. **Share** opens the phone's share sheet
-with the image, **Copy** puts the image on the clipboard to paste into a message, and **Save**
-downloads it. On iOS 17+, long-press it in Photos and choose Add Sticker to use it as a sticker in
-Messages.
+Tapping a finished picture makes it a card: everything read that day, every title with its whole
+abstract, written in black into the shape on a plain white card, with the PushPin pin in the top
+left corner. The shape is made only by the words. It's a PNG, so it looks the same in any chat,
+and each one is unique to its reader and day. **Share** opens the phone's share sheet with the
+image, **Copy** puts it on the clipboard to paste into a message, and **Save** downloads it.
 
-<img src="screens/share-sheet.png" width="300" alt="Share sheet on the demo profile: the snowman sticker made of the day's articles, with Share, Copy and Save buttons">
+<img src="screens/share-sheet.png" width="300" alt="Share sheet on the demo profile: the snowman card made of the day's articles, with Share, Copy and Save buttons">
 
 The demo's snowman and Brontosaurus, each made of the four articles read that day:
 
-<img src="screens/sticker-snowman.png" width="260" alt="Snowman sticker: four articles' titles and abstracts written into a snowman on a white die-cut, with the PushPin pin">
-<img src="screens/sticker-brontosaurus.png" width="420" alt="Brontosaurus sticker: four articles' titles and abstracts written into a Brontosaurus on a white die-cut, with the PushPin pin">
+<img src="screens/card-snowman.png" width="260" alt="Snowman card: four articles' titles and abstracts written into a snowman on a white card, with the PushPin pin">
+<img src="screens/card-brontosaurus.png" width="420" alt="Brontosaurus card: four articles' titles and abstracts written into a Brontosaurus on a white card, with the PushPin pin">
 
 ## Before the first push: the welcome page
 
@@ -67,4 +65,4 @@ profile.
 Run a card server on a copy of the database, so a screenshot doesn't record a real open, and drive
 headless Chrome over the DevTools protocol: device metrics 390 × 844 at 2x with `mobile: true`, dark
 mode. For the share sheet, stub `navigator.canShare` and `navigator.share` (headless Chrome hides the
-button without them) and click a `.papier button.dino`; the sticker is the dialog `<img>`'s data URL.
+button without them) and click a `.papier button.dino`; the card is the dialog `<img>`'s data URL.
