@@ -616,10 +616,10 @@ function silhouette(w, h, flip, kind) {
 // all of the text fit. Nothing repeats; what doesn't fit is left out. Thin parts still get letters:
 // a stretch narrower than a letter (but at least half as wide) takes one, centered, and a line
 // thinner than the row height counts if it's near the row.
-function layout(w, h, text, inside, fs, spread = 1) {
+function layout(w, h, text, inside, fs, spread = 1, track = 0) {
   const lh = fs * 1.1 * spread, mc = document.createElement('canvas').getContext('2d');
   mc.font = fs + 'px Georgia, "Times New Roman", serif';
-  const widths = {}, width = ch => widths[ch] ??= mc.measureText(ch).width;
+  const widths = {}, width = ch => widths[ch] ??= mc.measureText(ch).width + track;
   const near = Math.round(fs * 0.4), glyphs = []; let i = 0;
   for (let row = lh / 2; row < h && i < text.length; row += lh) {
     const y = Math.round(row), ya = Math.max(0, y - near), yb = Math.min(h - 1, y + near);
@@ -652,9 +652,13 @@ function fitted(w, h, text, inside, top) {
   if (!l || !l.fit) return {...layout(w, h, text, inside, 2), fs: 2};
   let big = fs / 0.97;  // then the exact size between that and the step above, where it only just fits
   for (let k = 0; k < 8 && fs < top; k++) { const m = (fs + big) / 2; if (layout(w, h, text, inside, m).fit) fs = m; else big = m; }
-  let lo = 1, hi = 1.6;  // line spacing: the most that still fits; only the last line ends short
+  let lo = 1, hi = 1.6;  // line spacing: the most that still fits
   for (let k = 0; k < 8; k++) { const m = (lo + hi) / 2; if (layout(w, h, text, inside, fs, m).fit) lo = m; else hi = m; }
-  return {...layout(w, h, text, inside, fs, lo), fs};
+  // then a touch more room between letters (a few percent at most), so the words reach the very end
+  // of the shape, a tree's trunk or a snowman's base, and only the last line ends short
+  let a = 0, b = fs * 0.25;
+  for (let k = 0; k < 10; k++) { const m = (a + b) / 2; if (layout(w, h, text, inside, fs, lo, m).fit) a = m; else b = m; }
+  return {...layout(w, h, text, inside, fs, lo, a), fs};
 }
 function draw(canvas, text, built, flip, animate, kind, delay, past) {
   const dpr = window.devicePixelRatio || 1; let w = Math.round(canvas.clientWidth), h = Math.round(w * 0.64);
