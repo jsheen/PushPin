@@ -239,3 +239,23 @@ def test_apns_send_posts_a_signed_alert():
     assert jwt.decode(token, key.public_key(), algorithms=["ES256"])["iss"] == "TEAM456"
     status, reason = apns.send("dead", "t", "b")
     assert str(seen[1].url).startswith("https://api.push.apple.com/") and apple.Apns.dead(status, reason)
+
+
+def test_each_volume_pushes_only_at_its_own_hours(setup):  # noqa: F811
+    n, store, _sent, _db = setup
+    n.topic = None  # app readers only
+    n.cfg["volume_slots"] = {"light": [8, 21], "medium": [8, 12, 17, 21], "heavy": [8, 12, 17, 21]}
+    n.cfg["start_slots"] = [12, 21]
+    light = app_reader(store, "l", "11" * 32, volume="light")
+    heavy = app_reader(store, "h", "22" * 32, volume="heavy")
+    new = app_reader(store, "n", "33" * 32)  # hasn't chosen yet
+    n.apns = FakeApns({})
+    assert n.daily_cap("light") == 2 and n.daily_cap("medium") == 4
+
+    def who(hour):
+        return {x["reader_id"] for x in n.run_slot(pd.Timestamp(f"2026-11-12 {hour:02d}:00"))["readers"]}
+
+    assert who(8) == {light, heavy}         # morning: light and heavy, not the start hours
+    assert who(12) == {heavy, new}          # light skips the afternoons
+    assert who(17) == {heavy}
+    assert who(21) == {light, heavy, new}   # and comes back at night

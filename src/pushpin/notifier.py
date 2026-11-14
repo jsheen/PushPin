@@ -170,16 +170,34 @@ class Notifier:
             self.store.add_articles(fresh.merge(mapped, on="news_id"))
         print(f"{len(fresh)} new articles from the feeds")
 
-    def audiences(self) -> list[dict]:
+    def audiences(self, now: pd.Timestamp | None = None) -> list[dict]:
         """Who this slot picks for. Each app reader with a device is their own audience: their own
         scorer user, cap, past pushes and taps, delivered to their devices only. The ntfy topic is
         one shared audience (everyone subscribed gets the same push), kept when there's a topic,
-        or when there's nobody else (a dry run on a fresh setup)."""
-        readers = [{"reader_id": r["reader_id"], "user_id": r["scorer_user"], "cap": self.daily_cap(r["volume"])}
+        or when there's nobody else (a dry run on a fresh setup). With `now`, only the audiences
+        whose volume pushes at this hour (see `push_hours`)."""
+        readers = [{"reader_id": r["reader_id"], "user_id": r["scorer_user"], "volume": r["volume"]}
                    for r in self.store.app_readers(lambda: new_user_id(None))]
         if self.topic or not readers:
-            readers.insert(0, {"reader_id": None, "user_id": self.user_id, "cap": self.daily_cap()})
-        return readers
+            readers.insert(0, {"reader_id": None, "user_id": self.user_id, "volume": None})
+        out = []
+        for aud in readers:
+            volume = aud.pop("volume")
+            hours = self.push_hours(volume)
+            if now is None or hours is None or now.hour in hours:
+                out.append({**aud, "cap": self.daily_cap(volume)})
+        return out
+
+    def push_hours(self, volume: str | None = None) -> list[int] | None:
+        """The hours a volume pushes at: its `volume_slots`, or `start_slots` before the reader
+        chooses. Without a volume, the broadcast's: the latest choice made on a web card or the
+        start page. None when the config doesn't set them (every slot, capped by `daily_cap`)."""
+        volume = volume or self.store.volume()
+        slots = self.cfg.get("volume_slots") or {}
+        if volume in slots:
+            return [int(h) for h in slots[volume]]
+        start = self.cfg.get("start_slots")
+        return [int(h) for h in start] if start is not None else None
 
     def run_slot(self, now: pd.Timestamp | None = None) -> dict:
         """One slot for every audience. Returns the broadcast's result (when there is one) with
@@ -194,7 +212,7 @@ class Notifier:
         # article, labeled 1 if it was tapped. The scorer's per-user features (engagement, skips,
         # click/skip contrast, exposure) then reflect what that reader did, as for a MIND user.
         plans, requests, inline = [], [], [recent[["news_id", "title", "abstract", "published"]]]
-        for aud in self.audiences():
+        for aud in self.audiences(now):
             cand = recent[~recent["news_id"].isin(self.store.pushed_ids(aud["reader_id"]))]
             if cand.empty:
                 continue
@@ -289,13 +307,15 @@ class Notifier:
         return ok
 
     def daily_cap(self, volume: str | None = None) -> int:
-        """Pushes a day: the reader's choice (light / medium / heavy) mapped through `volume_caps`;
-        before they choose, `daily_cap`. Without a volume, the broadcast's: the latest choice made
-        on a web card or the start page."""
+        """Pushes a day: the reader's choice (light / medium / heavy) mapped through `volume_caps`,
+        else how many `push_hours` it has; before they choose, `daily_cap`. Without a volume, the
+        broadcast's: the latest choice made on a web card or the start page."""
         volume = volume or self.store.volume()
         caps = self.cfg.get("volume_caps") or {}
         if volume in caps:
             return int(caps[volume])
+        if (hours := self.push_hours(volume)) is not None:
+            return len(hours)
         return int(self.cfg.get("daily_cap", self.objective["send"]["daily_cap"]))
 
     def next_slot(self, now: pd.Timestamp) -> pd.Timestamp:

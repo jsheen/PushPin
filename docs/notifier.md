@@ -35,9 +35,9 @@ Each slot:
    push goes along with the request as an impression of one article, labeled 1 if it was opened
    (see below).
 3. Picks the top article with the push objective (friction from `configs/objective.yml`).
-4. Sends it through [ntfy](https://ntfy.sh) if it passes the send policy and the reader's daily
-   cap (see [Push volume](#push-volume)): 2, 4 or 8 a day for light, medium or heavy, and 3
-   until they choose.
+4. Sends it through [ntfy](https://ntfy.sh) if it passes the send policy and this is one of the
+   reader's push hours (see [Push volume](#push-volume)): 2, 4 or 8 a day for light, medium or
+   heavy, spread over the day, and 3 until they choose.
 5. Writes every candidate to the database.
 
 ## Pin, then the profile
@@ -73,10 +73,19 @@ place.
 
 ## Push volume
 
-Each reader picks how many pushes a day they want: **Light** (up to 2), **Medium** (up to 4) or
-**Heavy** (up to 8, every slot), set by `volume_caps` in `configs/notifier.yml`. Until they
-choose, the cap is `daily_cap` (3). The cap is a ceiling: a slot only sends if its top article
-clears the send policy, so a quiet news day sends fewer.
+Each reader picks how many pushes a day they want, and each choice pushes at its own hours,
+spread over the day (`volume_slots` in `configs/notifier.yml`):
+
+| Choice | Pushes a day | Hours (New York) |
+|--------|--------------|------------------|
+| **Light** | up to 2 | 9 (morning), 21 (night) |
+| **Medium** | up to 4 | 9, 13 (early afternoon), 17 (late afternoon), 21 |
+| **Heavy** | up to 8 | every slot: 7, 9, 11, 13, 15, 17, 19, 21 |
+| Not chosen yet | up to 3 | 9, 15, 21 (`start_slots`) |
+
+A reader is only scored at their own hours. The numbers are ceilings: an hour only sends if its
+top article clears the send policy, so a quiet news day sends fewer, and a skipped hour isn't
+made up later.
 
 - **At the start:** `python -m pushpin.notifier --welcome` sends a welcome push that opens
   `/start`, a page with the three buttons. Opening it creates the reader, so pushes from then on

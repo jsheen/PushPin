@@ -912,7 +912,8 @@ def main() -> None:
     config = yaml.safe_load(args.config.read_text())
     port = int(os.environ.get("PORT", config["click_port"]))
     print(f"serving cards on :{port}", flush=True)
-    serve_cards(open_store(config), port, block=True, caps=config.get("volume_caps"))
+    caps = config.get("volume_caps") or {v: len(h) for v, h in (config.get("volume_slots") or {}).items()}
+    serve_cards(open_store(config), port, block=True, caps=caps or None)
 
 
 if __name__ == "__main__":
