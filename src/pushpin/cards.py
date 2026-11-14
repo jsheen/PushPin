@@ -604,23 +604,29 @@ function dino(c, w, h, flip, kind) {
   c.restore();
 }
 // Lays the words out inside the dinosaur's silhouette, w x h: [char, x, y] for each glyph.
-function layout(w, h, words, flip, kind, fs) {
+// Where the shape is, w x h: a test for whether a pixel is inside it.
+function silhouette(w, h, flip, kind) {
   const m = document.createElement('canvas'); m.width = w; m.height = h;
   const mc = m.getContext('2d'); dino(mc, w, h, flip, kind);
-  const mask = mc.getImageData(0, 0, w, h).data, inside = (x, y) => mask[(y * w + x) * 4 + 3] > 127;
-  const lh = Math.round(fs * 1.1);
+  const mask = mc.getImageData(0, 0, w, h).data;
+  return (x, y) => mask[(y * w + x) * 4 + 3] > 127;
+}
+// Lays the text out once inside the shape, w x h, in type of size fs: [char, x, y] for each
+// glyph, and whether all of the text fit. Nothing repeats; what doesn't fit is left out.
+function layout(w, h, text, inside, fs) {
+  const lh = fs * 1.1, mc = document.createElement('canvas').getContext('2d');
   mc.font = fs + 'px Georgia, "Times New Roman", serif';
-  const text = typeof words === 'string' ? words : words.join(' · ') + ' · ', widths = {};  // a day's text, or a list to join
-  const width = ch => widths[ch] ??= mc.measureText(ch).width;
+  const widths = {}, width = ch => widths[ch] ??= mc.measureText(ch).width;
   const glyphs = []; let i = 0;
-  for (let y = Math.round(lh / 2); y < h; y += lh) {
+  for (let row = lh / 2; row < h && i < text.length; row += lh) {
+    const y = Math.round(row);
     let x = 0;
-    while (x < w) {
+    while (x < w && i < text.length) {
       while (x < w && !inside(x, y)) x++;
       let end = x; while (end < w && inside(end, y)) end++;
-      let cx = x, guard = 0;
-      while (guard++ < 400) {
-        const ch = text[i % text.length];
+      let cx = x;
+      while (i < text.length) {
+        const ch = text[i];
         if (cx === x && ch === ' ') { i++; continue; }
         if (cx + width(ch) > end) break;
         glyphs.push([ch, cx, y]); cx += width(ch); i++;
@@ -628,16 +634,25 @@ function layout(w, h, words, flip, kind, fs) {
       x = end + 1;
     }
   }
-  return glyphs;
+  return {glyphs, fit: i >= text.length};
 }
-function draw(canvas, words, built, flip, animate, kind, delay) {
+// The largest type at which all of the text fits in the shape once, in steps of 3% so the text
+// fills the shape closely (whole pixels jump too far at small sizes).
+function fitted(w, h, text, inside, top) {
+  for (let fs = top; fs > 2; fs *= 0.97) {
+    const l = layout(w, h, text, inside, fs);
+    if (l.fit) return {...l, fs};
+  }
+  return {...layout(w, h, text, inside, 2), fs: 2};
+}
+function draw(canvas, text, built, flip, animate, kind, delay) {
   const dpr = window.devicePixelRatio || 1; let w = Math.round(canvas.clientWidth), h = Math.round(w * 0.64);
   canvas.style.height = h + 'px'; canvas.width = w * dpr; canvas.height = h * dpr;
   const c = canvas.getContext('2d');
   // laid out in device pixels, so the type can be smaller than a CSS pixel allows: the silhouette
   // reads at a glance, the headline up close
-  const W = w * dpr, H = h * dpr, fs = Math.max(3, Math.round(W / 44));
-  const glyphs = layout(W, H, words, flip, kind, fs);
+  const W = w * dpr, H = h * dpr;
+  const {glyphs, fs} = fitted(W, H, text, silhouette(W, H, flip, kind), Math.round(W / 4));
   [w, h] = [W, H];
   // a faint silhouette under the words: legs and spikes too thin for a letter still show
   const ghost = document.createElement('canvas'); ghost.width = w; ghost.height = h;
@@ -674,37 +689,51 @@ function draw(canvas, words, built, flip, animate, kind, delay) {
 // on a character grid, with spaces around it and a pin in the top left corner. It lines up in a
 // monospace font; in a chat's proportional one it leans and wobbles, which is part of the charm.
 const COLS = 32;
-function textDino(text, kind, flip) {
-  const w = 400, h = 256, m = document.createElement('canvas'); m.width = w; m.height = h;
-  const mc = m.getContext('2d'); dino(mc, w, h, flip, kind);
-  const a = mc.getImageData(0, 0, w, h).data, on = (x, y) => a[(y * w + x) * 4 + 3] > 127;
-  let x0 = w, x1 = 0, y0 = h, y1 = 0;  // crop to the dinosaur
+function textDino(day, kind) {
+  const w = 400, h = 256, on = silhouette(w, h, day.flip, kind);
+  let x0 = w, x1 = 0, y0 = h, y1 = 0;  // crop to the shape
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (on(x, y)) {
     x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
   }
-  const cw = (x1 - x0 + 1) / COLS, ch = cw * 2, rows = Math.round((y1 - y0 + 1) / ch);  // a character is about twice as tall as wide
-  const cell = (c, r) => {  // inside when a good part of the cell is, so legs and spikes keep a letter
-    let n = 0, t = 0;
-    for (let y = Math.floor(y0 + r * ch); y < Math.min(y1 + 1, y0 + (r + 1) * ch); y++)
-      for (let x = Math.floor(x0 + c * cw); x < Math.min(x1 + 1, x0 + (c + 1) * cw); x++) { t++; if (on(x, y)) n++; }
-    return t && n / t > 0.3;
+  const grid = cols => {  // which cells of a cols-wide grid are inside the shape
+    const cw = (x1 - x0 + 1) / cols, ch = cw * 2, rows = Math.round((y1 - y0 + 1) / ch);  // a character is about twice as tall as wide
+    const cell = (c, r) => {  // inside when a good part of the cell is, so legs and spikes keep a letter
+      let n = 0, t = 0;
+      for (let y = Math.floor(y0 + r * ch); y < Math.min(y1 + 1, y0 + (r + 1) * ch); y++)
+        for (let x = Math.floor(x0 + c * cw); x < Math.min(x1 + 1, x0 + (c + 1) * cw); x++) { t++; if (on(x, y)) n++; }
+      return t && n / t > 0.3;
+    };
+    const cells = []; let count = 0;
+    for (let r = 0; r < rows; r++) { const row = []; for (let c = 0; c < cols; c++) { const v = cell(c, r); row.push(v); count += v; } cells.push(row); }
+    return {cells, count};
   };
-  const letters = text.replace(/\\s+/g, '');  // no spaces inside the shape, so it has no holes
-  const lines = []; let i = 0;
-  for (let r = 0; r < rows; r++) {
-    let line = '';
-    for (let c = 0; c < COLS; c++) line += cell(c, r) ? letters[i++ % letters.length] : ' ';
-    lines.push(line.trimEnd());
+  // Each title and abstract word at most once, no spaces inside the shape (so it has no holes):
+  // the widest grid the words can fill, then random abstract words dropped until they just fit.
+  const parts = day.parts.map(p => ({title: p.title.replace(/\\s+/g, ''), words: p.words.map(x => x.replace(/\\s+/g, ''))}));
+  const join = () => parts.map(p => p.title + (p.words.length ? '—' + p.words.join('') : '')).join('·');
+  let total = join().length, g = null;
+  for (let cols = COLS; cols >= 10 && !g; cols--) { const t = grid(cols); if (t.count <= total) g = t; }
+  g ??= grid(10);
+  const r = rng(day.seed + ':share'), pool = [];
+  parts.forEach((p, i) => p.words.forEach((_, j) => pool.push([i, j, r()])));
+  pool.sort((a, b) => a[2] - b[2]);
+  for (const [i, j] of pool) {
+    const n = parts[i].words[j].length + (parts[i].words.filter(Boolean).length === 1 ? 1 : 0);  // the dash goes with the last word
+    if (total - n >= g.count) { parts[i].words[j] = ''; total -= n; }
   }
+  parts.forEach(p => { p.words = p.words.filter(Boolean); });
+  const letters = join().slice(0, g.count).padEnd(g.count, '·');  // a few letters over, at most: cut at the end
+  let i = 0;
+  const lines = g.cells.map(row => row.map(v => v ? letters[i++] : ' ').join('').trimEnd());
   while (lines.length && !lines[0]) lines.shift();
   while (lines.length && !lines[lines.length - 1]) lines.pop();
-  // the pin in the top left corner, on the dinosaur's top line: it takes about two columns
-  if (!lines[0].startsWith('  ')) for (let i = 0; i < lines.length; i++) lines[i] = '   ' + lines[i];  // no room: shift it all over
+  // the pin in the top left corner, on the shape's top line: it takes about two columns
+  if (!lines[0].startsWith('  ')) for (let k = 0; k < lines.length; k++) lines[k] = '   ' + lines[k];  // no room: shift it all over
   lines[0] = '📌' + lines[0].slice(2);
   return lines.join('\\n');
 }
 let sheet = null;
-function share(text_, kind, flip) {
+function share(day, kind) {
   if (!sheet) {
     sheet = document.createElement('dialog'); sheet.className = 'sharecard';
     sheet.innerHTML = '<button type="button" class="x" aria-label="Close">×</button><pre></pre>'
@@ -713,7 +742,7 @@ function share(text_, kind, flip) {
     sheet.addEventListener('click', ev => { if (ev.target === sheet) sheet.close(); });  // the backdrop
     document.body.append(sheet);
   }
-  const text = textDino(text_, kind, flip), pre = sheet.querySelector('pre'), go = sheet.querySelector('.go'), copy = sheet.querySelector('.copy');
+  const text = textDino(day, kind), pre = sheet.querySelector('pre'), go = sheet.querySelector('.go'), copy = sheet.querySelector('.copy');
   pre.textContent = text; pre.setAttribute('aria-label', 'A ' + kind.name + ' drawn in text');
   go.hidden = !navigator.share;
   go.onclick = () => navigator.share({text}).catch(() => null);
@@ -728,15 +757,14 @@ const kindOf = herd(data.dataset.seed || '');
 // is seeded by the reader and the day, so a picture is the same each time it's drawn, no two days
 // match, and two readers who read the same articles the same day still get different pictures.
 function dayText(d) {
-  const r = rng((data.dataset.seed || 'demo') + ':' + d.day);
+  const seed = (data.dataset.seed || 'demo') + ':' + d.day, r = rng(seed);
   const flip = r() < 0.5;
-  if (!d.titles.length) return {text: '·', flip};
-  const parts = d.titles.map((t, i) => {
-    const kept = ((d.abstracts || [])[i] || '').split(/\\s+/).filter(w => w && r() < 0.55);
-    return kept.length ? t + ' — ' + kept.join(' ') : t;
-  });
-  const all = parts.join(' · ') + ' · ', at = Math.floor(r() * all.length);
-  return {text: all.slice(at) + all.slice(0, at), flip};
+  const parts = d.titles.map((title, i) => ({title, words: ((d.abstracts || [])[i] || '').split(/\\s+/).filter(Boolean)}));
+  const text = parts.length ? parts.map(p => {
+    const kept = p.words.filter(() => r() < 0.55);  // the picture on the profile: some of each abstract
+    return kept.length ? p.title + ' — ' + kept.join(' ') : p.title;
+  }).join(' · ') : '·';
+  return {text, flip, parts, seed};
 }
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 function build(animate) {
@@ -753,7 +781,7 @@ function build(animate) {
       const tap = document.createElement('button');
       tap.type = 'button'; tap.className = 'dino'; tap.title = kind.name + ' · ' + when;
       tap.setAttribute('aria-label', 'Share the ' + kind.name + ' for ' + when);
-      tap.append(canvas); tap.addEventListener('click', () => share(day.text, kind, day.flip));
+      tap.append(canvas); tap.addEventListener('click', () => share(day, kind));
       fig.append(tap);
     } else {
       const still = document.createElement('div');  // not finished: nothing to share yet

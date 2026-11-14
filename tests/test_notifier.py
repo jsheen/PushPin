@@ -582,7 +582,7 @@ def test_demo_page_shows_dinosaurs_and_stores_nothing(setup):
     data = json.loads(re.search(r'id="papier-data"[^>]*>(.*?)</script>', page).group(1))
     assert len(data) == 22 and {"day": "2026-10-14", "sent": 2, "titles": [], "abstracts": []} in data  # a day with nothing read
     assert all(len(d["abstracts"]) == len(d["titles"]) and all(d["abstracts"]) for d in data)  # titles and abstracts
-    assert "function dayText(d)" in page and "rng((data.dataset.seed || 'demo') + ':' + d.day)" in page  # seeded per reader and day
+    assert "function dayText(d)" in page and "const seed = (data.dataset.seed || 'demo') + ':' + d.day, r = rng(seed)" in page  # seeded per reader and day
     assert store.reader_count() == 0 and db("SELECT COUNT(*) AS n FROM interactions")["n"].item() == 0
 
 
