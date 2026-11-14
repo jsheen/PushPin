@@ -36,8 +36,11 @@ day, each used once. The type is sized so the text fills the whole shape, thin p
 picture is revealed from one side as the day's pushes are read; while the day is on, nothing shows
 of the rest, so it's a guess what it will be. Once the day is over, an unfinished picture gets the
 grey outline of what it could have been under the part that was read (Oct 15 · 3/4), and a day
-with nothing read is just the outline (Oct 23 · 0/4). Today, with nothing read yet, says "Start
-reading to make today's word art".
+with nothing read is just the outline (Oct 23 · 0/4). Today is still a guess: Oct 29 has 2 of the
+3 pushes sent so far read (Oct 29 · 2/3). A picture counts only pushes already sent, so it's
+finished once everything sent that day is read; if another push goes out later, it's unfinished
+again until that one is read. Today, with nothing read yet, says "Start reading to make today's
+word art".
 
 ## 4. Sharing a picture
 
@@ -62,6 +65,10 @@ Days that are over and weren't finished share what was missed: Oct 15 (3 of 4 re
 
 <img src="screens/sticker-unfinished.png" width="420" alt="Unfinished day sticker: the read articles in part of the shape, the rest blank white die-cut">
 <img src="screens/sticker-missed.png" width="200" alt="Missed day sticker: a blank white moon die-cut">
+
+Today's unfinished picture (Oct 29, 2 of 3 read) shares just the part revealed so far:
+
+<img src="screens/sticker-today.png" width="300" alt="Today's unfinished sticker: only the part revealed so far, die-cut around it">
 
 ## Before the first push: the welcome page
 
