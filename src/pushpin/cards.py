@@ -289,7 +289,7 @@ def profile_page(reader: dict, read: list[dict], owner: bool, share_url: str = "
     # Read n (Daily streak d), with the Papier-mâché switch on the right, then the list. A private
     # list on a public link shows only that header: no titles, so no switch and no dinosaurs.
     shown = owner or public  # Papier-mâché only uses titles the page already shows
-    switch, hint, gallery = papier(read, days, papier_seed(reader)) if shown else ("", "", "")
+    switch, hint, gallery = papier(read, days, papier_seed(reader), today or date.today()) if shown else ("", "", "")
     head = f'<div class="readhead"><h2>Read <span class="n">{n}</span>{on_a_roll}</h2>{switch}</div>'
     articles = (f'<div class="readpanel">{head}{hint}<ul class="list">{"".join(item(a, owner) for a in read)}</ul>'
                 f'{gallery}</div>' if read
@@ -656,7 +656,7 @@ function fitted(w, h, text, inside, top) {
   for (let k = 0; k < 8; k++) { const m = (lo + hi) / 2; if (layout(w, h, text, inside, fs, m).fit) lo = m; else hi = m; }
   return {...layout(w, h, text, inside, fs, lo), fs};
 }
-function draw(canvas, text, built, flip, animate, kind, delay) {
+function draw(canvas, text, built, flip, animate, kind, delay, past) {
   const dpr = window.devicePixelRatio || 1; let w = Math.round(canvas.clientWidth), h = Math.round(w * 0.64);
   canvas.style.height = h + 'px'; canvas.width = w * dpr; canvas.height = h * dpr;
   const c = canvas.getContext('2d');
@@ -665,11 +665,18 @@ function draw(canvas, text, built, flip, animate, kind, delay) {
   const W = w * dpr, H = h * dpr, shape = silhouette(W, H, flip, kind);
   [w, h] = [W, H];
   const css = getComputedStyle(document.documentElement), ink = css.getPropertyValue('--fg').trim() || '#121212';
-  if (built <= 0) {  // nothing read yet: a nudge in its place, no hint of the shape
+  if (built <= 0 && past) {  // a day that's over with nothing read: the grey outline of what it could have been
+    const ghost = document.createElement('canvas'); ghost.width = W; ghost.height = H;
+    const gc = ghost.getContext('2d'); dino(gc, W, H, flip, kind);
+    gc.globalCompositeOperation = 'source-in'; gc.fillStyle = ink; gc.fillRect(0, 0, W, H);
+    c.globalAlpha = 0.15; c.drawImage(ghost, 0, 0); c.globalAlpha = 1;
+    return;
+  }
+  if (built <= 0) {  // today, nothing read yet: a nudge in its place, no hint of the shape
     const size = Math.max(9 * dpr, Math.round(H * 0.12)), lines = [];
     c.font = size + 'px -apple-system, system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
     c.fillStyle = css.getPropertyValue('--muted').trim() || '#666';
-    for (const word of 'Start reading to make this day’s word art'.split(' ')) {  // wrapped to the cell
+    for (const word of 'Start reading to make today’s word art'.split(' ')) {  // wrapped to the cell
       const line = lines.length ? lines[lines.length - 1] + ' ' + word : word;
       if (lines.length && c.measureText(line).width <= W * 0.9) lines[lines.length - 1] = line; else lines.push(word);
     }
@@ -821,7 +828,7 @@ function build(animate) {
       still.append(canvas); fig.append(still);
     }
     fig.append(cap); box.append(fig);
-    draw(canvas, day.text, built, day.flip, animate, kind, animate ? Math.min(k, 40) * 45 : 0);
+    draw(canvas, day.text, built, day.flip, animate, kind, animate ? Math.min(k, 40) * 45 : 0, d.day < (data.dataset.today || ''));
   });
 }
 function show(animate) {
@@ -864,7 +871,8 @@ def papier_days(read: list[dict]) -> list[dict]:
     return list(out.values())
 
 
-def papier(read: list[dict], days: list[dict] | None = None, seed: str = "") -> tuple[str, str, str]:
+def papier(read: list[dict], days: list[dict] | None = None, seed: str = "",
+           today: date | None = None) -> tuple[str, str, str]:
     """Papier-mâché for a Read list the page shows: the switch for the panel's header, the
     instructions (shown when it's on), and the pictures' container with their days and script.
     One picture a day, made of that day's read headlines and filled in as they're read: reading
@@ -880,7 +888,8 @@ def papier(read: list[dict], days: list[dict] | None = None, seed: str = "") -> 
     hint = (f'<p class="papier-hint" hidden>Each day’s pushes make a picture: read them all to finish it · '
             f'{done} finished · Tap a finished one to share it</p>')
     gallery = (f'<div class="papier" id="papier" hidden></div>'
-               f'<script type="application/json" id="papier-data" data-seed="{html.escape(seed)}">{data}</script>{PAPIER_SCRIPT}')
+               f'<script type="application/json" id="papier-data" data-seed="{html.escape(seed)}" '
+               f'data-today="{(today or date.today()).isoformat()}">{data}</script>{PAPIER_SCRIPT}')
     return switch, hint, gallery
 
 
