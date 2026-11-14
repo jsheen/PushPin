@@ -379,28 +379,30 @@ class Store:
 
     def days(self, reader_id: str | None) -> list[dict]:
         """Each day this reader was sent pushes, oldest first: day (YYYY-MM-DD, local), sent (how
-        many pushes they got), read (how many of those they tapped Read on, on any day since) and
-        titles (the read ones they haven't deleted from their profile, in send order). Reading all
-        of a day's pushes finishes that day's picture on the profile."""
+        many pushes they got), read (how many of those they tapped Read on, on any day since), and
+        titles and abstracts of the read ones they haven't deleted from their profile, in send
+        order. Reading all of a day's pushes finishes that day's picture on the profile."""
         if not reader_id or not self._has_scores():
             return []
         did = lambda kind: ("EXISTS (SELECT 1 FROM interactions i WHERE i.push_id = s.push_id AND i.reader_id = :r"
                             + (f" AND i.kind = '{kind}')" if kind else ")"))
         # the pushes `labeled` counts as theirs, plus any they opened (a reader set up without a
         # first push time still gets the ones they tapped)
-        rows = self._rows(f"""SELECT SUBSTR(s.sent_at, 1, 10) AS day, s.push_id, s.title, {did("read")} AS read, {KEPT} AS kept
-            FROM scores s JOIN readers r ON r.reader_id = :r
+        rows = self._rows(f"""SELECT SUBSTR(s.sent_at, 1, 10) AS day, s.push_id, s.title, a.abstract,
+                {did("read")} AS read, {KEPT} AS kept
+            FROM scores s JOIN readers r ON r.reader_id = :r LEFT JOIN articles a ON a.news_id = s.news_id
             WHERE s.sent AND ((s.for_reader IS NULL AND r.apple_sub IS NULL AND s.sent_ts >= r.first_push_ts)
                               OR s.for_reader = r.reader_id OR {did(None)})
             ORDER BY s.sent_ts, s.push_id""", r=reader_id)
         out: dict[str, dict] = {}
         for row in rows:
-            d = out.setdefault(row["day"], {"day": row["day"], "sent": 0, "read": 0, "titles": []})
+            d = out.setdefault(row["day"], {"day": row["day"], "sent": 0, "read": 0, "titles": [], "abstracts": []})
             d["sent"] += 1
             if row["read"]:
                 d["read"] += 1
                 if row["kept"]:
                     d["titles"].append(row["title"] or "Untitled")
+                    d["abstracts"].append(row["abstract"] or "")
         return list(out.values())
 
     def remove(self, reader_id: str, news_id: str) -> bool:

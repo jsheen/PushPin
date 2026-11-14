@@ -610,7 +610,7 @@ function layout(w, h, words, flip, kind, fs) {
   const mask = mc.getImageData(0, 0, w, h).data, inside = (x, y) => mask[(y * w + x) * 4 + 3] > 127;
   const lh = Math.round(fs * 1.1);
   mc.font = fs + 'px Georgia, "Times New Roman", serif';
-  const text = words.join(' · ') + ' · ', widths = {};
+  const text = typeof words === 'string' ? words : words.join(' · ') + ' · ', widths = {};  // a day's text, or a list to join
   const width = ch => widths[ch] ??= mc.measureText(ch).width;
   const glyphs = []; let i = 0;
   for (let y = Math.round(lh / 2); y < h; y += lh) {
@@ -674,9 +674,9 @@ function draw(canvas, words, built, flip, animate, kind, delay) {
 // on a character grid, with spaces around it and a pin in the top left corner. It lines up in a
 // monospace font; in a chat's proportional one it leans and wobbles, which is part of the charm.
 const COLS = 32;
-function textDino(titles, kind) {
+function textDino(text, kind, flip) {
   const w = 400, h = 256, m = document.createElement('canvas'); m.width = w; m.height = h;
-  const mc = m.getContext('2d'); dino(mc, w, h, false, kind);
+  const mc = m.getContext('2d'); dino(mc, w, h, flip, kind);
   const a = mc.getImageData(0, 0, w, h).data, on = (x, y) => a[(y * w + x) * 4 + 3] > 127;
   let x0 = w, x1 = 0, y0 = h, y1 = 0;  // crop to the dinosaur
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (on(x, y)) {
@@ -689,7 +689,7 @@ function textDino(titles, kind) {
       for (let x = Math.floor(x0 + c * cw); x < Math.min(x1 + 1, x0 + (c + 1) * cw); x++) { t++; if (on(x, y)) n++; }
     return t && n / t > 0.3;
   };
-  const letters = titles.join('·').replace(/\\s+/g, '') + '·';  // no spaces inside the body, so it has no holes
+  const letters = text.replace(/\\s+/g, '');  // no spaces inside the shape, so it has no holes
   const lines = []; let i = 0;
   for (let r = 0; r < rows; r++) {
     let line = '';
@@ -699,11 +699,12 @@ function textDino(titles, kind) {
   while (lines.length && !lines[0]) lines.shift();
   while (lines.length && !lines[lines.length - 1]) lines.pop();
   // the pin in the top left corner, on the dinosaur's top line: it takes about two columns
-  lines[0] = '📌' + (lines[0].startsWith('  ') ? lines[0].slice(2) : ' ' + lines[0]);
+  if (!lines[0].startsWith('  ')) for (let i = 0; i < lines.length; i++) lines[i] = '   ' + lines[i];  // no room: shift it all over
+  lines[0] = '📌' + lines[0].slice(2);
   return lines.join('\\n');
 }
 let sheet = null;
-function share(titles, kind) {
+function share(text_, kind, flip) {
   if (!sheet) {
     sheet = document.createElement('dialog'); sheet.className = 'sharecard';
     sheet.innerHTML = '<button type="button" class="x" aria-label="Close">×</button><pre></pre>'
@@ -712,7 +713,7 @@ function share(titles, kind) {
     sheet.addEventListener('click', ev => { if (ev.target === sheet) sheet.close(); });  // the backdrop
     document.body.append(sheet);
   }
-  const text = textDino(titles, kind), pre = sheet.querySelector('pre'), go = sheet.querySelector('.go'), copy = sheet.querySelector('.copy');
+  const text = textDino(text_, kind, flip), pre = sheet.querySelector('pre'), go = sheet.querySelector('.go'), copy = sheet.querySelector('.copy');
   pre.textContent = text; pre.setAttribute('aria-label', 'A ' + kind.name + ' drawn in text');
   go.hidden = !navigator.share;
   go.onclick = () => navigator.share({text}).catch(() => null);
@@ -722,11 +723,26 @@ function share(titles, kind) {
 }
 // ---- end share card ----
 const kindOf = herd(data.dataset.seed || '');
+// A day's text: every read title, each followed by some of its abstract's words (picked at
+// random, kept in order), starting at a random point, and which way the shape faces. The randomness
+// is seeded by the reader and the day, so a picture is the same each time it's drawn, no two days
+// match, and two readers who read the same articles the same day still get different pictures.
+function dayText(d) {
+  const r = rng((data.dataset.seed || 'demo') + ':' + d.day);
+  const flip = r() < 0.5;
+  if (!d.titles.length) return {text: '·', flip};
+  const parts = d.titles.map((t, i) => {
+    const kept = ((d.abstracts || [])[i] || '').split(/\\s+/).filter(w => w && r() < 0.55);
+    return kept.length ? t + ' — ' + kept.join(' ') : t;
+  });
+  const all = parts.join(' · ') + ' · ', at = Math.floor(r() * all.length);
+  return {text: all.slice(at) + all.slice(0, at), flip};
+}
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 function build(animate) {
   box.innerHTML = '';
   days.forEach((d, k) => {  // one picture a day, oldest first, made of that day's read headlines
-    const kind = kindOf(k), done = d.sent > 0 && d.titles.length >= d.sent, built = d.sent ? Math.min(1, d.titles.length / d.sent) : 0;
+    const kind = kindOf(k), day = dayText(d), done = d.sent > 0 && d.titles.length >= d.sent, built = d.sent ? Math.min(1, d.titles.length / d.sent) : 0;
     const when = MONTHS[+d.day.slice(5, 7) - 1] + ' ' + +d.day.slice(8, 10);
     const fig = document.createElement('figure'), canvas = document.createElement('canvas'), cap = document.createElement('figcaption');
     canvas.setAttribute('role', 'img');
@@ -737,7 +753,7 @@ function build(animate) {
       const tap = document.createElement('button');
       tap.type = 'button'; tap.className = 'dino'; tap.title = kind.name + ' · ' + when;
       tap.setAttribute('aria-label', 'Share the ' + kind.name + ' for ' + when);
-      tap.append(canvas); tap.addEventListener('click', () => share(d.titles, kind));
+      tap.append(canvas); tap.addEventListener('click', () => share(day.text, kind, day.flip));
       fig.append(tap);
     } else {
       const still = document.createElement('div');  // not finished: nothing to share yet
@@ -745,7 +761,7 @@ function build(animate) {
       still.append(canvas); fig.append(still);
     }
     fig.append(cap); box.append(fig);
-    draw(canvas, d.titles.length ? d.titles : ['·'], built, k % 2 === 1, animate, kind, animate ? Math.min(k, 40) * 45 : 0);
+    draw(canvas, day.text, built, day.flip, animate, kind, animate ? Math.min(k, 40) * 45 : 0);
   });
 }
 function show(animate) {
@@ -780,10 +796,11 @@ def papier_days(read: list[dict]) -> list[dict]:
     """Days from the reads alone, when the pushes sent aren't known: every day with reads, finished."""
     out: dict[str, dict] = {}
     for a in sorted(read, key=lambda a: a["read_at"] or ""):
-        d = out.setdefault(a["read_at"][:10], {"day": a["read_at"][:10], "sent": 0, "read": 0, "titles": []})
+        d = out.setdefault(a["read_at"][:10], {"day": a["read_at"][:10], "sent": 0, "read": 0, "titles": [], "abstracts": []})
         d["sent"] += 1
         d["read"] += 1
         d["titles"].append(a["title"] or "Untitled")
+        d["abstracts"].append(a.get("abstract") or "")
     return list(out.values())
 
 
@@ -795,7 +812,8 @@ def papier(read: list[dict], days: list[dict] | None = None, seed: str = "") -> 
     if not read:
         return "", "", ""
     days = days if days is not None else papier_days(read)
-    data = json.dumps([{"day": d["day"], "sent": d["sent"], "titles": d["titles"]} for d in days]).replace("</", "<\\/")
+    data = json.dumps([{"day": d["day"], "sent": d["sent"], "titles": d["titles"], "abstracts": d.get("abstracts") or []}
+                       for d in days]).replace("</", "<\\/")
     done = sum(1 for d in days if d["sent"] and d["read"] >= d["sent"])
     switch = ('<button type="button" class="pm" id="papier-on" aria-pressed="false">'
               '<span class="track"><span class="knob"></span></span>Papier-mâché</button>')
@@ -826,13 +844,48 @@ def demo_page() -> str:
     # some days two, some days none, and the last six days in a row: Read 29, Daily streak 6
     days = [2, 2, 4, 5, 5, 8, 9, 9, 11, 12, 13, 15, 16, 16, 17, 18, 19, 20, 22,
             24, 24, 25, 26, 26, 27, 28, 28, 29, 29]
-    read = [{"news_id": f"DEMO{i}", "title": t, "url": "https://www.nytimes.com", "section": None,
-             "read_at": f"2026-10-{d:02d}T{9 + i % 2 * 9}:00"} for i, (t, d) in enumerate(zip(DEMO_TITLES, days, strict=True))]
+    read = [{"news_id": f"DEMO{i}", "title": t, "abstract": ab, "url": "https://www.nytimes.com", "section": None,
+             "read_at": f"2026-10-{d:02d}T{9 + i % 2 * 9}:00"}
+            for i, (t, ab, d) in enumerate(zip(DEMO_TITLES, DEMO_ABSTRACTS, days, strict=True))]
     by_day = {d["day"]: d for d in papier_days(read)}
     for day, missed in DEMO_UNREAD.items():  # pushes sent but not read: those days aren't finished
-        by_day.setdefault(day, {"day": day, "sent": 0, "read": 0, "titles": []})["sent"] += missed
+        by_day.setdefault(day, {"day": day, "sent": 0, "read": 0, "titles": [], "abstracts": []})["sent"] += missed
     return profile_page({"name": "Justin", "history_public": 1}, read, owner=False, today=date(2026, 10, 29),
                         days=[by_day[k] for k in sorted(by_day)])
+
+
+# made up, like the titles: one line each, in the same order
+DEMO_ABSTRACTS = [
+    "Sleeper cars are rolling again as travelers trade airports for a slower way across the country.",
+    "Beachcombers catalog the shells, glass and driftwood that every storm brings ashore.",
+    "After years of floods, one city built parks that soak up storms and turned gray days into a draw.",
+    "He has fixed thousands of machines and still keeps a drawer of ribbons nobody makes anymore.",
+    "Scientists and sonar ships are charting the vast seabed that remains less known than the moon.",
+    "Sourdough starters are passed hand to hand as home bakers rediscover a slow, patient craft.",
+    "The birds that ride the trains know the schedules better than many commuters do.",
+    "When the county cut its budget, residents held bake sales and raised enough to keep the doors open.",
+    "Volunteers stay up late to measure how much light is stealing the stars from small towns.",
+    "A storm toppled an old maple, and a luthier turned its wood into an instrument with a warm voice.",
+    "A father and daughter trek through a blizzard and find the road home longer and kinder than expected.",
+    "A keeper's logbook records ships, storms and the slow seasons on a rocky point of the coast.",
+    "Generations of families have tended the same trees and harvested the same sweet apples.",
+    "Retirees fill the community pool at dawn, learning strokes they never had time for.",
+    "A small museum displays hundreds of single mittens and the stories of how they were lost.",
+    "City beekeepers keep hives on rooftops, and their honey tastes of the neighborhood's flowers.",
+    "Drooping leaves and yellow tips are signals; here is how to read them and help your plants thrive.",
+    "Independent bookshops are opening again, drawing readers with events, cats and hand-written notes.",
+    "After forty years on the water, a captain steers her ferry one last time across the bay.",
+    "A physicist explains the batter, the heat and the timing behind a golden, fluffy stack.",
+    "Light pollution and lost meadows are dimming summer nights, but some towns are bringing them back.",
+    "Strangers gather on a hill each morning to sing together as the sun comes up.",
+    "A folding map designer explains how to fit a whole city onto a single sheet of paper.",
+    "Food stalls light up the space beneath an old bridge, serving dishes from a dozen countries.",
+    "Researchers return each year to measure how far the ice has retreated up the valley.",
+    "A family of puzzle makers cuts wooden pieces by hand in a barn in the Green Mountains.",
+    "Huge eyes and sensitive feathers let owls hunt in near-total darkness.",
+    "Residents of a high-rise grow tomatoes, herbs and flowers on a terrace high above the street.",
+    "For decades, the town's mail carrier knew every name, dog and birthday on his route.",
+]
 
 
 # demo pushes left unread, by day: two days with some read, one with none, and today so far

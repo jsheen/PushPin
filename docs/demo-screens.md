@@ -41,70 +41,73 @@ It opens on a title card and goes to the profile when tapped.
 <img src="screens/demo-splash.png" width="300" alt="Demo title card: Justin's, Read 29, Daily streak 6, Tap to continue">
 <img src="screens/demo-profile.png" width="300" alt="Demo profile: Read 29, a grid of small papier-mâché pictures, one a day: a snowman, dinosaurs, a heart, a star, a moon, a tree and more, a few unfinished">
 
-Each day's pushes make one small papier-mâché picture out of the headlines read that day. The
-pictures are common symbols (snowman, heart, star, sun, moon, pine tree, umbrella, house, cat,
-fish, apple, cloud, lightning bolt, coffee cup, flower, music note, balloon), taking turns with the
-dinosaurs. A picture fills in from one side as the day's pushes are read and is finished only when
-all of them are. An unfinished one is pencilled in, with how many were read under its date (Oct 9
-· 2/3); a day with nothing read is a blank outline (Oct 14 · 0/2). The demo has 22 days, 18 of them
-finished, and they all fit on one screen. A faint silhouette sits under the words so each shape
-reads at this size.
+Each day's pushes make one small papier-mâché picture out of the articles read that day: their
+titles and some of their abstracts' words. The pictures are common symbols (snowman, heart, star,
+sun, moon, pine tree, umbrella, house, cat, fish, apple, cloud, lightning bolt, coffee cup,
+flower, music note, balloon), taking turns with the dinosaurs. A picture fills in from one side as
+the day's pushes are read and is finished only when all of them are. An unfinished one is
+pencilled in, with how many were read under its date (Oct 9 · 2/3); a day with nothing read is a
+blank outline (Oct 14 · 0/2). The demo has 22 days, 18 of them finished, and they all fit on one
+screen. A faint silhouette sits under the words so each shape reads at this size.
 
 ## 4. Sharing a picture
 
-Tapping a finished picture opens it as text, ready to paste into any chat: the shape drawn with the
-day's headlines' letters on a 32-character grid, with plain spaces around it and 📌 in the top left
-corner, on the top line. The spaces between words are dropped inside the shape so it has no holes.
-**Share** opens the phone's share sheet with the text, and **Copy** copies it. Browsers without a
-share sheet only show Copy. Unfinished pictures can't be shared yet.
+Tapping a finished picture opens it as text, ready to paste into any chat: the shape spelled out
+on a 32-character grid, with plain spaces around it and 📌 in the top left corner, on the top line.
+The letters come from that day's read articles: every title, each followed by some of its
+abstract's words (a random selection, kept in order). The spaces between words are dropped inside
+the shape so it has no holes. **Share** opens the phone's share sheet with the text, and **Copy**
+copies it. Browsers without a share sheet only show Copy. Unfinished pictures can't be shared yet.
+
+Each picture is unique. A generator seeded with the reader and the day picks which abstract words
+are kept, where the text starts and which way the shape faces, and each reader has their own order
+of shapes. Different days get different pictures, and so do two readers who read the same
+articles on the same day. A repeat isn't strictly impossible, but with billions of variants it's
+vanishingly unlikely. On the demo all 18 finished days are different, and two test readers with
+identical reads differed on every day.
 
 It lines up in a monospace font. In a chat's proportional font the rows shift a little, and that's
 fine.
 
 <img src="screens/share-sheet.png" width="300" alt="Share sheet on the demo profile: a snowman spelled out in the letters of the day's headlines, with Share and Copy buttons">
 
-What two of the demo pictures share as, the snowman and the heart:
+What the demo's first two pictures share as, the snowman and a Brontosaurus:
 
 ```
-📌          WhattheT
-            ideLeave
-          sBehind·TheQ
-           uietReturn
-           oftheNight
-            Train·Wh
-at           theTid           eL
- eave      sBehind·Th      eQui
-     etReturnoftheNigh tTra
-        in·WhattheTideLe
-         avesBehind·The
-          QuietReturno
-           ftheNightT
-         rain·WhattheTi
-        deLeavesBehind·T
-       heQuietReturnofthe
-       NightTrain·Whatthe
-       TideLeavesBehind·T
-        heQuietReturnoft
-         heNightTrain·W
-           hattheTid
+📌          ainastra
+            deforslo
+          weracross·Wh
+           attheTideL
+           eavesBehin
+            d—catalo
+gt           hedrif           tw
+ oodt      hatstorm·T      heQu
+     ietReturnoftheNig htTr
+        ain—Sleepercarsa
+         rerollingagain
+          astradeforsl
+           oweracross
+         ·WhattheTideLe
+        avesBehind—catal
+       ogthedriftwoodthat
+       storm·TheQuietRetu
+       rnoftheNightTrain—
+        Sleepercarsarero
+         llingagainastr
+           adeforslo
 ```
 
 ```
-📌  TheLastTyp    ewriterRep
-  airmaninOhio·InsidetheRaceto
-MaptheOceanFloor·TheLastTypewrit
-erRepairmaninOhio·InsidetheRacet
-oMaptheOceanFloor·TheLastTypewri
-terRepairmaninOhio·InsidetheRace
- toMaptheOceanFloor·TheLastType
-   writerRepairmaninOhio·Insi
-     detheRacetoMaptheOcean
-      Floor·TheLastTypewri
-        terRepairmaninOh
-          io·Insidethe
-           RacetoMapt
-             heOcea
-               nF
+📌 thatso
+   akandgr
+      aydays
+        intoadraw.·ACity
+         LearnstoLoveItsRain
+          —Afterofonecitybuiltt
+          hatsoakandgraydaysintoa
+           draw.·ACityLearnstoLoveI
+           tsRain —After
+           ofonec itybui
 ```
 
 ## Before the first push: the welcome page

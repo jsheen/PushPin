@@ -535,7 +535,7 @@ def test_papier_mache_only_with_a_visible_read_list():
     assert panel.index('class="list"') < panel.index('id="papier"')  # one panel, no fold
     assert "<details" not in own and 'class="plus"' not in own
     data = re.search(r'id="papier-data"[^>]*>(.*?)</script>', own).group(1)
-    assert data.startswith('[{"day": "2026-11-10", "sent": 1, "titles": ["T0<\\/script>"]}') and "</script>\"" not in data  # oldest first, can't close the tag
+    assert data.startswith('[{"day": "2026-11-10", "sent": 1, "titles": ["T0<\\/script>"], "abstracts": [""]}') and "</script>\"" not in data  # oldest first, can't close the tag
     assert 'id="papier-on"' not in cards.profile_page(reader, read, owner=False)  # private list: no dinosaurs
     assert 'id="papier-on"' in cards.profile_page({**reader, "history_public": 1}, read, owner=False)
     assert 'id="papier-on"' not in cards.profile_page(reader, [], owner=True)
@@ -555,14 +555,14 @@ def test_a_days_picture_is_finished_when_all_its_pushes_are_read(setup):
         get(f"/p/{first}")
         post(f"/read/{first}")
         rid = store._rows("SELECT reader_id FROM readers")[0]["reader_id"]
-        title = store.push(first)["title"]
+        title, abstract = store.push(first)["title"], store.push(first)["abstract"]
         day = store._rows("SELECT sent_at FROM scores WHERE push_id = :p", p=first)[0]["sent_at"][:10]  # when it was sent
-        assert store.days(rid) == [{"day": day, "sent": 2, "read": 1, "titles": [title]}]
+        assert store.days(rid) == [{"day": day, "sent": 2, "read": 1, "titles": [title], "abstracts": [abstract]}]
         assert "· 0 finished ·" in get("/me")  # one of the day's two pushes read
         post(f"/read/{second}")
         assert store.days(rid)[0]["read"] == 2 and "· 1 finished ·" in get("/me")
         post(f"/remove/{store.push(second)['news_id']}")  # deleted: still read, but its title isn't shown
-        assert store.days(rid) == [{"day": day, "sent": 2, "read": 2, "titles": [title]}]
+        assert store.days(rid) == [{"day": day, "sent": 2, "read": 2, "titles": [title], "abstracts": [abstract]}]
         assert store.days(None) == []
         stray = store.new_reader(None)  # no first push time: only what they tapped counts
         store.interact(first, stray, "open")
@@ -580,7 +580,9 @@ def test_demo_page_shows_dinosaurs_and_stores_nothing(setup):
         server.shutdown()
     assert 'id="papier-on"' in page and "18 finished" in page and "Justin’s" in page and "Crème" not in page
     data = json.loads(re.search(r'id="papier-data"[^>]*>(.*?)</script>', page).group(1))
-    assert len(data) == 22 and {"day": "2026-10-14", "sent": 2, "titles": []} in data  # a day with nothing read
+    assert len(data) == 22 and {"day": "2026-10-14", "sent": 2, "titles": [], "abstracts": []} in data  # a day with nothing read
+    assert all(len(d["abstracts"]) == len(d["titles"]) and all(d["abstracts"]) for d in data)  # titles and abstracts
+    assert "function dayText(d)" in page and "rng((data.dataset.seed || 'demo') + ':' + d.day)" in page  # seeded per reader and day
     assert store.reader_count() == 0 and db("SELECT COUNT(*) AS n FROM interactions")["n"].item() == 0
 
 
