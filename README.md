@@ -77,6 +77,7 @@ docker compose up -d scorer notifier cards tunnel   # real pushes (NTFY_TOPIC in
 | [ab-test.md](docs/ab-test.md) | The proposed A/B test and its analysis |
 | [deploy-gcp.md](docs/deploy-gcp.md), [production.md](docs/production.md) | Cloud deployment |
 | [ios-app.md](docs/ios-app.md), [live-scoring.md](docs/live-scoring.md) | iOS backend; request-time scoring |
+| [demo-screens.md](docs/demo-screens.md) | What the phone shows: push, tapped push, demo profile |
 
 ## Status and contact
 
