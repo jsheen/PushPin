@@ -756,8 +756,9 @@ async function sticker(day, kind, built = 1) {  // an unfinished day: just the p
   for (let y = 0; y < H; y += 2) for (let x = 0; x < W; x += 2) if (shape(x, y)) {
     x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
   }
-  // border, room for the shadow, and the pin's own corner (top left), clear of the words
-  const B = 26, P = B + 34, PIN = 72, room = 44, ox = P + room - x0, oy = P + room - y0;
+  // border, room for the shadow, and the pin's own corner (top left): the die-cut's edge always
+  // starts a clear GAP beyond the pin, whatever the shape
+  const B = 26, P = B + 34, PIN = 72, AT = 6, GAP = 20, room = AT + PIN + GAP - (P - B), ox = P + room - x0, oy = P + room - y0;
   const out = document.createElement('canvas'); out.width = x1 - x0 + 2 * P + room; out.height = y1 - y0 + 2 * P + room;
   const mask = document.createElement('canvas'); mask.width = W; mask.height = H;
   const mc = mask.getContext('2d'); dino(mc, W, H, day.flip, kind, true);  // traced around the solid shape
@@ -779,7 +780,7 @@ async function sticker(day, kind, built = 1) {  // an unfinished day: just the p
   c.font = fs + 'px Georgia, "Times New Roman", serif'; c.textBaseline = 'middle'; c.fillStyle = STICKER_INK;
   for (const g of glyphs) c.fillText(g[0], ox + g[1], oy + g[2]);
   const im = await pinIcon();
-  if (im) c.drawImage(im, 6, 6, PIN, PIN);
+  if (im) c.drawImage(im, AT, AT, PIN, PIN);
   return out;
 }
 let sheet = null;
