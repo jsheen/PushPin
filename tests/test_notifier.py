@@ -578,9 +578,9 @@ def test_demo_page_shows_dinosaurs_and_stores_nothing(setup):
         page = urllib.request.urlopen(f"http://127.0.0.1:{server.server_address[1]}/demo").read().decode()
     finally:
         server.shutdown()
-    assert 'id="papier-on"' in page and "18 finished" in page and "Justin’s" in page and "Crème" not in page
+    assert 'id="papier-on"' in page and "14 finished" in page and "Justin’s" in page and "Crème" not in page
     data = json.loads(re.search(r'id="papier-data"[^>]*>(.*?)</script>', page).group(1))
-    assert len(data) == 22 and {"day": "2026-10-14", "sent": 2, "titles": [], "abstracts": []} in data  # a day with nothing read
+    assert len(data) == 18 and {"day": "2026-10-23", "sent": 4, "titles": [], "abstracts": []} in data  # a day with nothing read
     assert all(len(d["abstracts"]) == len(d["titles"]) and all(d["abstracts"]) for d in data)  # titles and abstracts
     assert "function dayText(d)" in page and "const seed = (data.dataset.seed || 'demo') + ':' + d.day, r = rng(seed)" in page  # seeded per reader and day
     assert store.reader_count() == 0 and db("SELECT COUNT(*) AS n FROM interactions")["n"].item() == 0
@@ -588,7 +588,7 @@ def test_demo_page_shows_dinosaurs_and_stores_nothing(setup):
 
 def test_demo_streak_differs_from_the_count():
     page = cards.demo_page()
-    assert '<h2>Read <span class="n">29</span> <span class="streak">(Daily streak <span class="n">6</span>)</span></h2>' in page
+    assert '<h2>Read <span class="n">63</span> <span class="streak">(Daily streak <span class="n">6</span>)</span></h2>' in page
 
 
 def test_each_reader_gets_their_own_dinosaurs():

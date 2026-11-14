@@ -884,28 +884,69 @@ DEMO_TITLES = [
     "A Choir of Strangers Sings at Dawn", "The Map That Fits in a Pocket", "The Night Market Under the Bridge",
     "A Glacier's Slow Goodbye", "The Puzzle Makers of Vermont", "How Owls See in the Dark",
     "A Garden on the Fortieth Floor", "The Postman Who Knew Everyone",
+    'The Last Drive-In Theater on Route 9',
+    'A Lighthouse Gets a New Lamp',
+    'The Ferry Cats of the Harbor',
+    'Why the Town Clock Runs Five Minutes Fast',
+    'A Kite Festival Fills the Winter Sky',
+    'The Seed Library in the Old Bank',
+    'Inside a Workshop That Builds Canoes by Hand',
+    'The Diner That Never Closes',
+    "A Choir for People Who Can't Sing",
+    'The Mapmaker Who Walks Every Street',
+    'When the Orchestra Played in a Parking Garage',
+    'The Return of the Neighborhood Milkman',
+    'A Hundred-Year-Old Carousel Turns Again',
+    'The Quiet Art of Fixing Old Clocks',
+    'Where the Tulips Bloom in November',
+    "A Bus Driver's Book of Poems",
+    'The Island Where Everyone Knows the Weather',
+    'How a Tiny Bakery Feeds a Whole Block',
+    'The Rescue Dogs of the Mountain Pass',
+    'A Village Builds a Bridge Without Nails',
+    'The Night Shift at the Planetarium',
+    "A Grandmother's Recipe Goes Viral",
+    'The Painters Restoring Faded Murals',
+    'The Stationery Store That Refuses to Close',
+    'A Lake That Freezes Into Singing Ice',
+    'The Students Who Planted a Forest',
+    'A Train Station Turned Into a Library',
+    'The Snow Sculptors of the North',
+    'How One Street Learned to Share Its Tools',
+    'A Harbor Seal Becomes a Local Celebrity',
+    'The Ice Cream Shop With Seasonal Flavors',
+    'A Cartographer Maps the Night Sky by Hand',
+    'The Gardeners of the Abandoned Rail Line',
+    'A Radio Station Run by Teenagers',
 ]
 
 
 def demo_page() -> str:
-    # some days two, some days none, and the last six days in a row: Read 29, Daily streak 6
-    days = [2, 2, 4, 5, 5, 8, 9, 9, 11, 12, 13, 15, 16, 16, 17, 18, 19, 20, 22,
-            24, 24, 25, 26, 26, 27, 28, 28, 29, 29]
-    read = [{"news_id": f"DEMO{i}", "title": t, "abstract": ab, "url": "https://www.nytimes.com", "section": None,
-             "read_at": f"2026-10-{d:02d}T{9 + i % 2 * 9}:00"}
-            for i, (t, ab, d) in enumerate(zip(DEMO_TITLES, DEMO_ABSTRACTS, days, strict=True))]
-    by_day = {d["day"]: d for d in papier_days(read)}
-    for day, missed in DEMO_UNREAD.items():  # pushes sent but not read: those days aren't finished
-        by_day.setdefault(day, {"day": day, "sent": 0, "read": 0, "titles": [], "abstracts": []})["sent"] += missed
+    # a Medium reader (4 pushes a day) from Oct 12 to today, Oct 29: most days all read, a few not
+    # finished, nothing read on Oct 23, and the last six days in a row: Read 63, Daily streak 6
+    read, by_day, k = [], {}, 0
+    for day, sent, n in DEMO_DAYS:
+        d = {"day": f"2026-10-{day:02d}", "sent": sent, "read": n, "titles": [], "abstracts": []}
+        for j in range(n):
+            read.append({"news_id": f"DEMO{k}", "title": DEMO_TITLES[k], "abstract": DEMO_ABSTRACTS[k],
+                         "url": "https://www.nytimes.com", "section": None, "read_at": f"{d['day']}T{8 + 4 * j:02d}:00"})
+            d["titles"].append(DEMO_TITLES[k]); d["abstracts"].append(DEMO_ABSTRACTS[k]); k += 1
+        by_day[d["day"]] = d
     return profile_page({"name": "Justin", "history_public": 1}, read, owner=False, today=date(2026, 10, 29),
-                        days=[by_day[k] for k in sorted(by_day)])
+                        days=list(by_day.values()))
+
+
+# (day of October, pushes sent, read): 18 days, 14 finished; today (the 29th) has had 3 so far
+DEMO_DAYS = [(12, 4, 4), (13, 4, 4), (14, 4, 4), (15, 4, 3), (16, 4, 4), (17, 4, 4), (18, 4, 4), (19, 4, 2),
+             (20, 4, 4), (21, 4, 4), (22, 4, 4), (23, 4, 0), (24, 4, 4), (25, 4, 4), (26, 4, 4), (27, 4, 4),
+             (28, 4, 4), (29, 3, 2)]
 
 
 # made up, like the titles: one line each, in the same order
 DEMO_ABSTRACTS = [
     "Sleeper cars are rolling again as travelers trade airports for a slower way across the country.",
     "Beachcombers catalog the shells, glass and driftwood that every storm brings ashore.",
-    "After years of floods, one city built parks that soak up storms and turned gray days into a draw.",
+    "After years of floods, one city built parks that soak up storms, and now rainy days bring people outside.",
     "He has fixed thousands of machines and still keeps a drawer of ribbons nobody makes anymore.",
     "Scientists and sonar ships are charting the vast seabed that remains less known than the moon.",
     "Sourdough starters are passed hand to hand as home bakers rediscover a slow, patient craft.",
@@ -932,11 +973,41 @@ DEMO_ABSTRACTS = [
     "Huge eyes and sensitive feathers let owls hunt in near-total darkness.",
     "Residents of a high-rise grow tomatoes, herbs and flowers on a terrace high above the street.",
     "For decades, the town's mail carrier knew every name, dog and birthday on his route.",
+    'Families still park under the stars on summer nights, and the owner runs the projector himself.',
+    'Volunteers carried the new lens up a hundred steps so the light could shine again over the bay.',
+    'A dozen cats ride the morning boats, and commuters bring them treats. Nobody remembers who adopted the first one.',
+    'No one wants to fix it, because the whole town has learned to arrive early.',
+    'Hundreds of kites rose over the frozen field as families braved the cold for a bright afternoon.',
+    'Gardeners borrow seeds in spring and return new ones in the fall, filling old safe-deposit drawers.',
+    'Two brothers shape cedar strips into boats that last for generations. Each canoe takes a full winter.',
+    'Truckers, nurses and night owls share the counter, and the coffee has never stopped pouring.',
+    'The director turns no one away, and the result is joyful, loud and surprisingly moving.',
+    'He has walked every block in the city with a notebook, drawing what the satellites miss.',
+    'Musicians filled the concrete levels with sound, and drivers stopped to listen on the ramps.',
+    'Glass bottles are back on doorsteps as a young farmer revives a delivery route from the 1950s.',
+    'Craftsmen repainted every horse, and children lined up for the first ride in decades.',
+    'In a small shop, a repairer coaxes century-old movements back to life, one gear at a time.',
+    "A mild autumn confused the bulbs, and the town's gardens burst into color weeks early.",
+    'Between stops, she writes about her passengers. Her first collection sold out in a week.',
+    'Fishermen read the clouds before dawn, and their forecasts rarely miss.',
+    'The ovens start at three in the morning, and by seven the line stretches down the street.',
+    'Trained dogs guide lost hikers through blizzards, and their handlers say the dogs know the way better.',
+    'Carpenters used old joinery methods, fitting each timber so tightly that no metal was needed.',
+    "Astronomers keep the dome open late for school groups who have never seen Saturn's rings.",
+    'A video of her dumpling recipe reached millions, and now strangers mail her thank-you notes.',
+    'Artists climb scaffolds to bring back colors that have faded under decades of sun.',
+    'The owner still sells fountain pens and wax seals, and letter writers travel to find her shop.',
+    "When the temperature drops just right, the ice hums and chirps under skaters' blades.",
+    'A class planted a thousand saplings on an empty lot. Twenty years later, it is a forest.',
+    'Commuters now borrow novels while they wait, and the old ticket booth is the checkout desk.',
+    'Teams carve towering figures from snow blocks during a festival that melts away by spring.',
+    'Neighbors built a shed of shared ladders, drills and saws, and borrowing is free.',
+    'Visitors line the pier to watch the seal nap on the rocks, and it has its own fan club.',
+    'The flavors change with the harvest, from rhubarb in spring to roasted pumpkin in the fall.',
+    'With a pencil and a telescope, she charts the stars the way sailors once did.',
+    'Volunteers turned a forgotten track into a green path lined with flowers and benches.',
+    'Students host the morning show, pick the music and interview the mayor once a month.',
 ]
-
-
-# demo pushes left unread, by day: two days with some read, one with none, and today so far
-DEMO_UNREAD = {"2026-10-09": 1, "2026-10-14": 2, "2026-10-16": 1, "2026-10-29": 1}
 
 
 PIN_MARK = '<img class="pinmark" src="/icon.png" alt="PushPin">'
@@ -961,7 +1032,7 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
       GET  /u/<slug>           a reader's public profile
       GET  /stats              {"readers": n} for autoscaling (KEDA), only with header
                                X-Api-Key = $CARDS_STATS_TOKEN; 404 when that isn't set
-      GET  /demo               a public profile with 29 made-up reads over 22 days of pictures; stores nothing
+      GET  /demo               a public profile with 63 made-up reads over 18 days of pictures; stores nothing
       GET  /health             liveness
 
     The iOS app's JSON API, on when PUSHPIN_SESSION_SECRET and PUSHPIN_APPLE_BUNDLE_ID are set.

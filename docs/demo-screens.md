@@ -35,11 +35,12 @@ The data was set up on a copy of the database, not on a real reader.
 
 ## 3. The demo profile
 
-`/demo` is a public profile with 29 made-up reads (the titles are invented). It stores nothing.
-It opens on a title card and goes to the profile when tapped.
+`/demo` is a public profile of a made-up Medium reader (4 pushes a day) with 63 reads over 18 days
+(the titles and abstracts are invented). It stores nothing. It opens on a title card and goes to
+the profile when tapped.
 
-<img src="screens/demo-splash.png" width="300" alt="Demo title card: Justin's, Read 29, Daily streak 6, Tap to continue">
-<img src="screens/demo-profile.png" width="300" alt="Demo profile: Read 29, a grid of small papier-mâché pictures, one a day: a snowman, dinosaurs, a heart, a star, a moon, a tree and more, a few unfinished">
+<img src="screens/demo-splash.png" width="300" alt="Demo title card: Justin's, Read 63, Daily streak 6, Tap to continue">
+<img src="screens/demo-profile.png" width="300" alt="Demo profile: Read 63, a grid of small papier-mâché pictures, one a day: a snowman, dinosaurs, a heart, a star, a moon, a tree and more, a few unfinished">
 
 Each day's pushes make one small papier-mâché picture out of the articles read that day: their
 titles and whole abstracts, each used once, in type sized so they fill the shape (bigger on a day
@@ -47,8 +48,8 @@ with one article, smaller on a busy one). The pictures are common symbols (snowm
 sun, moon, pine tree, umbrella, house, cat, fish, apple, cloud, lightning bolt, coffee cup,
 flower, music note, balloon), taking turns with the dinosaurs. A picture fills in from one side as
 the day's pushes are read and is finished only when all of them are. An unfinished one is
-pencilled in, with how many were read under its date (Oct 9 · 2/3); a day with nothing read is a
-blank outline (Oct 14 · 0/2). The demo has 22 days, 18 of them finished, and they all fit on one
+pencilled in, with how many were read under its date (Oct 15 · 3/4); a day with nothing read is a
+blank outline (Oct 23 · 0/4). The demo has 18 days, 14 of them finished, and they all fit on one
 screen. An unfinished picture has a faint grey silhouette under its words, showing the outline
 still to fill; a finished one is just the words.
 
@@ -71,7 +72,7 @@ Each picture is unique. A generator seeded with the reader and the day picks whi
 faces, which of the exactly fitting grids is used and, on a busy day, which sentences are left
 out, and each reader has their own order of shapes. Different days get different pictures, and so
 do two readers who read the same articles on the same day. A repeat isn't strictly impossible, but
-it's vanishingly unlikely. On the demo all 18 finished days are different, and two test readers
+it's vanishingly unlikely. On the demo all 14 finished days are different, and two test readers
 with identical reads differed on every day.
 
 It lines up in a monospace font. In a chat's proportional font the rows shift a little, and that's
@@ -82,36 +83,47 @@ fine.
 What the demo's first two pictures share as, the snowman and a Brontosaurus:
 
 ```
-📌        Whatth
-         eTideLeav
-         esBehind
-         —B ea ch
-         combersc
-          atalog
-thes      hells,g     lass
-   andd riftwoodth atev
-       erystormbring
-        sashore.·Th
-        eQuietRetu
-         rnoftheN
-       ightTrain—Sl
-      eepercarsarero
-      llingagainastra
-      velerstradeairp
-      ortsforaslower
-       wayacrossthe
-         country.
+📌            TheQuietRe
+              turnoftheN
+            ightTrain—Slee
+            percarsareroll
+              ingagainas
+             tra  vel ers
+             tradeairport
+              sforaslowe
+rw              ayacro              ss
+ thec         ountry.·Wh         atthe
+    Tide    LeavesBehind—B    eachc
+       omberscatalogtheshells,gl
+          assanddriftwoodthat
+           everystormbrings
+           ashore.·ACityLea
+            rnstoLoveItsRa
+              in—Afterye
+            arsoffloods,on
+          ecitybuiltparkstha
+         tsoakupstorms,andnow
+        rainydaysbringpeopleou
+        tside.·TheLastTypewrit
+        erRepairmaninOhio—Heha
+         sfixedthousandsofmach
+         inesandstillkeepsadr
+          awerofribbonsnobod
+            ymakesanymore.
 ```
 
 ```
-📌 ACity
-   Learnst
-      oLove  ItsRai
-        n—Afteryearsoff
-         loods,onecitybuil
-         tparksthatsoakupsto
-         rmsandturnedgraydays
-         intoa draw.
+📌                              Insideth
+                               eRacetoMa
+                             ptheOcean
+                 Floor·W   hyEveryo
+            neIsBakingBreadAgain—
+       Sourdoughstartersarepass
+    edhandtohandashomebakersred
+  iscoveraslow,patientcraft.·Th
+ eSecretLifeofSubwayPigeons·Ho
+              waSmallTownS ave
+              dIt sLi  bra ry.
 ```
 
 ## Before the first push: the welcome page
