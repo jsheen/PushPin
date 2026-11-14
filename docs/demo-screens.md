@@ -30,6 +30,12 @@ and abstracts. It stores nothing.
 <img src="screens/demo-splash.png" width="300" alt="Demo title card: Justin's, Read 63, Daily streak 6, Tap to continue">
 <img src="screens/demo-profile.png" width="300" alt="Demo profile: Read 63, a grid of small papier-mâché pictures, one a day: a snowman, dinosaurs, a heart, a star, a moon, a tree and more, a few unfinished">
 
+`/demo/me` is the same reader's own view, as if they'd just tapped today's third push: it's pinned
+on top with Read, then the privacy switch, Pinned (pushes tapped but not read yet), Read with the
+pictures, and pushes a day. Its buttons only change the page.
+
+<img src="screens/demo-owner.png" width="300" alt="Demo owner view: today's pinned push with Read, the privacy switch, Pinned 2, Read 63 with the daily pictures, pushes a day">
+
 Each day's pushes make one papier-mâché picture, a common symbol (snowman, heart, star, moon...)
 or a dinosaur, the same shape for everyone that day, written in the titles and abstracts read that
 day, each used once. The type is sized so the text fills the whole shape, thin parts included. A

@@ -199,6 +199,18 @@ addEventListener("pageshow", ev => { if (ev.persisted) location.reload(); });  /
 </script>"""
 
 
+# The demo's owner view: its buttons change the page only (nothing is sent, so no real reader changes)
+INERT_SCRIPT = """<script>
+document.querySelectorAll("button[data-volume]").forEach(b => b.addEventListener("click", () =>
+  document.querySelectorAll("button[data-volume]").forEach(x => x.setAttribute("aria-pressed", x === b))));
+const pub = document.querySelector("#public");
+if (pub) pub.addEventListener("change", () => { document.querySelector(".share").hidden = !pub.checked; });
+document.querySelectorAll("button[data-del]").forEach(b => b.addEventListener("click", () => b.closest("li").remove()));
+const who = document.querySelector(".who");
+if (who) who.addEventListener("submit", ev => ev.preventDefault());
+</script>"""
+
+
 def streak(read: list[dict], today: date) -> int:
     """Days in a row, up to today, with at least one article read. Still alive if the last read was
     yesterday: today isn't over."""
@@ -249,14 +261,15 @@ def pin_panel(push: dict) -> str:
 
 def profile_page(reader: dict, read: list[dict], owner: bool, share_url: str = "",
                  today: date | None = None, pinned: dict | None = None, caps: dict | None = None,
-                 unread: list[dict] | None = None, days: list[dict] | None = None) -> str:
+                 unread: list[dict] | None = None, days: list[dict] | None = None, inert: bool = False) -> str:
     """A reader's profile. `owner`: their own view (/me, or /p/<push_id> with that push's article
     `pinned` on top), with the articles pinned but not read yet (`unread`: tap one to read it),
     the delete buttons, the public toggle, pushes a day and always the list;
     otherwise the public view (/u/<slug>), where the count and list only show if they made them
     public. Article links go straight to NYT, so a visitor isn't counted as opening or reading.
     `days`: the pushes sent each day and which were read (Store.days), for the pictures; without
-    it, each day with reads counts as finished."""
+    it, each day with reads counts as finished. `inert`: the owner's view for the demo, whose buttons
+    only change the page and never reach the server."""
     e = html.escape
     name = reader.get("name")
     public = bool(reader.get("history_public"))
@@ -310,7 +323,7 @@ def profile_page(reader: dict, read: list[dict], owner: bool, share_url: str = "
            f'can see what you’ve read: <a href="{e(share_url)}">{e(share_url)}</a></p>') if owner else ""
     ask_name = ('<form class="who"><input name="name" maxlength="40" placeholder="Your first name (optional)" '
                 'autocomplete="given-name"><button>Save</button></form>') if owner and not name else ""
-    scripts = (OWNER_SCRIPT + PROFILE_SCRIPT) if owner else ""
+    scripts = INERT_SCRIPT if inert else (OWNER_SCRIPT + PROFILE_SCRIPT) if owner else ""
     intro = ""
     if not owner:  # the public link opens with a short summary
         stats = [("Read", n), *([("Daily streak", run)] if run else [])] if public else []
@@ -969,9 +982,10 @@ DEMO_TITLES = [
 ]
 
 
-def demo_page() -> str:
-    # a Medium reader (4 pushes a day) from Oct 12 to today, Oct 29: most days all read, a few not
-    # finished, nothing read on Oct 23, and the last six days in a row: Read 63, Daily streak 6
+def demo_data() -> tuple[list[dict], list[dict]]:
+    """The demo reader: a Medium reader (4 pushes a day) from Oct 12 to today, Oct 29: most days all
+    read, a few not finished, nothing read on Oct 23, and the last six days in a row: Read 63, Daily
+    streak 6. Returns the reads and the days (Store.days' shape)."""
     read, by_day, k = [], {}, 0
     for day, sent, n in DEMO_DAYS:
         d = {"day": f"2026-10-{day:02d}", "sent": sent, "read": n, "titles": [], "abstracts": []}
@@ -980,8 +994,35 @@ def demo_page() -> str:
                          "url": "https://www.nytimes.com", "section": None, "read_at": f"{d['day']}T{8 + 4 * j:02d}:00"})
             d["titles"].append(DEMO_TITLES[k]); d["abstracts"].append(DEMO_ABSTRACTS[k]); k += 1
         by_day[d["day"]] = d
-    return profile_page({"name": "Justin", "history_public": 1}, read, owner=False, today=date(2026, 10, 29),
-                        days=list(by_day.values()))
+    return read, list(by_day.values())
+
+
+def demo_page() -> str:
+    """The demo reader's public link: what a visitor sees."""
+    read, days = demo_data()
+    return profile_page({"name": "Justin", "history_public": 1}, read, owner=False, today=date(2026, 10, 29), days=days)
+
+
+def demo_owner_page(share_url: str, caps: dict | None = None) -> str:
+    """The demo reader's own view, as if they'd just tapped today's third push: it pinned on top,
+    then the privacy switch, Pinned, Read with the pictures and pushes a day. The buttons only
+    change the page."""
+    read, days = demo_data()
+    return profile_page({"name": "Justin", "history_public": 0, "volume": "medium"}, read, owner=True,
+                        share_url=share_url, today=date(2026, 10, 29), pinned=DEMO_PIN, unread=DEMO_PINNED,
+                        days=days, caps=caps, inert=True)
+
+
+# today's third push, just tapped (pinned, not read yet: reading it would finish Oct 29's picture),
+# and pushes pinned on earlier days and never read; made up, like the rest
+DEMO_PIN = {"push_id": "DEMO-PIN", "news_id": "DEMO-PIN", "section": "Arts", "url": "https://www.nytimes.com", "read": False,
+            "title": "The Lantern Makers of the River Festival",
+            "abstract": "Each autumn, families fold paper lanterns by hand and set them floating downstream at dusk."}
+DEMO_PINNED = [{"news_id": "DEMO-PIN", "push_id": "DEMO-PIN", "url": "https://www.nytimes.com", "title": DEMO_PIN["title"]},
+               {"news_id": "DEMO-P19", "push_id": "DEMO-P19", "url": "https://www.nytimes.com",
+                "title": "Why Cities Are Planting Tiny Forests"},
+               {"news_id": "DEMO-P15", "push_id": "DEMO-P15", "url": "https://www.nytimes.com",
+                "title": "A Night Bus Driver's Favorite Stops"}]
 
 
 # (day of October, pushes sent, read): 18 days, 14 finished; today (the 29th) has had 3 so far
@@ -1081,6 +1122,8 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
       GET  /stats              {"readers": n} for autoscaling (KEDA), only with header
                                X-Api-Key = $CARDS_STATS_TOKEN; 404 when that isn't set
       GET  /demo               a public profile with 63 made-up reads over 18 days of pictures; stores nothing
+      GET  /demo/me            the same reader's own view (pinned push, privacy switch, Pinned, pushes a day);
+                               its buttons only change the page; stores nothing
       GET  /health             liveness
 
     The iOS app's JSON API, on when PUSHPIN_SESSION_SECRET and PUSHPIN_APPLE_BUNDLE_ID are set.
@@ -1265,6 +1308,9 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
                 self.wfile.write(data)
             elif route == "health":
                 self._send(200, "ok", "text/plain")
+            elif route == "demo" and push_id == "me":
+                proto = self.headers.get("x-forwarded-proto") or "http"
+                self._send(200, demo_owner_page(f"{proto}://{self.headers.get('host') or 'localhost'}/demo", caps))
             elif route == "demo":
                 self._send(200, demo_page())
             elif route == "api":

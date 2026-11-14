@@ -589,6 +589,20 @@ def test_demo_page_shows_dinosaurs_and_stores_nothing(setup):
     assert store.reader_count() == 0 and db("SELECT COUNT(*) AS n FROM interactions")["n"].item() == 0
 
 
+def test_demo_owner_view_shows_what_the_reader_sees_and_stores_nothing(setup):
+    _n, store, _sent, db = setup
+    server = cards.serve_cards(store, 0)
+    try:
+        page = urllib.request.urlopen(f"http://127.0.0.1:{server.server_address[1]}/demo/me").read().decode()
+    finally:
+        server.shutdown()
+    assert 'class="pin"' in page and "The Lantern Makers of the River Festival" in page  # today's push, pinned on top
+    assert 'id="public"' in page and "<h2>Pinned" in page and 'class="volume"' in page and 'id="papier-on"' in page
+    assert 'Pinned <span class="n">2</span>' in page  # the pinned one on top isn't listed again
+    assert '/remove/' not in page and '"/public"' not in page and '"/volume"' not in page  # buttons never reach the server
+    assert store.reader_count() == 0 and db("SELECT COUNT(*) AS n FROM interactions")["n"].item() == 0
+
+
 def test_demo_streak_differs_from_the_count():
     page = cards.demo_page()
     assert '<h2>Read <span class="n">63</span> <span class="streak">(Daily streak <span class="n">6</span>)</span></h2>' in page
