@@ -18,10 +18,18 @@ The tap opens `/p/<push_id>`. That records the open, which is the click the mode
 and shows the reader's profile with the article pinned on top:
 
 - **Read** opens the story on nytimes.com and moves the article to Read.
-- Below it is the profile: the privacy line and public toggle, an optional first name, the
-  Crème, what they've read, and how many pushes a day they want.
+- Below it is the reader's profile:
+  - the privacy line, the public toggle, and an optional first name;
+  - **Crème**: the one article they've starred as their favorite (★). Tapping ☆ on any read
+    article makes it the Crème instead.
+  - **Pinned**: pushes they tapped but haven't read yet. These are always private. Tapping a
+    headline reads it and moves it to Read; × deletes it.
+  - **Read**: the count and daily streak, shown as papier-mâché dinosaurs made from the headlines
+    (one every 5 reads).
+  - how many pushes a day they want.
 
-This is a first-time reader, so the profile is empty.
+This sample reader has pinned 9 recent pushes, read 6 of them, and starred one as their Crème.
+The data was set up on a copy of the database, not on a real reader.
 
 <img src="screens/push-tapped.png" width="300" alt="Page opened by tapping a push: the pinned article with a Read button, then the reader's profile">
 
