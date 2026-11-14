@@ -45,8 +45,9 @@ Tapping a finished picture makes it a sticker: everything read that day, every t
 whole abstract, written into the shape on a white die-cut with a soft shadow and the PushPin pin
 in the corner, as a PNG with a transparent background. It looks the same in any chat, in light or
 dark mode, and each one is unique to its reader and day. **Share** opens the phone's share sheet
-with the image, **Copy** puts it on the clipboard to paste into a message, and **Save** downloads
-it.
+with the image, **Copy** puts it on the clipboard to paste into a message, and **Save** saves it
+(on a phone it opens the share sheet, where Save Image puts it in Photos; a web page can't save to
+Photos directly).
 
 <img src="screens/share-sheet.png" width="300" alt="Share sheet on the demo profile: the snowman sticker made of the day's articles, with Share, Copy and Save buttons">
 

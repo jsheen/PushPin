@@ -531,6 +531,7 @@ def test_papier_mache_only_with_a_visible_read_list():
     assert 'id="papier-on"' in head and 'class="papier-hint" hidden' in own  # switch in the Read header; hint until on
     assert "Tap a finished one to share it" in own and "async function sticker(day, kind)" in own  # a finished one shares as a sticker
     assert "new ClipboardItem({'image/png': b})" in own and "textDino" not in own  # Copy copies the image; no text version
+    assert "save.onclick" in own and "(pointer: coarse)" in own  # on a phone, Save goes through the share sheet (Save Image → Photos)
     assert "snowman(c)" in own and "Lightning bolt" in own  # common symbols, not just dinosaurs
     panel = own[own.index('<div class="readpanel">'):]
     assert panel.index('class="list"') < panel.index('id="papier"')  # one panel, no fold

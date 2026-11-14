@@ -768,6 +768,12 @@ function share(day, kind) {
       const payload = {files: [new File([b], name, {type: 'image/png'})]};
       go.hidden = !(navigator.canShare && navigator.canShare(payload));
       go.onclick = () => navigator.share(payload).catch(() => null);
+      // a web page can't save to Photos itself: on a phone, Save opens the share sheet, whose
+      // Save Image puts it there (a download would land in Files); elsewhere it downloads
+      save.onclick = ev => {
+        if (!(matchMedia('(pointer: coarse)').matches && navigator.canShare && navigator.canShare(payload))) return;
+        ev.preventDefault(); navigator.share(payload).catch(() => null);
+      };
       // Copy puts the image itself on the clipboard, to paste straight into a message
       copy.hidden = !(navigator.clipboard && navigator.clipboard.write && window.ClipboardItem);
       copy.onclick = () => navigator.clipboard.write([new ClipboardItem({'image/png': b})])
