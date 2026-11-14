@@ -141,7 +141,7 @@ Each run writes to `outputs/<run>/` (`output.dir` or `--output-dir`, default `ou
 | `feature_importance.*`, `return_feature_importance.*` | Gain per feature and charts |
 | `calibration.png` | Reliability diagram, raw vs. calibrated |
 | `config.yml` | Resolved config for the run |
-| `objective/tradeoff.*` | Top-pick CTR and novelty at each friction, model vs. random |
+| `objective/tradeoff.*` | Top-pick CTR and novelty at each friction, model vs. random vs. most recent |
 | `objective/pushes.parquet` | The chosen push per impression with its `send` decision |
 | `objective/volume.*`, `summary.json` | Send-policy volume vs. CTR by threshold; configured-friction summary |
 

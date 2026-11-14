@@ -20,7 +20,7 @@ def test_train_then_objective(train_config, tmp_path, monkeypatch):
     assert 0 <= metrics["auc"] <= 1 and "ci" in metrics
     preds = pd.read_parquet(run / "predictions.parquet")
     assert {"impression_id", "user_id", "news_id", "label", "p_click", "p_click_raw", "novelty",
-            "p_return"} <= set(preds.columns)
+            "p_return", "article_age_hours"} <= set(preds.columns)
     assert {"calibration", "return_model"} <= set(metrics)
     assert (run / "calibration.png").exists()
 
@@ -33,7 +33,7 @@ def test_train_then_objective(train_config, tmp_path, monkeypatch):
     objective.main()
     out = run / "objective"
     curve = pd.read_csv(out / "tradeoff.csv")
-    assert set(curve["policy"]) == {"model", "random"}
+    assert set(curve["policy"]) == {"model", "random", "most recent"}
     pushes = pd.read_parquet(out / "pushes.parquet")
     assert len(pushes) == preds["impression_id"].nunique()
     assert "send" in pushes

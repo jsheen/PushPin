@@ -136,19 +136,20 @@ calibrated P(click) ≥ threshold + risk_penalty · (1 − P(return))
 and the user is under `daily_cap` (defaults 0.07, 0.04, 2 in `configs/objective.yml`).
 
 **Trade-off.** Clicks are rare: 3.8% of candidates are clicked, a random pick per impression
-clicks 9.1% (the fair baseline, since MIND only logs impressions with a click), and the model's
-top pick clicks 16.7%. Sweeping friction (`recency-depth-no-emb`; dashed = random engagement):
+clicks 9.1% (the fair baseline, since MIND only logs impressions with a click), the newest
+candidate per impression clicks 12.5%, and the model's top pick clicks 16.7%. Sweeping friction
+(`recency-depth-no-emb`; dashed = random engagement, dotted = newest first):
 
 ![Push objective trade-off](tradeoff.png)
 
-| Friction | CTR of top pick | …with random engagement | Top pick from a never-shown subcategory |
-|----------|-----------------|-------------------------|-----------------------------------------|
-| 0 | 16.7% | 9.1% | 11% |
-| 0.1 | 15.4% | 8.8% | 23% |
-| 0.2 (default) | 13.9% | 8.5% | 37% |
-| 0.3 | 12.6% | 8.2% | 48% |
-| 0.5 | 11.0% | 8.0% | 64% |
-| 1 | 8.1% | 8.1% | 87% |
+| Friction | CTR of top pick | …with random engagement | …with most-recent engagement | Top pick from a never-shown subcategory |
+|----------|-----------------|-------------------------|------------------------------|-----------------------------------------|
+| 0 | 16.7% | 9.1% | 12.5% | 11% |
+| 0.1 | 15.4% | 8.8% | 11.8% | 23% |
+| 0.2 (default) | 13.9% | 8.5% | 11.2% | 37% |
+| 0.3 | 12.6% | 8.2% | 10.4% | 48% |
+| 0.5 | 11.0% | 8.0% | 9.2% | 64% |
+| 1 | 8.1% | 8.1% | 8.1% | 87% |
 
 Low friction buys novelty cheaply: 0 → 0.2 more than triples the never-shown share for about 3
 points of CTR.

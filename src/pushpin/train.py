@@ -164,7 +164,7 @@ def train(config: dict) -> None:
     test_df.assign(news_id=news["news_id"].to_numpy()[test_df["news"]], p_click=scores, p_click_raw=raw,
                    p_return=p_return.reindex(test_df["impression_id"]).to_numpy())[
         ["impression_id", "user_id", "time", "slot", "news_id", "label", "p_click", "p_click_raw",
-         "novelty", "p_return"]
+         "novelty", "p_return", "article_age_hours"]
     ].to_parquet(output_dir / "predictions.parquet", index=False)
     check_quality(metrics, config.get("evaluation", {}))  # after saving, so a failed run can be inspected
     plot_importance(importance, output_dir / "feature_importance.png")

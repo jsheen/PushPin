@@ -72,6 +72,21 @@ def random_tradeoff(df: pd.DataFrame, frictions: list[float], seed: int, draws: 
                      ).groupby("friction", as_index=False).mean()
 
 
+def recency_tradeoff(df: pd.DataFrame, frictions: list[float], seed: int, draws: int = 5) -> pd.DataFrame:
+    """tradeoff() with engagement replaced by freshness: the newest article ranks highest.
+
+    At friction 0 this is the rule "push the most recent article in each impression". Articles
+    first seen at the same time tie, so ties are broken at random and averaged over draws.
+    Unknown ages count as oldest.
+    """
+    rng = np.random.default_rng(seed)
+    newest = -df["article_age_hours"].fillna(np.inf).to_numpy()
+    # rank first so the tiebreak can only reorder exact ties
+    base = pd.Series(newest).rank(method="dense").to_numpy()
+    return pd.concat([tradeoff(df, base + 0.5 * rng.random(len(df)), frictions) for _ in range(draws)]
+                     ).groupby("friction", as_index=False).mean()
+
+
 def send_decisions(pushes: pd.DataFrame, threshold: float, risk_penalty: float, daily_cap: int) -> np.ndarray:
     """Whether to send each top pick (one row per impression).
 
@@ -127,8 +142,11 @@ def main() -> None:
     preds["n_candidates"] = preds.groupby("impression_id")["news_id"].transform("size")
     p_click = preds["p_click"].to_numpy()
     frictions = sorted(set(config["sweep"]) | {friction})
-    curve = pd.concat([tradeoff(preds, p_click, frictions).assign(policy="model"),
-                       random_tradeoff(preds, frictions, config["seed"]).assign(policy="random")])
+    curves = [tradeoff(preds, p_click, frictions).assign(policy="model"),
+              random_tradeoff(preds, frictions, config["seed"]).assign(policy="random")]
+    if "article_age_hours" in preds:  # runs from before it was saved have no recency baseline
+        curves.append(recency_tradeoff(preds, frictions, config["seed"]).assign(policy="most recent"))
+    curve = pd.concat(curves)
     print(curve.round(4).to_string(index=False))
 
     out = run_dir / "objective"

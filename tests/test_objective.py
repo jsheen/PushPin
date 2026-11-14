@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pushpin.objective import push_scores, send_decisions, tradeoff
+from pushpin.objective import push_scores, recency_tradeoff, send_decisions, tradeoff
 
 
 @pytest.fixture
@@ -47,6 +47,21 @@ def test_scores_are_scale_free(candidates):
 def test_more_friction_means_more_novel_pushes(candidates):
     curve = tradeoff(candidates, candidates["p_click"].to_numpy(), [0.0, 0.5, 1.0])
     assert curve["novelty_at_1"].is_monotonic_increasing
+
+
+def test_recency_at_friction_zero_pushes_the_newest(candidates):
+    df = candidates.assign(article_age_hours=np.random.default_rng(1).random(len(candidates)) * 48)
+    newest = df.loc[df.groupby("impression_id")["article_age_hours"].idxmin()]
+    curve = recency_tradeoff(df, [0.0], seed=0)
+    assert np.isclose(curve["ctr_at_1"].iloc[0], newest["label"].mean())
+
+
+def test_recency_breaks_ties_at_random():
+    """Two equally new articles: each is picked about half the time, not always the first listed."""
+    df = pd.DataFrame({"impression_id": [0, 0, 0], "article_age_hours": [1.0, 1.0, 5.0],
+                       "label": [1, 0, 0], "novelty": [0.5, 0.5, 0.5]})
+    ctr = recency_tradeoff(df, [0.0], seed=0, draws=200)["ctr_at_1"].iloc[0]
+    assert 0.35 < ctr < 0.65
 
 
 def _pushes(p_click, p_return, hours, users=None) -> pd.DataFrame:

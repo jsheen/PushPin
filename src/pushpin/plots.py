@@ -71,12 +71,19 @@ def plot_importance(importance: pd.Series, path: Path,
 def plot_tradeoff(curves: pd.DataFrame, path: Path, friction: float) -> None:
     """Top-pick CTR vs. share of never-shown subcategories, one point per friction.
 
-    `curves` has a `policy` column: "model" (XGBoost engagement) and "random" (engagement
-    replaced by a random ranking), so the gap between them is what the click model adds.
+    `curves` has a `policy` column: "model" (XGBoost engagement), "random" (engagement
+    replaced by a random ranking) and optionally "most recent" (engagement replaced by article
+    freshness), so the gaps are what the click model adds over chance and over recency.
     """
-    model, rand = (curves[curves["policy"] == p].sort_values("friction") for p in ("model", "random"))
+    model, rand, recent = (curves[curves["policy"] == p].sort_values("friction")
+                           for p in ("model", "random", "most recent"))
     fig, ax = plt.subplots(figsize=(8, 5.6), facecolor=SURFACE)
     ax.set_facecolor(SURFACE)
+    if len(recent):
+        ax.plot(recent["new_subcat_at_1"], recent["ctr_at_1"], color=TEXT_MUTED, lw=2, ls=(0, (1, 2)),
+                marker="s", ms=7, mfc=SURFACE, mew=2, label="Most recent article")
+        ax.annotate("friction 0", (recent["new_subcat_at_1"].iloc[0], recent["ctr_at_1"].iloc[0]),
+                    xytext=(-10, -4), textcoords="offset points", ha="right", color=TEXT_MUTED, fontsize=9)
     ax.plot(rand["new_subcat_at_1"], rand["ctr_at_1"], color=TEXT_MUTED, lw=2, ls=(0, (4, 3)),
             marker="o", ms=8, mfc=SURFACE, mew=2, label="Random engagement ranking")
     ax.plot(model["new_subcat_at_1"], model["ctr_at_1"], color=MODEL, lw=2,
@@ -107,7 +114,7 @@ def plot_tradeoff(curves: pd.DataFrame, path: Path, friction: float) -> None:
 
     ax.set_title("Push objective: engagement vs. novelty as friction rises", loc="left",
                  color=TEXT, fontsize=13, fontweight="bold", pad=28)
-    ax.text(0, 1.035, "Top push per test-day impression; the gap to the dashed curve is what the click model adds",
+    ax.text(0, 1.035, "Top push per test-day impression; the gaps to the gray curves are what the click model adds",
             transform=ax.transAxes, color=TEXT_MUTED, fontsize=9)
     handles, labels = ax.get_legend_handles_labels()
     ax.legend(handles[::-1], labels[::-1], loc="upper right", frameon=False, labelcolor=TEXT, handlelength=4)

@@ -28,34 +28,43 @@ makes friction a literal weight between two rankings, and it isn't affected by r
 |------|------------|
 | Any single candidate shown | 3.8% |
 | One candidate picked at random from each impression | 9.1% |
+| The most recent candidate in each impression | 12.5% |
 | The model's top pick per impression (friction 0) | 16.7% |
 
 A random pick beats the per-candidate rate because MIND only logs impressions with a click, and
 short impressions have a high click share. So 9.1% is the fair random baseline, and the model
-nearly doubles it. These are feed impressions, so real push click rates would be lower.
+nearly doubles it. Pushing the newest article is a tougher baseline: 12.5%, so the model's gain
+over a simple recency rule is about a third, and recency alone accounts for nearly half of its
+gain over random. "Most recent" means the smallest `article_age_hours` among that feed's
+candidates (age since the article first appeared in any impression; MIND has no publish times),
+not one article sent to everyone: a global newest article is usually not in a reader's feed, so
+it has no label. These are feed impressions, so real push click rates would be lower.
 
 **The trade-off.** `pushpin-objective` sweeps friction and plots, for the single top push per
 impression, the click rate against the share of pushes from a never-shown subcategory. The dashed
-curve repeats the same objective with the click model swapped for a random ranking, so the gap
-between the curves is what the model adds at each level of novelty (`recency-depth-no-emb` model):
+curve repeats the same objective with the click model swapped for a random ranking, and the dotted
+one with it swapped for freshness (newest first), so the gaps are what the model adds over chance
+and over a recency rule at each level of novelty (`recency-depth-no-emb` model):
 
 ![Push objective trade-off](tradeoff.png)
 
-| Friction | CTR of top pick | …with random engagement | Top pick from a never-shown subcategory |
-|----------|-----------------|-------------------------|-----------------------------------------|
-| 0 | 16.7% | 9.1% | 11% |
-| 0.05 | 16.3% | 9.0% | 16% |
-| 0.1 | 15.4% | 8.8% | 23% |
-| 0.15 | 14.7% | 8.7% | 31% |
-| 0.2 (default) | 13.9% | 8.5% | 37% |
-| 0.3 | 12.6% | 8.2% | 48% |
-| 0.4 | 11.8% | 8.0% | 56% |
-| 0.5 | 11.0% | 8.0% | 64% |
-| 0.7 | 10.0% | 8.0% | 76% |
-| 1 | 8.1% | 8.1% | 87% |
+| Friction | CTR of top pick | …with random engagement | …with most-recent engagement | Top pick from a never-shown subcategory |
+|----------|-----------------|-------------------------|------------------------------|-----------------------------------------|
+| 0 | 16.7% | 9.1% | 12.5% | 11% |
+| 0.05 | 16.3% | 9.0% | 12.3% | 16% |
+| 0.1 | 15.4% | 8.8% | 11.8% | 23% |
+| 0.15 | 14.7% | 8.7% | 11.4% | 31% |
+| 0.2 (default) | 13.9% | 8.5% | 11.2% | 37% |
+| 0.3 | 12.6% | 8.2% | 10.4% | 48% |
+| 0.4 | 11.8% | 8.0% | 9.9% | 56% |
+| 0.5 | 11.0% | 8.0% | 9.2% | 64% |
+| 0.7 | 10.0% | 8.0% | 8.6% | 76% |
+| 1 | 8.1% | 8.1% | 8.1% | 87% |
 
 Low friction buys novelty cheaply: going from 0 to 0.2 more than triples the never-shown share
-for about 3 points of CTR. Above about 0.5 the model keeps less and less of its edge. CTR only
+for about 3 points of CTR. The newest-first rule is already fairly novel (30% never-shown at
+friction 0, since breaking news ignores a reader's habits); at that same novelty the model's
+pick clicks 14.7% against its 12.5%. Above about 0.5 the model keeps less and less of its edge. CTR only
 credits logged clicks, so it likely understates how novel pushes would do.
 
 ## Calibration
