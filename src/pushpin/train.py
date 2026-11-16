@@ -23,7 +23,7 @@ from pushpin.features import (
 from pushpin.plots import plot_calibration, plot_importance, plot_tuning
 from pushpin.profile import load_profiles
 from pushpin.risk import RETURN_FEATURES, fit_return_model
-from pushpin.tuning import random_search
+from pushpin.tuning import search
 from pushpin.vectordb import ArticleStore
 
 
@@ -131,8 +131,9 @@ def train(config: dict) -> None:
     tuning = config.get("tuning", {})
     trials = None
     if tuning.get("trials", 0) > 0:
-        print(f"tuning: {tuning['trials']} random trials + config params, scored on the validation slice")
-        params, trials = random_search(fit_df, valid_df, features, params, tuning, seed)
+        print(f"tuning: config params + {tuning['trials']} trials ({tuning.get('method', 'bayes')}), "
+              "scored on the validation slice")
+        params, trials, tuning_summary = search(fit_df, valid_df, features, params, tuning, seed)
         trials.to_csv(output_dir / "tuning.csv", index=False)
         # the saved config reproduces the final model without searching again
         config["model"].update(params)
@@ -161,12 +162,11 @@ def train(config: dict) -> None:
     metrics["best_iteration"] = int(model.best_iteration)
     if trials is not None:
         col = f"valid_{tuning.get('metric', 'group_auc')}"
-        best = trials.loc[trials[col].idxmax()]
+        best = trials.loc[tuning_summary["best_trial"]]
         metrics["tuning"] = {
-            "trials": int(tuning["trials"]), "metric": col,
+            "trials": int(tuning["trials"]), "metric": col, **tuning_summary,
             "config": {c: float(trials.loc[0, c]) for c in ("valid_auc", "valid_group_auc")},
-            "best": {"trial": int(best["trial"]), "valid_auc": float(best["valid_auc"]),
-                     "valid_group_auc": float(best["valid_group_auc"]),
+            "best": {"valid_auc": float(best["valid_auc"]), "valid_group_auc": float(best["valid_group_auc"]),
                      "params": {k: params[k] for k in tuning["space"]}},
         }
     print(json.dumps(metrics, indent=2))
@@ -203,7 +203,7 @@ def main() -> None:
     parser.add_argument("--exclude", nargs="*", default=[], help="features to leave out (ablations)")
     parser.add_argument("--output-dir", help="overrides output.dir in the config")
     parser.add_argument("--tune", type=int, metavar="TRIALS",
-                        help="random-search trials before the final fit (overrides tuning.trials; 0 = off)")
+                        help="tuning trials before the final fit (overrides tuning.trials; 0 = off)")
     args = parser.parse_args()
     with open(args.config) as f:
         config = yaml.safe_load(f)

@@ -128,7 +128,8 @@ def plot_tuning(trials: pd.DataFrame, space: dict, metric: str, path: Path) -> N
     """Validation metric against each tuned parameter, one panel per parameter.
 
     A flat cloud means the parameter barely matters; a trend means it does. The config's own
-    params (trial 0) and the best trial are marked in every panel.
+    params (trial 0) and the chosen trial are marked in every panel; Bayesian trials are colored
+    apart from the random ones that seeded the search.
     """
     col = f"valid_{metric}"
     names = list(space)
@@ -136,17 +137,19 @@ def plot_tuning(trials: pd.DataFrame, space: dict, metric: str, path: Path) -> N
     nrows = -(-len(names) // ncols)
     fig, axes = plt.subplots(nrows, ncols, figsize=(3.2 * ncols, 2.8 * nrows + 0.8), facecolor=SURFACE,
                              sharey=True, squeeze=False)
-    best = trials.loc[trials[col].idxmax()]
+    best = trials[trials["chosen"]].iloc[0] if "chosen" in trials else trials.loc[trials[col].idxmax()]
     config = trials[trials["trial"] == 0].iloc[0]
     lo, hi = trials[col].min(), trials[col].max()
     pad = max(hi - lo, 1e-4) * 0.1
     for ax, name in zip(axes.flat, names):
         ax.set_facecolor(SURFACE)
-        rest = trials[trials["trial"] != 0]
-        ax.scatter(rest[name], rest[col], s=22, color=MODEL, alpha=0.75, linewidths=0, label="Random trial")
+        for source, color, label in (("random", TEXT_MUTED, "Random trial"), ("bayes", MODEL, "Bayesian trial")):
+            pts = trials[trials["source"] == source]
+            if len(pts):
+                ax.scatter(pts[name], pts[col], s=22, color=color, alpha=0.75, linewidths=0, label=label)
         ax.scatter([config[name]], [config[col]], s=46, facecolor=SURFACE, edgecolor=TEXT_MUTED, linewidths=1.6,
                    label="Config params (trial 0)", zorder=3)
-        ax.scatter([best[name]], [best[col]], s=60, color=SECOND, marker="D", label="Best trial", zorder=4)
+        ax.scatter([best[name]], [best[col]], s=60, color=SECOND, marker="D", label="Chosen trial", zorder=4)
         if space[name][0] == "log":
             ax.set_xscale("log")
         ax.set_ylim(lo - pad, hi + pad)
@@ -164,11 +167,11 @@ def plot_tuning(trials: pd.DataFrame, space: dict, metric: str, path: Path) -> N
     (axes.flat[-1] if len(names) % ncols else fig).legend(handles, labels, loc="center", frameon=False,
                                                           labelcolor=TEXT, fontsize=9)
 
-    fig.suptitle("PushPin XGBoost click model: random-search tuning", x=0.01, ha="left",
+    fig.suptitle("PushPin XGBoost click model: hyperparameter tuning", x=0.01, ha="left",
                  color=TEXT, fontsize=13, fontweight="bold")
     fig.text(0.01, 1 - 0.55 / fig.get_figheight(),
-             f"{len(trials) - 1} random trials, each drawing every parameter independently; "
-             "a flat cloud means the parameter barely matters", color=TEXT_MUTED, fontsize=9)
+             f"{len(trials) - 1} trials after the config params; a flat cloud means the parameter "
+             "barely matters", color=TEXT_MUTED, fontsize=9)
     fig.tight_layout(rect=(0, 0, 1, 1 - 0.5 / fig.get_figheight()))
     fig.savefig(path, dpi=200, facecolor=SURFACE)
     plt.close(fig)

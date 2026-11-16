@@ -80,23 +80,34 @@ Defined in `src/pushpin/features.py`:
 
 ### Hyperparameter tuning
 
-Off by default. `pushpin-train --tune 25` runs a random search before the final fit
-(`src/pushpin/tuning.py`, ranges under `tuning.space` in `configs/train.yml`). Features are built
-once. Each trial refits XGBoost on the fit slice, early-stops on the validation slice, and is
-scored by **group AUC** there, since the push objective ranks candidates within an impression.
-The test day is never seen during the search.
+Off by default. `pushpin-train --tune 25` searches before the final fit (`src/pushpin/tuning.py`,
+settings under `tuning` in `configs/train.yml`). Features are built once. Each trial refits
+XGBoost on the fit slice, early-stops on the validation slice, and is scored by **group AUC**
+there, since the push objective ranks candidates within an impression. The test day is never seen
+during the search.
 
-Each trial draws all seven parameters independently: `max_depth` (uniform integer 4-10),
-`subsample` and `colsample_bytree` (uniform 0.5-1), `gamma` (uniform 0-5), and
-`min_child_weight`, `reg_lambda` and `reg_alpha` from log-uniform ranges, because their effect
-scales by orders of magnitude. `learning_rate` stays fixed and early stopping picks the number of
-trees. With n trials, the chance that at least one lands in the best 5% of the space is
-1 − 0.95ⁿ: 72% at 25 trials, 95% at 60.
+**Search space.** Seven parameters: `max_depth` (integer 4-10), `subsample` and
+`colsample_bytree` (0.5-1), `gamma` (0-5), and `min_child_weight`, `reg_lambda` and `reg_alpha`
+on log scales, because their effect scales by orders of magnitude. `learning_rate` stays fixed
+and early stopping picks the number of trees.
 
-Trial 0 is always the config's own params, so the run shows what tuning gained over them. Outputs:
-`tuning.csv` (every trial), `tuning.png` (validation group AUC against each parameter; a flat
-cloud means the parameter barely matters), `metrics.json → tuning`, and a `config.yml` with the
-winning params and `tuning.trials: 0`, so rerunning it reproduces the final model. The
+**Bayesian optimization** (`method: bayes`, the default). Trial 0 is the config's own params and
+the next `init_trials` (8) are random. After that, a Gaussian process is fit to every trial so far,
+modeling score as a smooth function of the params. The next trial goes where *expected
+improvement* over the best score is highest: either the GP predicts a high score there, or it is
+still unsure. Later trials therefore concentrate in promising regions instead of spreading evenly.
+`method: random` draws every trial independently instead.
+
+**Choosing the winner.** A final GP is fit to all trials, and the chosen trial is the one with the
+highest *predicted* score, not the highest observed one. The observed best is partly the
+luckiest trial, which matters when trials differ by ~0.001 AUC. The GP's per-parameter
+**length scales** (`metrics.json → tuning.length_scales`, on a 0-1 scale per parameter) show
+which knobs matter. A short length scale means the score changes quickly along that parameter.
+A value at the upper bound (100) means the GP found no effect.
+
+**Outputs.** `tuning.csv` (every trial, its source and the GP prediction), `tuning.png`
+(validation group AUC against each parameter), `metrics.json → tuning`, and a `config.yml` with
+the chosen params and `tuning.trials: 0`, so rerunning it reproduces the final model. The
 validation slice now also selects the model, so its scores are slightly optimistic. Judge the
 gain on the test day with `pushpin-compare` against an untuned run.
 

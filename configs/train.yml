@@ -41,8 +41,10 @@ model:
   gamma: 0
   early_stopping_rounds: 50
   valid_fraction: 0.2      # latest share of training rows used for early stopping
-tuning:                    # random search over model params on the validation slice (see tuning.py)
+tuning:                    # search over model params on the validation slice (see tuning.py)
   trials: 0                # 0 = train with model params as-is; pushpin-train --tune 25 overrides
+  method: bayes            # bayes (Gaussian process + expected improvement) or random
+  init_trials: 8           # bayes: random trials before the GP starts choosing
   metric: group_auc        # valid_<metric> picks the winner: group_auc (within-impression ranking) or auc
   space:                   # [distribution, low, high]; int and uniform are uniform, log is uniform in log space
     max_depth: [int, 4, 10]
