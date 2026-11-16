@@ -390,4 +390,63 @@ Outputs in the run folder:
 
 ### Results
 
-Pending: the first 25-trial run on MIND-small is in progress.
+One 25-trial run (`outputs/tuned`), Bayesian search. The search took 16 minutes (20–62 s per
+trial) on top of the usual feature building and evaluation. Peak memory stayed within the 4 GB
+Docker VM.
+
+**Chosen params.** The search picked trial 17, one of the Bayesian trials:
+
+| Parameter | Config (untuned) | Chosen |
+|-----------|------------------|--------|
+| `max_depth` | 6 | 5 |
+| `min_child_weight` | 5 | 16.5 |
+| `subsample` | 0.8 | 0.90 |
+| `colsample_bytree` | 0.8 | 0.98 |
+| `reg_lambda` | 1 | 0.53 |
+| `reg_alpha` | 0 | 0.25 |
+| `gamma` | 0 | 1.52 |
+| Trees (early stopping) | 438 | 589 |
+| Validation group AUC | 0.6810 | 0.6821 |
+
+The best four trials agree: depth 5–6, `subsample` around 0.9, `reg_lambda` at or below 1. That
+is a slightly more conservative model than the defaults.
+
+**Test day.** Paired against the untuned model (`ablation-with-llm`) on the same test
+impressions (1,000 paired replicates, 30,270 impressions):
+
+| Metric | Untuned | Tuned | Tuned − untuned | 95% CI | P(no gain) |
+|--------|---------|-------|-----------------|--------|------------|
+| AUC | 0.7032 | 0.7041 | +0.0009 | +0.0004 to +0.0014 | <0.001 |
+| Group AUC | 0.6766 | 0.6780 | +0.0014 | +0.0003 to +0.0025 | 0.004 |
+
+Log loss (calibrated) is unchanged at 0.152. AUC rises in every slot: morning 0.708 → 0.708,
+afternoon 0.699 → 0.700, evening 0.697 → 0.699. The validation gain (+0.0011 group AUC) carried
+over to the test day (+0.0014), so the search did not just fit validation noise.
+
+The gain is small, about the size of the LLM features' contribution, but unlike that one both
+paired CIs exclude zero. Both runs are one training seed each, so the CI covers test-set sampling
+but not run-to-run model variance.
+
+**Which parameters matter.** GP length scales: `subsample` 0.13, `reg_lambda` 0.13,
+`max_depth` 0.22 and `gamma` 0.50. `min_child_weight`, `colsample_bytree` and `reg_alpha` are
+at the upper bound (100), meaning the GP found no effect. The plot agrees:
+
+- Deep trees (8–10) score worst.
+- `subsample` below 0.8 hurts.
+- Heavy `reg_lambda` (above 2) and `gamma` above 3 hurt.
+- The other three parameters form flat clouds.
+
+![Hyperparameter tuning: validation group AUC against each parameter](tuning.png)
+
+**Search behavior.** The 17 Bayesian trials averaged 0.6802 validation group AUC vs. 0.6798 for
+the 8 random ones, and produced the winner. That is a modest edge at this budget, as expected
+when most of the score comes from three or four parameters.
+
+**Limitation.** The final GP fit an almost-zero noise term, so its predictions equal the observed
+scores at tried points. In this run, "highest predicted" therefore picked the same trial as
+"highest observed", and the protection against a lucky trial did not apply. The test-day gain
+suggests the pick was not luck. A fix would be to measure trial-to-trial noise directly
+(retrain the config params with a few seeds) and set the GP's noise floor from it.
+
+The tuned run has not been promoted: the live scorer and the README numbers still use
+`ablation-with-llm`.

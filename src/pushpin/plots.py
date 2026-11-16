@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.patches import Patch
-from matplotlib.ticker import MultipleLocator
+from matplotlib.ticker import MultipleLocator, NullFormatter
 
 # Feature groups from features.py, colored in fixed categorical order. The palette has eight
 # slots, so embedding retrieval shares one with click/skip contrast (both compare the candidate's
@@ -152,6 +152,7 @@ def plot_tuning(trials: pd.DataFrame, space: dict, metric: str, path: Path) -> N
         ax.scatter([best[name]], [best[col]], s=60, color=SECOND, marker="D", label="Chosen trial", zorder=4)
         if space[name][0] == "log":
             ax.set_xscale("log")
+            ax.xaxis.set_minor_formatter(NullFormatter())  # short log ranges otherwise label every minor tick
         ax.set_ylim(lo - pad, hi + pad)
         ax.set_title(name, loc="left", color=TEXT, fontsize=10, fontfamily="monospace")
         ax.grid(color=GRID, linewidth=0.8)
