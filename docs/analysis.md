@@ -1,4 +1,4 @@
-# Analysis: objective, calibration, send policy, user behavior
+# Analysis: objective, calibration, send policy, user behavior, tuning
 
 Deep dives behind the numbers in the [README](../README.md). Images are produced by `src/pushpin/plots.py`.
 
@@ -310,3 +310,84 @@ own subcategory click rate (`subcat_engaged_rate`), embedding similarity to thei
 and their subcategory share lead; the LLM features sit near the bottom:
 
 ![Click model feature importance](feature_importance.png)
+
+## Hyperparameter tuning
+
+The click model's XGBoost settings (`model` in `configs/train.yml`) were reasonable defaults,
+never searched. Tuning asks whether different settings rank clicks better. It is off by default;
+`pushpin-train --tune 25` runs it before the final fit (`src/pushpin/tuning.py`).
+
+**What is searched.** Seven parameters, each over a range in `tuning.space`:
+
+| Parameter | Range | Scale | Controls |
+|-----------|-------|-------|----------|
+| `max_depth` | 4–10 | integer | How many feature interactions one tree can capture |
+| `min_child_weight` | 1–50 | log | Minimum evidence in a leaf; higher = more conservative |
+| `subsample` | 0.5–1.0 | linear | Share of rows each tree sees |
+| `colsample_bytree` | 0.5–1.0 | linear | Share of features each tree sees |
+| `reg_lambda` | 0.1–100 | log | L2 penalty on leaf weights |
+| `reg_alpha` | 0.001–10 | log | L1 penalty on leaf weights |
+| `gamma` | 0–5 | linear | Minimum loss reduction needed to split |
+
+Log scales are for parameters whose effect scales by orders of magnitude, so 1 to 5 gets as
+much attention as 10 to 50. `learning_rate` stays at 0.05 (a lower rate mostly trades time for a
+little accuracy), and early stopping picks the number of trees in each trial.
+
+**How each trial is scored.** Features are built once. Each trial refits XGBoost on the fit slice,
+early-stops on the validation slice (the latest 20% of the training day), and is scored by
+**group AUC** on that slice, since the push objective ranks candidates within an impression.
+The test day is never seen during the search, so its AUC stays an honest estimate.
+
+**The search: Bayesian optimization.** Specifically a Gaussian process with expected improvement
+(GP-EI; Snoek, Larochelle & Adams 2012):
+
+1. **Trial 0** is the config's own params, so the run shows what tuning gained over them.
+2. **Trials 1–8** are random draws, which give the model a first picture of the space.
+3. **Trials 9+** each start by fitting a Gaussian process to every trial so far: a smooth model of
+   score as a function of the seven parameters, with an uncertainty at every point. The next
+   trial goes where *expected improvement* over the best score so far is highest: either the GP
+   predicts a high score there (exploitation), or it is still unsure (exploration). It scores
+   5,000 random candidate points and picks the best.
+
+Random search (`method: random`) spends every trial blind. Bayesian optimization uses earlier
+trials to aim later ones, so later trials concentrate in promising regions. A grid would waste
+trials: a 3×3×3 grid tests only three values of each parameter.
+
+**Choosing the winner.** Once all trials are in, a final GP is fit to them, and the chosen trial
+is the one with the highest *predicted* score, not the highest observed one. Trials here differ
+by about a thousandth of AUC, so the observed best is partly the luckiest draw, and the
+prediction averages over its neighbors.
+
+**Which parameters matter.** The GP has one *length scale* per parameter (automatic relevance
+determination), measured on a 0–1 scale per parameter. A short length scale means the score
+changes quickly along that parameter. A value at the upper bound (100) means the GP found no
+effect. `tuning.png` shows the same thing visually: validation group AUC against each parameter,
+where a flat cloud means the parameter barely matters.
+
+**Why not cross-validation.** Random k-fold would train on later hours to predict earlier
+ones. Rolling time folds would need earlier `fit_end` dates, which means rebuilding features with
+less history, and MIND-small has only six days. One validation slice is used instead. Choosing
+by the GP's prediction rather than the observed best covers part of what CV would (selection
+noise), and the paired test-day comparison is the final check.
+
+**Caveat.** The validation slice now does three jobs: early stopping, Platt calibration and model
+selection. Validation scores of the chosen trial are therefore slightly optimistic. Only the
+test-day comparison counts as evidence of a gain.
+
+To run it and compare against the untuned model on the same test impressions:
+
+```bash
+docker compose run --rm train "pushpin-train --tune 25 --output-dir outputs/tuned"
+docker compose run --rm train "pushpin-compare outputs/ablation-with-llm outputs/tuned"
+```
+
+Outputs in the run folder:
+- `tuning.csv`: every trial, its source (config, random, bayes) and the GP's prediction.
+- `tuning.png`: the per-parameter plot.
+- `metrics.json → tuning`: the chosen trial, length scales, and validation scores vs. the config.
+- `config.yml`: the chosen params with `tuning.trials: 0`, so rerunning it reproduces the final
+  model without searching again.
+
+### Results
+
+Pending: the first 25-trial run on MIND-small is in progress.

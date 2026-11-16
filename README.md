@@ -73,7 +73,7 @@ docker compose up -d scorer notifier cards tunnel   # real pushes (NTFY_TOPIC in
 | Doc | Covers |
 |-----|--------|
 | [model.md](docs/model.md) | Pipeline, features, evaluation, objective and send policy |
-| [analysis.md](docs/analysis.md) | Calibration, return model, exploration, fatigue, LLM ablation |
+| [analysis.md](docs/analysis.md) | Calibration, return model, exploration, fatigue, LLM ablation, hyperparameter tuning |
 | [development.md](docs/development.md) | Setup, API, tests, CI, outputs |
 | [notifier.md](docs/notifier.md) | Real pushes, cards, push volume, database |
 | [ab-test.md](docs/ab-test.md) | The proposed A/B test and its analysis |

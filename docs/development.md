@@ -55,7 +55,7 @@ means it was killed; raise Settings → Resources → Memory).
 pushpin-train --config configs/train.yml \
   --exclude emb_sim_mean emb_sim_max emb_sim_top5 emb_n_close emb_retrieval_rank \
   --output-dir outputs/recency-depth-no-emb          # no vector database needed
-pushpin-train --tune 25 --output-dir outputs/tuned     # Bayesian hyperparameter search first (docs/model.md)
+pushpin-train --tune 25 --output-dir outputs/tuned     # Bayesian hyperparameter search first (docs/analysis.md)
 pushpin-compare outputs/ablation-no-llm outputs/ablation-with-llm   # paired bootstrap of two runs
 docker compose run --rm objective "pushpin-objective --run-dir outputs/recency-depth-no-emb --friction 0.3"
 docker compose run --rm train "pushpin-exploration"   # outputs/analysis/exploration.*
