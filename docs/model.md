@@ -78,6 +78,40 @@ Defined in `src/pushpin/features.py`:
 | Click/skip contrast | `emb_sim_clicked_max`, `emb_sim_skipped_max`, `emb_contrast` | Closest clicked vs. closest skipped article |
 | LLM reader profile | `llm_sim_click`, `llm_sim_skip`, `llm_contrast` | Best-matching Claude click theme vs. skip theme |
 
+### Regularization
+
+XGBoost fits each new tree to minimize the training loss plus a penalty on that tree's complexity:
+
+```
+objective = Σ log loss  +  Σ over trees [ γ·T  +  ½·λ·Σ w²  +  α·Σ |w| ]
+```
+
+T is the number of leaves and w are the leaf weights (each leaf's contribution to the log-odds).
+Only `reg_lambda` (λ) and `reg_alpha` (α) are L2 and L1 penalties. The other controls limit
+overfitting in other ways, so they are labeled by mechanism:
+
+| Control | Untuned → tuned | Type | How it is applied |
+|---------|-----------------|------|-------------------|
+| `reg_lambda` (λ) | 1 → 0.53 | **L2** | Adds ½·λ·w² per leaf. Each leaf weight becomes −G / (H + λ) (G, H: sums of the loss gradients and hessians in the leaf), so larger λ shrinks every weight toward zero. Leaves backed by little evidence (small H) shrink most |
+| `reg_alpha` (α) | 0 → 0.25 | **L1** | Adds α·\|w\| per leaf. The gradient sum is soft-thresholded before the weight is computed: −sign(G)·max(\|G\| − α, 0) / (H + λ). Leaves whose \|G\| is below α get weight exactly zero |
+| `gamma` (γ) | 0 → 1.52 | Neither: per-leaf cost (L0-style, counts leaves) | Adds γ per leaf. A split is kept only if its loss reduction exceeds γ, so weak splits are pruned |
+| `min_child_weight` | 5 → 16.5 | Neither: minimum leaf size | A split is not made if either child's hessian sum is below this. At a 3.8% click rate each row contributes about p(1 − p) ≈ 0.037, so 5 is roughly 135 rows and 16.5 roughly 450 |
+| `max_depth` | 6 → 5 | Neither: structural limit | Caps a tree's depth, and so how many features one tree can combine |
+| `subsample` | 0.8 → 0.90 | Neither: stochastic (row sampling) | Each tree sees a random share of the training rows |
+| `colsample_bytree` | 0.8 → 0.98 | Neither: stochastic (feature sampling) | Each tree sees a random share of the features |
+| `learning_rate` | 0.05 (fixed) | Neither: shrinkage | Each tree's output is scaled by 0.05 before it is added, so no single tree dominates |
+| Early stopping | 50 rounds (fixed) | Neither: stopping rule | Training stops once validation AUC hasn't improved for 50 trees; the best iteration is kept (438 untuned, 589 tuned) |
+
+The untuned model set no explicit penalties. It ran on XGBoost's defaults (λ = 1, α = 0,
+γ = 0), now written out in `configs/train.yml`. Tuning moved the model in both directions:
+
+- **Weaker** L2 penalty and less row and column sampling.
+- **Stronger** structural limits: shallower trees, splits pruned by γ, larger minimum leaves,
+  plus a small L1 penalty.
+
+The net effect is fewer, sturdier splits whose leaf weights are shrunk less. See
+[analysis.md](analysis.md#hyperparameter-tuning) for which of these the search found to matter.
+
 ### Hyperparameter tuning
 
 Off by default. `pushpin-train --tune 25` runs Bayesian optimization (a Gaussian process with

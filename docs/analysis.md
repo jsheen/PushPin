@@ -408,8 +408,15 @@ Docker VM.
 | Trees (early stopping) | 438 | 589 |
 | Validation group AUC | 0.6810 | 0.6821 |
 
-The best four trials agree: depth 5–6, `subsample` around 0.9, `reg_lambda` at or below 1. That
-is a slightly more conservative model than the defaults.
+The best four trials agree: depth 5–6, `subsample` around 0.9, `reg_lambda` at or below 1. The
+changes go both ways:
+
+- **Less regularization:** a weaker L2 penalty (`reg_lambda`) and less row and column sampling.
+- **More regularization:** shallower trees, `gamma` pruning weak splits, larger minimum leaves
+  and a small L1 penalty (`reg_alpha`).
+
+The net effect is fewer, sturdier splits with less-shrunk leaf weights. Each control is labeled
+L1, L2 or by mechanism in [model.md](model.md#regularization).
 
 **Test day.** Paired against the untuned model (`ablation-with-llm`) on the same test
 impressions (1,000 paired replicates, 30,270 impressions):
