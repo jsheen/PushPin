@@ -78,6 +78,28 @@ Defined in `src/pushpin/features.py`:
 | Click/skip contrast | `emb_sim_clicked_max`, `emb_sim_skipped_max`, `emb_contrast` | Closest clicked vs. closest skipped article |
 | LLM reader profile | `llm_sim_click`, `llm_sim_skip`, `llm_contrast` | Best-matching Claude click theme vs. skip theme |
 
+### Hyperparameter tuning
+
+Off by default. `pushpin-train --tune 25` runs a random search before the final fit
+(`src/pushpin/tuning.py`, ranges under `tuning.space` in `configs/train.yml`). Features are built
+once. Each trial refits XGBoost on the fit slice, early-stops on the validation slice, and is
+scored by **group AUC** there, since the push objective ranks candidates within an impression.
+The test day is never seen during the search.
+
+Each trial draws all seven parameters independently: `max_depth` (uniform integer 4-10),
+`subsample` and `colsample_bytree` (uniform 0.5-1), `gamma` (uniform 0-5), and
+`min_child_weight`, `reg_lambda` and `reg_alpha` from log-uniform ranges, because their effect
+scales by orders of magnitude. `learning_rate` stays fixed and early stopping picks the number of
+trees. With n trials, the chance that at least one lands in the best 5% of the space is
+1 − 0.95ⁿ: 72% at 25 trials, 95% at 60.
+
+Trial 0 is always the config's own params, so the run shows what tuning gained over them. Outputs:
+`tuning.csv` (every trial), `tuning.png` (validation group AUC against each parameter; a flat
+cloud means the parameter barely matters), `metrics.json → tuning`, and a `config.yml` with the
+winning params and `tuning.trials: 0`, so rerunning it reproduces the final model. The
+validation slice now also selects the model, so its scores are slightly optimistic. Judge the
+gain on the test day with `pushpin-compare` against an untuned run.
+
 ### Evaluation and results
 
 `metrics.json` reports overall AUC, log loss, CTR, **group AUC** (mean AUC within impressions

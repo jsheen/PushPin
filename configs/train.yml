@@ -36,8 +36,22 @@ model:
   subsample: 0.8
   colsample_bytree: 0.8
   min_child_weight: 5
+  reg_lambda: 1            # XGBoost's defaults, written out so tuning can compare against them
+  reg_alpha: 0
+  gamma: 0
   early_stopping_rounds: 50
   valid_fraction: 0.2      # latest share of training rows used for early stopping
+tuning:                    # random search over model params on the validation slice (see tuning.py)
+  trials: 0                # 0 = train with model params as-is; pushpin-train --tune 25 overrides
+  metric: group_auc        # valid_<metric> picks the winner: group_auc (within-impression ranking) or auc
+  space:                   # [distribution, low, high]; int and uniform are uniform, log is uniform in log space
+    max_depth: [int, 4, 10]
+    min_child_weight: [log, 1, 50]
+    subsample: [uniform, 0.5, 1.0]
+    colsample_bytree: [uniform, 0.5, 1.0]
+    reg_lambda: [log, 0.1, 100]
+    reg_alpha: [log, 0.001, 10]
+    gamma: [uniform, 0, 5]
 risk:                      # return model (churn proxy): P(user has another impression within the horizon)
   horizon_hours: 24
   n_estimators: 200

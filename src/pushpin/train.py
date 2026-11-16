@@ -20,9 +20,10 @@ from pushpin.features import (
     build_features,
     temporal_features,
 )
-from pushpin.plots import plot_calibration, plot_importance
+from pushpin.plots import plot_calibration, plot_importance, plot_tuning
 from pushpin.profile import load_profiles
 from pushpin.risk import RETURN_FEATURES, fit_return_model
+from pushpin.tuning import random_search
 from pushpin.vectordb import ArticleStore
 
 
@@ -127,6 +128,17 @@ def train(config: dict) -> None:
     print(f"rows: fit={len(fit_df):,} valid={len(valid_df):,} test={len(test_df):,}")
 
     params = {k: v for k, v in config["model"].items() if k != "valid_fraction"}
+    tuning = config.get("tuning", {})
+    trials = None
+    if tuning.get("trials", 0) > 0:
+        print(f"tuning: {tuning['trials']} random trials + config params, scored on the validation slice")
+        params, trials = random_search(fit_df, valid_df, features, params, tuning, seed)
+        trials.to_csv(output_dir / "tuning.csv", index=False)
+        # the saved config reproduces the final model without searching again
+        config["model"].update(params)
+        config["tuning"] = {**tuning, "trials": 0, "tuned_with_trials": tuning["trials"]}
+        (output_dir / "config.yml").write_text(yaml.safe_dump(config, sort_keys=False))
+
     model = xgb.XGBClassifier(**params, tree_method="hist", eval_metric="auc",
                               random_state=seed, n_jobs=-1)
     model.fit(fit_df[features], fit_df["label"],
@@ -147,6 +159,16 @@ def train(config: dict) -> None:
         beh, temporal, pd.Timestamp(split["fit_end"]), train_end, config["risk"], seed)
     p_return = pd.Series(p_return, index=beh["impression_id"])
     metrics["best_iteration"] = int(model.best_iteration)
+    if trials is not None:
+        col = f"valid_{tuning.get('metric', 'group_auc')}"
+        best = trials.loc[trials[col].idxmax()]
+        metrics["tuning"] = {
+            "trials": int(tuning["trials"]), "metric": col,
+            "config": {c: float(trials.loc[0, c]) for c in ("valid_auc", "valid_group_auc")},
+            "best": {"trial": int(best["trial"]), "valid_auc": float(best["valid_auc"]),
+                     "valid_group_auc": float(best["valid_group_auc"]),
+                     "params": {k: params[k] for k in tuning["space"]}},
+        }
     print(json.dumps(metrics, indent=2))
 
     importance = pd.Series(model.get_booster().get_score(importance_type="gain"))
@@ -171,6 +193,8 @@ def train(config: dict) -> None:
     plot_importance(return_importance, output_dir / "return_feature_importance.png",
                     title="PushPin XGBoost return model: feature importance")
     plot_calibration(y, raw, scores, output_dir / "calibration.png")
+    if trials is not None:
+        plot_tuning(trials, tuning["space"], tuning.get("metric", "group_auc"), output_dir / "tuning.png")
 
 
 def main() -> None:
@@ -178,10 +202,14 @@ def main() -> None:
     parser.add_argument("--config", default="configs/train.yml")
     parser.add_argument("--exclude", nargs="*", default=[], help="features to leave out (ablations)")
     parser.add_argument("--output-dir", help="overrides output.dir in the config")
+    parser.add_argument("--tune", type=int, metavar="TRIALS",
+                        help="random-search trials before the final fit (overrides tuning.trials; 0 = off)")
     args = parser.parse_args()
     with open(args.config) as f:
         config = yaml.safe_load(f)
     config["features"]["exclude"] = config["features"].get("exclude", []) + args.exclude
+    if args.tune is not None:
+        config.setdefault("tuning", {})["trials"] = args.tune
     if args.output_dir:
         config["output"]["dir"] = args.output_dir
     train(config)
