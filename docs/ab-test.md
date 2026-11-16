@@ -169,3 +169,83 @@ arms add:
 
 They need longer than arm B vs. C: at least four weeks, since the effect is slow and a single
 rediscovery push per reader is rare. Analysis is per reader, as above.
+
+## Later arm: the push as the first step into a chat
+
+*Not built.* The idea: a push becomes more than a link. Tapping it can lead to a conversation
+with an AI assistant about the article ("is this worth my time?", "what's the main argument?",
+"remind me Saturday"). The test asks whether that makes readers engage with pushes more, and
+whether it leads to more reading or replaces it.
+
+| Arm | Pushes | After the tap |
+|-----|--------|---------------|
+| B | Selective, model-picked | Profile with the article pinned; Read on NYT |
+| B-chat | Same | Same, plus **Ask Claude** next to Read |
+
+Assignment works as for the other arms: a hash of `reader_id`, with B-chat drawn from readers
+who would otherwise be in B. Keep papier-mâché off in both, so only the chat differs.
+
+### Two ways to build the chat
+
+| | Handoff | Own chat |
+|---|---|---|
+| How | Ask Claude opens `claude.ai/new?q=…` with the headline, abstract and link filled in | A chat on the card page, calling the Claude API |
+| Cost | None; it runs on the reader's own Claude account | Per token (cents per conversation) |
+| What we see | Only the tap (log an `ask` interaction before redirecting) | Every turn |
+| Catch | Reader needs a Claude account; Claude can't read paywalled NYT text, so the prompt carries the headline and abstract | We pay, and we store conversations (privacy policy must say so) |
+
+The handoff is enough for a first test: the question is whether the option changes behavior,
+and the `ask` tap measures whether people use it. The own chat is needed only to study *what*
+people ask.
+
+### Can it change engagement with the push itself?
+
+A chat that appears only *after* the tap can't change whether the reader taps. It can change
+taps only if the reader expects it, so the arm has to make it visible before the tap:
+
+- push copy that offers it (e.g. ending with "Tap to ask about it"), or a notification action
+  where the platform allows one (an iOS text-reply action; buttons on Android and Web Push);
+- and time: readers learn over days that a push leads somewhere useful, so any lift in opens
+  should grow over the first weeks rather than appear on day one.
+
+If opens don't move but reads after a tap do, the chat helps after the tap, not before it.
+That is a different claim and should be reported as one.
+
+### Outcomes
+
+On top of the core outcomes (opens per reader per day, return rate, opt-outs):
+
+- **Opens per push, by week**: the push-engagement question; compare week 1 with weeks 3–4 to
+  separate a novelty bump from a learned habit.
+- **Reads per reader per day**: the guardrail. If opens rise and reads fall, the chat is
+  replacing the article.
+- **Ask rate**: share of opened pushes with an `ask`.
+- **Ask without read**: an ask with no read of that article within 24 hours. Report it on its
+  own; it may mean the chat was enough, which is neither a win nor a failure.
+- **Return rate after an ask**: do readers who chat come back on later days more than those who
+  don't (within B-chat; descriptive only, since asking isn't randomized).
+
+Decide before the test which of opens or reads is primary. Reads are the safer choice: opens
+alone would reward a chat that replaces reading.
+
+### Analysis and cautions
+
+- Per reader, as above. The comparison is B vs. B-chat; within-arm comparisons of askers and
+  non-askers are descriptive, because readers choose whether to ask.
+- **Novelty.** Run at least three to four weeks and report by week. Studies on adaptive
+  notifications have found effects that fade or vanish (e.g. Mishra et al. on receptivity), and
+  a new AI feature invites a first-week bump.
+- **Training labels.** `ask` is a new interaction kind. Keep it out of the click label (an open
+  is still the label), and keep the arm as a feature or filter when retraining, as with
+  papier-mâché, so chat-driven opens don't shift the model for arm B.
+- **Sample size.** The table above applies: a 20% relative lift in opens needs ~330 readers per
+  arm. With a class-sized group this is a pilot: does anyone use Ask Claude, and does the
+  readout work.
+
+### Related work
+
+The pieces exist separately: learned push timing and volume (Pinterest's volume control,
+LinkedIn's offline RL for notifications, Duolingo's notification bandit), LLM-written push text
+(PushGen, WSDM '26), and assistants that reach out and then converse (LLM-generated just-in-time
+adaptive interventions in health; ChatGPT Pulse, Google CC). We found no test of whether making
+a push the first step into a chat raises engagement with the pushes, or the reading they lead to.
