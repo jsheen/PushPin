@@ -30,6 +30,11 @@ On a held-out day (1.22M candidates):
   Raising the threshold still sends fewer, better pushes (actual CTR rises from 5.3% to 10.3%);
   only the predicted levels are too high.
 
+- **Uplift (causal):** ranking pushes by their doubly robust estimated effect, not by P(click), causes
+  2.3× as many extra returns as the current send policy for the same number of pushes, on a
+  semi-synthetic NYT simulation with a planted, known effect. The click policy pushes readers who
+  would come back anyway. See [docs/uplift.md](docs/uplift.md).
+
 Details: [docs/model.md](docs/model.md) and [docs/analysis.md](docs/analysis.md).
 
 ## Real pushes
@@ -77,6 +82,7 @@ docker compose up -d scorer notifier cards tunnel   # real pushes (NTFY_TOPIC in
 | [development.md](docs/development.md) | Setup, API, tests, CI, outputs |
 | [notifier.md](docs/notifier.md) | Real pushes, cards, push volume, database |
 | [ab-test.md](docs/ab-test.md) | The proposed A/B test and its analysis |
+| [uplift.md](docs/uplift.md) | Causal ML: doubly robust estimates of what a push causes, per reader (potential outcomes, randomized holdout, DR-learner, GATES, off-policy evaluation) |
 | [deploy-gcp.md](docs/deploy-gcp.md), [production.md](docs/production.md) | Cloud deployment |
 | [ios-app.md](docs/ios-app.md), [live-scoring.md](docs/live-scoring.md) | iOS backend; request-time scoring |
 | [demo-screens.md](docs/demo-screens.md) | What the phone shows: push, tapped push, demo profile, sharing a picture |

@@ -9,7 +9,11 @@ the current Unix time in the `labeled` view, is chosen per dialect.
 Tables:
   scores        one row per (slot, candidate article): article fields, every model feature,
                 p_click / p_return / push_score, is_top, sent, push_id, sent_at (local time in
-                the configured zone) and sent_ts (Unix seconds)
+                the configured zone) and sent_ts (Unix seconds). On the top pick, the uplift
+                experiment's columns (see docs/uplift.md): eligible (passed the send policy, under
+                the cap), treated (sent, or would have been on a dry run), held_out (eligible but
+                withheld at random), propensity (P(treated), known by design) and decided_ts (Unix
+                seconds: when the outcome window starts, sent or not)
   readers       one row per phone that opened a card or the start page: reader_id, name,
                 created_at, first_push_ts, volume (light / medium / heavy: how many pushes a day
                 they asked for, NULL = not chosen), volume_at (when they chose it); slug and
@@ -24,6 +28,8 @@ Tables:
   labeled       view, one row per (sent push, reader who could have received it): the push's
                 scores plus reader_id, reader_name, reader_volume, label (1 = opened, 0 = not
                 opened within `click_window_hours`, NULL = pending), read (1 = tapped Read)
+  sessions      one row each time an app reader opens the app (reader_id, ts in Unix seconds,
+                source): the uplift outcome, observable whether or not a push was sent
   articles      every article read from the feeds, with its mapped MIND subcategory
   meta          the user_id pushes are scored for, and the time anchor
 """
@@ -36,7 +42,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pandas as pd
-from sqlalchemy import BigInteger, Boolean, Text, create_engine, inspect, text
+from sqlalchemy import BigInteger, Boolean, Float, Text, create_engine, inspect, text
 
 ARTICLE_COLUMNS = ["news_id", "title", "abstract", "section", "url", "published"]
 KINDS = ("open", "read")  # recorded per reader: the push tapped (pinned), then Read tapped
@@ -49,7 +55,11 @@ READER_COLUMNS = {"volume": "TEXT", "volume_at": "TEXT", "slug": "TEXT", "histor
 # columns whose type pandas can't infer from a batch where they're all empty
 SCORE_TYPES = {"slot_id": BigInteger(), "sent_ts": BigInteger(), "push_id": Text(), "sent_at": Text(),
                "is_top": Boolean(), "passes_policy": Boolean(), "sent": Boolean(), "dry_run": Boolean(),
-               "for_reader": Text()}
+               "for_reader": Text(), "eligible": Boolean(), "treated": Boolean(), "held_out": Boolean(),
+               "propensity": Float(), "decided_ts": BigInteger()}
+# scores columns added after the first release, created on older databases
+SCORE_COLUMNS = {"for_reader": "TEXT", "eligible": "BOOLEAN", "treated": "BOOLEAN", "held_out": "BOOLEAN",
+                 "propensity": "DOUBLE PRECISION", "decided_ts": "BIGINT"}
 
 SCHEMA = [
     "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)",
@@ -66,6 +76,9 @@ SCHEMA = [
     # the iOS app's push addresses (APNs device tokens); one reader can have several devices
     """CREATE TABLE IF NOT EXISTS devices (token TEXT PRIMARY KEY, reader_id TEXT, sandbox INTEGER DEFAULT 0,
         created_at TEXT)""",
+    # app opens: the uplift experiment's outcome (did the reader come back within the window?)
+    "CREATE TABLE IF NOT EXISTS sessions (reader_id TEXT, ts BIGINT, source TEXT)",
+    "CREATE INDEX IF NOT EXISTS sessions_reader_ts ON sessions (reader_id, ts)",
 ]
 # profile lists leave out what the reader deleted (s = the scores row, :r = the reader)
 KEPT = "NOT EXISTS (SELECT 1 FROM removed x WHERE x.reader_id = :r AND x.news_id = s.news_id)"
@@ -100,11 +113,12 @@ class Store:
                 self._exec(f"ALTER TABLE readers ADD COLUMN {col} {sql_type}")
         self._exec("CREATE UNIQUE INDEX IF NOT EXISTS readers_slug ON readers (slug)")
         self._exec("CREATE UNIQUE INDEX IF NOT EXISTS readers_apple ON readers (apple_sub)")
-        if self._has_scores():  # databases from before per-reader pushes
+        if self._has_scores():  # databases from before per-reader pushes or the uplift experiment
             with self.lock:
                 score_cols = {c["name"] for c in inspect(self.engine).get_columns("scores")}
-            if "for_reader" not in score_cols:
-                self._exec("ALTER TABLE scores ADD COLUMN for_reader TEXT")
+            for col, sql_type in SCORE_COLUMNS.items():
+                if col not in score_cols:
+                    self._exec(f"ALTER TABLE scores ADD COLUMN {col} {sql_type}")
         self._labeled_view()
 
     # --- plumbing
@@ -181,11 +195,13 @@ class Store:
         return ("for_reader IS NULL", {}) if reader_id is None else ("for_reader = :aud", {"aud": reader_id})
 
     def pushed_ids(self, reader_id: str | None = None) -> set[str]:
-        """Articles already pushed to this audience (the broadcast, or one app reader)."""
+        """Articles already pushed to this audience (the broadcast, or one app reader), or held out
+        from it: a withheld article isn't offered again, so the control group stays unpushed."""
         if not self._has_scores():
             return set()
         where, params = self._audience(reader_id)
-        return {r["news_id"] for r in self._rows(f"SELECT news_id FROM scores WHERE sent AND {where}", **params)}
+        return {r["news_id"] for r in self._rows(f"SELECT news_id FROM scores WHERE (sent OR held_out) AND {where}",
+                                                 **params)}
 
     def sent_on(self, day: str, reader_id: str | None = None) -> int:
         if not self._has_scores():
@@ -302,9 +318,33 @@ class Store:
         accounts). The pushes themselves stay: they were sent to everyone, not to this reader."""
         if self.reader(reader_id) is None:
             return False
-        for table in ("devices", "removed", "interactions", "readers"):
+        for table in ("devices", "removed", "interactions", "sessions", "readers"):
             self._exec(f"DELETE FROM {table} WHERE reader_id = :r", {"r": reader_id})
         return True
+
+    # --- uplift experiment
+
+    def add_session(self, reader_id: str, source: str = "app", ts: int | None = None) -> None:
+        """The reader opened the app: the outcome the uplift experiment measures in both arms."""
+        self._exec("INSERT INTO sessions VALUES (:r, :ts, :source)",
+                   {"r": reader_id, "ts": int(time.time()) if ts is None else int(ts), "source": source[:20]})
+
+    def uplift_rows(self, outcome_hours: float, now: int | None = None) -> pd.DataFrame:
+        """One row per randomized top pick for an app reader (0 < propensity < 1, not a dry run)
+        whose outcome window has closed: its features, treated, propensity, eligible, and
+        y = 1 if the reader opened the app within `outcome_hours` after the decision."""
+        if not self._has_scores():
+            return pd.DataFrame()
+        window = int(outcome_hours * 3600)
+        now = int(time.time()) if now is None else int(now)
+        with self.lock, self.engine.connect() as con:
+            return pd.read_sql(text(f"""SELECT s.*,
+                    CASE WHEN EXISTS (SELECT 1 FROM sessions x WHERE x.reader_id = s.for_reader
+                         AND x.ts > s.decided_ts AND x.ts <= s.decided_ts + {window}) THEN 1 ELSE 0 END AS y
+                FROM scores s
+                WHERE s.is_top AND s.for_reader IS NOT NULL AND NOT s.dry_run
+                  AND s.propensity > 0 AND s.propensity < 1 AND s.decided_ts <= :cutoff
+                ORDER BY s.decided_ts"""), con, params={"cutoff": now - window})
 
     def set_name(self, reader_id: str, name: str) -> bool:
         name = " ".join(name.split())[:40] or None

@@ -43,6 +43,7 @@ dev = [
 pushpin-train = "pushpin.train:main"
 pushpin-embed = "pushpin.embed:main"
 pushpin-objective = "pushpin.objective:main"
+pushpin-uplift = "pushpin.uplift:main"
 pushpin-api = "pushpin.api:main"
 pushpin-exploration = "pushpin.exploration:main"
 pushpin-fatigue = "pushpin.fatigue:main"

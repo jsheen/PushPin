@@ -103,6 +103,12 @@ final class AppState: ObservableObject {
         if !quietly { justPinned = reply.push }
     }
 
+    /// The app came to the front. Logged quietly: a failure here never shows an error.
+    func recordSession() async {
+        guard session != nil, let api else { return }
+        let _: OkReply? = try? await api.call("POST", "session", ["source": "app"])
+    }
+
     // MARK: profile
 
     func refresh() async {

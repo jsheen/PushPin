@@ -68,7 +68,7 @@ def make_store(location):
         engine = create_engine(location)
         with engine.begin() as con:
             con.execute(text("DROP VIEW IF EXISTS labeled"))
-            con.execute(text("DROP TABLE IF EXISTS scores, readers, interactions, articles, meta, removed, devices"))
+            con.execute(text("DROP TABLE IF EXISTS scores, readers, interactions, articles, meta, removed, devices, sessions"))
         engine.dispose()
     return Store(location, click_window_hours=24, tz=TZ)
 

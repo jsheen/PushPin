@@ -424,3 +424,66 @@ def plot_reach(pushes: pd.DataFrame, daily: pd.DataFrame, published_share: dict,
     fig.subplots_adjust(left=0.13, right=0.98, top=0.86, bottom=0.08, hspace=0.42, wspace=0.3)
     fig.savefig(path, dpi=200, facecolor=SURFACE)
     plt.close(fig)
+
+
+UPLIFT_STYLE = {  # policy -> (color, linestyle); categorical slots in fixed order, references in ink
+    "DR-learner": (MODEL, "-"), "click (p_click)": (SECOND, "-"), "structural prior": ("#1baf7a", "-"),
+    "T-learner": ("#eda100", "-"), "random": (TEXT_MUTED, ":"), "oracle": (TEXT, "--"),
+}
+
+
+def plot_uplift(curves: pd.DataFrame, gates: pd.DataFrame, policies: pd.DataFrame, path: Path) -> None:
+    """Three panels: uplift (Qini) curves, GATES by tau_hat quintile, and each policy at the current budget."""
+    fig, axes = plt.subplots(1, 3, figsize=(16, 5.2), facecolor=SURFACE, gridspec_kw={"width_ratios": [1.25, 1, 1.15]})
+    for ax in axes:
+        ax.set_facecolor(SURFACE)
+
+    ax = axes[0]
+    # share of decisions the current policy pushes
+    budget = policies.loc[policies["policy"] == "current (click threshold)", "pushes"].item() / gates["rows"].sum()
+    for name, (color, ls) in UPLIFT_STYLE.items():
+        c = curves[curves["policy"] == name]
+        if c.empty:
+            continue
+        ax.plot(c["share_pushed"], c["true"], color=color, linestyle=ls, linewidth=2, label=name)
+    dr = curves[curves["policy"] == "DR-learner"]
+    ax.plot(dr["share_pushed"], dr["dr"], color=MODEL, linewidth=1, alpha=0.6, linestyle="--",
+            label="DR-learner, estimated from the log")
+    ax.axvline(budget, color=GRID, linewidth=1.5, zorder=0)
+    ax.annotate("current budget", (budget, ax.get_ylim()[1]), xytext=(4, -12), textcoords="offset points",
+                color=TEXT_MUTED, fontsize=8)
+    _style(ax, "Uplift curves", "Extra returns per 1,000 decisions, pushing the top share by each ranking")
+    ax.set_xlabel("Share of decisions pushed", color=TEXT_MUTED)
+    ax.legend(frameon=False, fontsize=8, labelcolor=TEXT, loc="lower right")
+
+    ax = axes[1]
+    x = gates["group"].to_numpy()
+    ax.errorbar(x - 0.08, gates["dr_effect"], yerr=1.96 * gates["dr_se"], fmt="o", color=MODEL, markersize=7,
+                elinewidth=2, capsize=0, label="DR estimate, 95% CI")
+    ax.scatter(x + 0.08, gates["true_effect"], marker="D", s=40, color=TEXT, label="True effect", zorder=3)
+    ax.axhline(0, color=TEXT_MUTED, linewidth=1)
+    ax.set_xticks(x, [f"Q{g}" for g in x])
+    _style(ax, "GATES", "Effect within quintiles of the DR-learner's tau_hat")
+    ax.set_xlabel("tau_hat quintile (Q5 = largest predicted effect)", color=TEXT_MUTED)
+    ax.set_ylabel("Push effect on return probability", color=TEXT_MUTED)
+    ax.legend(frameon=False, fontsize=8, labelcolor=TEXT, loc="upper left")
+
+    ax = axes[2]
+    p = policies.iloc[::-1].reset_index(drop=True)
+    y = np.arange(len(p))
+    ax.barh(y, p["true_effect_per_1000"], height=0.55, color=GRID, label="True")
+    ax.errorbar(p["dr_estimate_per_1000"], y, xerr=1.96 * p["dr_se_per_1000"], fmt="o", color=MODEL, markersize=6,
+                elinewidth=2, capsize=0, label="DR off-policy estimate, 95% CI")
+    for i, v in enumerate(p["true_effect_per_1000"]):
+        ax.text(max(v, 0) + 2, i + 0.3, f"{v:.0f}", color=TEXT_MUTED, fontsize=8, va="center")
+    ax.set_yticks(y, p["policy"], color=TEXT, fontsize=9)
+    ax.axvline(0, color=TEXT_MUTED, linewidth=1)
+    ax.set_xlim(right=1.45 * (p["dr_estimate_per_1000"] + 1.96 * p["dr_se_per_1000"]).max())
+    _style(ax, "Policies at the current budget", "Extra returns per 1,000 pushes (same number of pushes)")
+    ax.legend(frameon=False, fontsize=8, labelcolor=TEXT, loc="upper right")
+
+    fig.suptitle("PushPin uplift: doubly robust estimates on the semi-synthetic NYT simulation", x=0.01, ha="left",
+                 color=TEXT, fontsize=13, fontweight="bold")
+    fig.tight_layout(rect=(0, 0, 1, 0.94))
+    fig.savefig(path, dpi=200, facecolor=SURFACE)
+    plt.close(fig)

@@ -43,6 +43,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
+import numpy as np
 import pandas as pd
 import yaml
 
@@ -51,6 +52,7 @@ from pushpin.cards import open_store
 from pushpin.objective import push_scores, send_decisions
 from pushpin.push_job import HttpScorer
 from pushpin.store import ARTICLE_COLUMNS, DEFAULT_VOLUME, Store
+from pushpin.uplift_design import assignment_draw, propensity
 
 NEW_USER_PREFIX = "new-"  # MIND ids look like U12345, so these never collide
 
@@ -254,7 +256,18 @@ class Notifier:
         article = cand.set_index("news_id").loc[scores.at[top, "news_id"]]
         push_id = hashlib.sha1(f"{slot_id}{article.name}{reader_id or ''}".encode()).hexdigest()[:12]
 
-        sent = passes and under_cap and not self.dry_run
+        # Uplift experiment (app readers only; the broadcast has no reader to measure): an eligible
+        # pick is withheld with probability `holdout`, an ineligible one under the cap is explored
+        # with `explore`. The probability is logged, so the effect of a push is identified (see
+        # docs/uplift.md). Withheld pushes don't count toward the cap.
+        eligible = passes and under_cap
+        if reader_id is None:
+            p_send = 1.0 if eligible else 0.0
+        else:
+            p_send = float(propensity(np.array([eligible]), float(self.cfg.get("holdout", 0.0)),
+                                      float(self.cfg.get("explore", 0.0)) if under_cap else 0.0)[0])
+        treated = bool(assignment_draw(push_id) < p_send)
+        sent = treated and not self.dry_run
         if sent:
             data = {"push_id": push_id, "news_id": str(article.name), "url": article["url"]}
             if reader_id is None:
@@ -276,6 +289,11 @@ class Notifier:
         out["is_top"] = out["news_id"] == article.name
         out["passes_policy"] = out["is_top"] & passes
         out["sent"] = out["is_top"] & sent
+        out["eligible"] = out["is_top"] & eligible
+        out["treated"] = out["is_top"] & treated
+        out["held_out"] = out["is_top"] & eligible & (not treated)
+        out["propensity"] = np.where(out["is_top"], p_send, np.nan)
+        out["decided_ts"] = pd.array([int(time.time()) if x else None for x in out["is_top"]], dtype="Int64")
         out["dry_run"] = self.dry_run
         out["push_id"] = out["is_top"].map({True: push_id, False: None})
         out["sent_at"] = out["sent"].map({True: self.store.now(), False: None})
@@ -284,7 +302,7 @@ class Notifier:
         self.store.add_scores(out)
         return {"slot": now.isoformat(timespec="minutes"), "reader_id": reader_id, "candidates": len(cand),
                 "title": article["title"], "p_click": float(scores.at[top, "p_click"]), "passes_policy": passes,
-                "under_cap": under_cap, "sent": sent}
+                "under_cap": under_cap, "held_out": eligible and not treated, "sent": sent}
 
     def send_apns(self, title: str, body: str, data: dict, reader_id: str) -> int:
         """Send to one app reader's devices; drop the tokens APNs says are dead. Returns how many took it."""

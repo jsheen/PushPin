@@ -1,0 +1,40 @@
+# Uplift: doubly robust estimate of what a push causes (src/pushpin/uplift.py, docs/uplift.md)
+sim_dir: outputs/nyt-sim     # NYT simulation run whose pushes.parquet gives the features (top pick per user-slot)
+out_dir: outputs/uplift
+seed: 7
+replicates: 10               # copies of the 1,000 simulated readers, each with its own coin flips and outcomes
+folds: 5                     # cross-fitting folds, grouped by reader
+daily_cap: 2                 # pushes per reader per day when comparing policies (as in objective.yml)
+
+# Randomized design (the notifier uses the same rule; see configs/notifier.yml)
+design:
+  holdout: 0.2               # eligible picks (pass the click policy, under the cap) are withheld with this probability
+  explore: 0.1               # ineligible picks are sent with this probability (positivity everywhere)
+
+# Planted truth (sim only): y0 = organic * p_return, tau = lift * (1 - p_return) * interest - fatigue * pushes_today
+planted:
+  organic: 1.0
+  lift: 0.25
+  interest_floor: 0.3        # interest rises with subcategory affinity from this floor to 1
+  fatigue: 0.04              # effect lost per earlier push that day
+
+outcome_model:               # mu1, mu0: P(return) with and without a push
+  n_estimators: 300
+  max_depth: 4
+  learning_rate: 0.05
+  min_child_weight: 20
+  subsample: 0.8
+  colsample_bytree: 0.8
+effect_model:                # the DR-learner's second stage: regress phi on x (phi is noisy: keep it simple)
+  n_estimators: 300
+  max_depth: 3
+  learning_rate: 0.03
+  min_child_weight: 200
+  subsample: 0.8
+  reg_lambda: 10
+
+live:
+  db: outputs/notifier/pushes.db
+  outcome_hours: 3           # outcome = an app session within this long after the slot (shorter than the gap between slots)
+  min_rows_dr: 200           # below this, IPW only (too few rows to fit outcome models)
+  min_rows_cate: 2000        # below this, the average effect only (no tau_hat, GATES or policies)

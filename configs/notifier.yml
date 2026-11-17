@@ -12,6 +12,11 @@ volume_slots:
   heavy: [7, 9, 11, 13, 15, 17, 19, 21]   # every slot
 user_id: null                   # null = a brand-new user (no history: cold start); or a MIND id, e.g. U12345, as a persona
 objective: configs/objective.yml  # friction, threshold, risk_penalty
+# Uplift experiment, app readers only (docs/uplift.md): each eligible pick is withheld with probability
+# `holdout`, and an ineligible one (under the cap) is sent anyway with probability `explore`. The
+# probability is logged on the pick, and app opens (sessions) are the outcome in both arms.
+holdout: 0.2
+explore: 0.0
 ntfy_server: https://ntfy.sh
 click_port: 8090
 click_window_hours: 24          # a push not tapped within this long counts as label 0

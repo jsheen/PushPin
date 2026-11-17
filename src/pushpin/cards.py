@@ -1107,6 +1107,7 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
       POST   /api/auth/apple       {"identity_token", "name"?} -> {"session", "new", "profile"}
       GET    /api/me               the profile (same data as /me)
       POST   /api/devices          {"token", "sandbox"?}: where to push (APNs device token)
+      POST   /api/session          {"source"?}: the app was opened (the uplift outcome) -> {"ok"}
       DELETE /api/devices/<token>  stop pushing to a device (signing out)
       POST   /api/open/<push_id>   a push was tapped: pins it -> {"push", "profile"}
       POST   /api/read/<push_id>   Read was tapped
@@ -1193,6 +1194,10 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
                 push.pop("for_reader")
                 push["read"] = bool(push["read"])  # 0/1 from SQLite
                 reply(200, {"push": push, "profile": profile_json(reader_id)})
+                return
+            elif (method, what) == ("POST", "session"):  # the app came to the front: the uplift outcome
+                store.add_session(reader_id, str(body.get("source") or "app"))
+                reply(200, {"ok": True})
                 return
             elif (method, what) == ("POST", "devices"):
                 ok = store.add_device(reader_id, str(body.get("token") or ""), bool(body.get("sandbox")))

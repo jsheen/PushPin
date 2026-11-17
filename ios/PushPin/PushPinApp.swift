@@ -6,12 +6,17 @@ import UserNotifications
 struct PushPinApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var state = AppState.shared
+    @Environment(\.scenePhase) private var phase
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environmentObject(state)
                 .tint(.pinRed)
+        }
+        // every return to the app is a session: the uplift outcome, seen whether or not a push came
+        .onChange(of: phase) { _, now in
+            if now == .active { Task { await state.recordSession() } }
         }
     }
 }

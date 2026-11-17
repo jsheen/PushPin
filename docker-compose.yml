@@ -32,6 +32,18 @@ services:
       - ./outputs:/app/outputs
     command: ["pushpin-objective --config configs/objective.yml"]
 
+  # Uplift: doubly robust push effect (docs/uplift.md). Needs XGBoost, so it uses the training image.
+  # Default: the semi-synthetic sim on outputs/nyt-sim. Live: add --live (reads live.db in configs/uplift.yml).
+  uplift:
+    image: pushpin-train:latest
+    container_name: pushpin-uplift
+    volumes:
+      - ./src:/app/src
+      - ./configs:/app/configs
+      - ./outputs:/app/outputs
+    command: ["python -m pushpin.uplift --config configs/uplift.yml"]  # works before a rebuild adds the pushpin-uplift script
+    mem_limit: 2g
+
   # Serving API on http://localhost:8000 (docs at /docs). PUSHPIN_RUN_DIR picks the run to serve.
   api:
     build:
