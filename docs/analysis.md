@@ -16,11 +16,9 @@ score = (1 − friction) · engagement + friction · novelty,     friction ∈ [
   exposure is their pre-period history clicks plus every article shown in earlier impressions.
   1 = a subcategory they have never been shown; near 0 = what they are usually shown.
 
-**Same scale.** The raw values aren't comparable. `P(click)` sits near the base CTR (~0.04),
-while novelty spans 0–1, so adding them raw would let novelty swamp engagement. Each half is
-therefore converted to its **percentile rank among the candidates in the same impression**. That
-makes friction a literal weight between two rankings, and it isn't affected by recalibrating
-`P(click)`.
+**Same scale.** `P(click)` sits near 0.04 while novelty spans 0–1, so each half is converted to
+its **percentile rank within the impression**. Friction is then a literal weight between two
+rankings, unaffected by recalibrating `P(click)`.
 
 **Baseline click rates.** Clicks are rare. On the test day (30,270 impressions, 1.22M candidates):
 
@@ -31,41 +29,29 @@ makes friction a literal weight between two rankings, and it isn't affected by r
 | The most recent candidate in each impression | 12.5% |
 | The model's top pick per impression (friction 0) | 16.7% |
 
-A random pick beats the per-candidate rate because MIND only logs impressions with a click, and
-short impressions have a high click share. So 9.1% is the fair random baseline, and the model
-nearly doubles it. Pushing the newest article is a tougher baseline: 12.5%, so the model's gain
-over a simple recency rule is about a third, and recency alone accounts for nearly half of its
-gain over random. "Most recent" means the smallest `article_age_hours` among that feed's
-candidates (age since the article first appeared in any impression; MIND has no publish times),
-not one article sent to everyone: a global newest article is usually not in a reader's feed, so
-it has no label. These are feed impressions, so real push click rates would be lower.
+MIND only logs impressions with a click, so 9.1% (a random pick per impression) is the fair
+baseline, and the model nearly doubles it. The newest candidate in each feed (smallest
+`article_age_hours`) is a tougher baseline at 12.5%: recency alone is nearly half the model's
+gain over random. These are feed impressions, so real push click rates would be lower.
 
-**The trade-off.** `pushpin-objective` sweeps friction and plots, for the single top push per
-impression, the click rate against the share of pushes from a never-shown subcategory. The dashed
-curve repeats the same objective with the click model swapped for a random ranking, and the dotted
-one with it swapped for freshness (newest first), so the gaps are what the model adds over chance
-and over a recency rule at each level of novelty (`recency-depth-no-emb` model):
+**The trade-off.** `pushpin-objective` sweeps friction: the top pick's click rate against its
+share from a never-shown subcategory, with the click model (solid), a random ranking (dashed) and
+newest-first (dotted) as engagement (`recency-depth-no-emb` model):
 
 ![Push objective trade-off](tradeoff.png)
 
 | Friction | CTR of top pick | …with random engagement | …with most-recent engagement | Top pick from a never-shown subcategory |
 |----------|-----------------|-------------------------|------------------------------|-----------------------------------------|
 | 0 | 16.7% | 9.1% | 12.5% | 11% |
-| 0.05 | 16.3% | 9.0% | 12.3% | 16% |
 | 0.1 | 15.4% | 8.8% | 11.8% | 23% |
-| 0.15 | 14.7% | 8.7% | 11.4% | 31% |
 | 0.2 (default) | 13.9% | 8.5% | 11.2% | 37% |
 | 0.3 | 12.6% | 8.2% | 10.4% | 48% |
-| 0.4 | 11.8% | 8.0% | 9.9% | 56% |
 | 0.5 | 11.0% | 8.0% | 9.2% | 64% |
-| 0.7 | 10.0% | 8.0% | 8.6% | 76% |
 | 1 | 8.1% | 8.1% | 8.1% | 87% |
 
-Low friction buys novelty cheaply: going from 0 to 0.2 more than triples the never-shown share
-for about 3 points of CTR. The newest-first rule is already fairly novel (30% never-shown at
-friction 0, since breaking news ignores a reader's habits); at that same novelty the model's
-pick clicks 14.7% against its 12.5%. Above about 0.5 the model keeps less and less of its edge. CTR only
-credits logged clicks, so it likely understates how novel pushes would do.
+Low friction buys novelty cheaply: 0 → 0.2 more than triples the never-shown share for about 3
+points of CTR. Above about 0.5 the model keeps less and less of its edge. CTR only credits logged
+clicks, so it likely understates how novel pushes would do.
 
 ## Calibration
 
@@ -319,11 +305,9 @@ clicks one article and passes over a similar one better than the raw nearest nei
   candidate is scored by its best-matching theme. Users with no clicks or no skips have missing
   features, which XGBoost handles.
 
-Profiles only use data from before their day. `data/llm/batches.json` stores the batch ids for
-each prompt version, so reruns resume and prompt changes resubmit. `data/llm/report.json` has
-token usage and cost. MIND-small has about 41k user-days. For training, the theme vectors are
-memory-mapped from `data/llm/theme_vectors_{click,skip}.npy` rather than loaded from Chroma
-(275k vectors); training rebuilds them if they are stale.
+Profiles only use data from before their day (about 41k user-days in MIND-small). Batch ids per
+prompt version are in `data/llm/batches.json` (reruns resume), costs in `data/llm/report.json`,
+and training memory-maps the theme vectors from `data/llm/theme_vectors_{click,skip}.npy`.
 
 To measure the uplift, train with and without the three `llm_*` features, then compare the two
 runs on the same test impressions (results below):
@@ -347,29 +331,19 @@ click/skip contrast group), with and without the three `llm_*` features:
 | AUC | 0.7026 (0.700–0.705) | 0.7032 (0.701–0.706) |
 | Group AUC | 0.6757 (0.673–0.679) | 0.6766 (0.673–0.680) |
 | Log loss (calibrated) | 0.1520 | 0.1520 |
-| AUC, morning | 0.706 (0.703–0.710) | 0.708 (0.704–0.712) |
-| AUC, afternoon | 0.700 (0.695–0.705) | 0.699 (0.694–0.703) |
-| AUC, evening | 0.697 (0.691–0.703) | 0.697 (0.691–0.703) |
 
-Separate CIs overlap almost entirely, but most of their width is test-set noise the two runs
-share. `pushpin-compare` resamples impressions once per replicate and scores both runs on the same
-sample, so its CI is for the difference (1,000 paired replicates, 30,270 impressions):
+The separate CIs overlap, but most of their width is test-set noise the two runs share, so
+`pushpin-compare` scores both on the same resampled impressions (1,000 paired replicates):
 
 | Metric | With − without | 95% CI | P(no gain) |
 |--------|----------------|--------|------------|
 | AUC | +0.0006 | −0.0000 to +0.0013 | 0.027 |
 | Group AUC | +0.0009 | −0.0003 to +0.0021 | 0.082 |
 
-The LLM themes add at most about a thousandth of AUC on top of the embedding and contrast
-features; the AUC gain is borderline and the group-AUC gain is not significant. The three
-features rank 23rd, 24th and 27th of 30 by gain (about 2% each), well behind
-`emb_sim_clicked_max` and `emb_contrast`, which already use the same clicked/skipped evidence.
-Both runs are one training seed each, so the CI covers test-set sampling but not run-to-run
-model variance.
-
-Feature importance for the full model (`ablation-with-llm`), colored by feature group. The user's
-own subcategory click rate (`subcat_engaged_rate`), embedding similarity to their clicked articles
-and their subcategory share lead; the LLM features sit near the bottom:
+The LLM themes add at most about a thousandth of AUC: borderline for AUC, not significant for
+group AUC. They rank 23rd, 24th and 27th of 30 by gain, well behind `emb_sim_clicked_max` and
+`emb_contrast`, which use the same clicked/skipped evidence. One training seed each, so the CI
+covers test-set sampling but not run-to-run variance. Feature importance (`ablation-with-llm`):
 
 ![Click model feature importance](feature_importance.png)
 
@@ -422,20 +396,12 @@ docker compose run --rm train "pushpin-train --tune 25 --output-dir outputs/tune
 docker compose run --rm train "pushpin-compare outputs/ablation-with-llm outputs/tuned"
 ```
 
-Outputs in the run folder:
-- `tuning.csv`: every trial, its source (config, random, bayes) and the GP's prediction.
-- `tuning.png`: the per-parameter plot.
-- `metrics.json → tuning`: the chosen trial, length scales, and validation scores vs. the config.
-- `config.yml`: the chosen params with `tuning.trials: 0`, so rerunning it reproduces the final
-  model without searching again.
+Outputs: `tuning.csv` (every trial), `tuning.png`, `metrics.json → tuning`, and `config.yml`
+with the chosen params and `tuning.trials: 0`, so a rerun reproduces the model without searching.
 
 ### Results
 
-One 25-trial run (`outputs/tuned`), Bayesian search. The search took 16 minutes (20–62 s per
-trial) on top of the usual feature building and evaluation. Peak memory stayed within the 4 GB
-Docker VM.
-
-**Chosen params.** The search picked trial 17, one of the Bayesian trials:
+One 25-trial Bayesian run (`outputs/tuned`), 16 minutes of search. It picked trial 17:
 
 | Parameter | Config (untuned) | Chosen |
 |-----------|------------------|--------|
@@ -449,15 +415,9 @@ Docker VM.
 | Trees (early stopping) | 438 | 589 |
 | Validation group AUC | 0.6810 | 0.6821 |
 
-The best four trials agree: depth 5–6, `subsample` around 0.9, `reg_lambda` at or below 1. The
-changes go both ways:
-
-- **Less regularization:** a weaker L2 penalty (`reg_lambda`) and less row and column sampling.
-- **More regularization:** shallower trees, `gamma` pruning weak splits, larger minimum leaves
-  and a small L1 penalty (`reg_alpha`).
-
-The net effect is fewer, sturdier splits with less-shrunk leaf weights. Each control is labeled
-L1, L2 or by mechanism in [model.md](model.md#regularization).
+The changes go both ways (a weaker L2 penalty and less sampling, but shallower trees, `gamma`
+pruning and larger leaves): fewer, sturdier splits with less-shrunk leaf weights
+([model.md](model.md#regularization) labels each control).
 
 **Test day.** Paired against the untuned model (`ablation-with-llm`) on the same test
 impressions (1,000 paired replicates, 30,270 impressions):
@@ -467,34 +427,19 @@ impressions (1,000 paired replicates, 30,270 impressions):
 | AUC | 0.7032 | 0.7041 | +0.0009 | +0.0004 to +0.0014 | <0.001 |
 | Group AUC | 0.6766 | 0.6780 | +0.0014 | +0.0003 to +0.0025 | 0.004 |
 
-Log loss (calibrated) is unchanged at 0.152. AUC rises in every slot: morning 0.708 → 0.708,
-afternoon 0.699 → 0.700, evening 0.697 → 0.699. The validation gain (+0.0011 group AUC) carried
-over to the test day (+0.0014), so the search did not just fit validation noise.
+Log loss is unchanged (0.152). The validation gain carried over to the test day, so the search
+didn't just fit validation noise. The gain is small, about the LLM features' size, but both
+paired CIs exclude zero (one seed each, so run-to-run variance isn't covered).
 
-The gain is small, about the size of the LLM features' contribution, but unlike that one both
-paired CIs exclude zero. Both runs are one training seed each, so the CI covers test-set sampling
-but not run-to-run model variance.
-
-**Which parameters matter.** GP length scales: `subsample` 0.13, `reg_lambda` 0.13,
-`max_depth` 0.22 and `gamma` 0.50. `min_child_weight`, `colsample_bytree` and `reg_alpha` are
-at the upper bound (100), meaning the GP found no effect. The plot agrees:
-
-- Deep trees (8–10) score worst.
-- `subsample` below 0.8 hurts.
-- Heavy `reg_lambda` (above 2) and `gamma` above 3 hurt.
-- The other three parameters form flat clouds.
+**What mattered:** `subsample`, `reg_lambda`, `max_depth` and `gamma` (short GP length scales);
+the other three had no effect. Deep trees (8–10), `subsample` below 0.8 and heavy `reg_lambda` or
+`gamma` hurt.
 
 ![Hyperparameter tuning: validation group AUC against each parameter](tuning.png)
 
-**Search behavior.** The 17 Bayesian trials averaged 0.6802 validation group AUC vs. 0.6798 for
-the 8 random ones, and produced the winner. That is a modest edge at this budget, as expected
-when most of the score comes from three or four parameters.
-
-**Limitation.** The final GP fit an almost-zero noise term, so its predictions equal the observed
-scores at tried points. In this run, "highest predicted" therefore picked the same trial as
-"highest observed", and the protection against a lucky trial did not apply. The test-day gain
-suggests the pick was not luck. A fix would be to measure trial-to-trial noise directly
-(retrain the config params with a few seeds) and set the GP's noise floor from it.
+**Limitation.** The final GP fit an almost-zero noise term, so "highest predicted" equaled
+"highest observed" and gave no protection against a lucky trial (the test-day gain suggests it
+wasn't luck). Setting the GP's noise floor from a few repeated seeds would fix it.
 
 The tuned run has not been promoted: the live scorer and the README numbers still use
 `ablation-with-llm`.
