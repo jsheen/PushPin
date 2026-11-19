@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 
 from pushpin.nyt import map_subcategories
-from pushpin.push_job import slot_times
+from pushpin.push_job import lookback_hours, parse_hours, slot_times
 from pushpin.vectordb import ExactStore
 
 
@@ -29,6 +29,16 @@ def test_slot_times_three_per_day():
     slots = slot_times(pd.Timestamp("2024-12-02"), 2)
     assert [t.hour for t in slots] == [8, 13, 19, 8, 13, 19]
     assert slots[-1].day == 3
+    assert lookback_hours() == 13  # since the previous evening's 19:00 slot
+
+
+def test_slot_hours_every_two_hours():
+    hours = parse_hours("19,9,11,13,15,17")
+    assert hours == (9, 11, 13, 15, 17, 19)
+    assert [t.hour for t in slot_times(pd.Timestamp("2024-12-02"), 1, hours)] == list(hours)
+    assert lookback_hours(hours) == 14
+    with pytest.raises(ValueError):
+        parse_hours("9,24")
 
 
 def test_daily_report_counts_per_day():

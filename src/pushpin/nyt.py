@@ -35,7 +35,7 @@ from sklearn.preprocessing import normalize
 
 from pushpin.data import load_behaviors
 from pushpin.live import load_scorer
-from pushpin.push_job import SCORE_COLUMNS, run_week, write_outputs
+from pushpin.push_job import SCORE_COLUMNS, SLOT_HOURS, parse_hours, run_week, write_outputs
 from pushpin.vectordb import ExactStore
 
 MIN_SUBCAT_ARTICLES = 20  # map only to MIND subcategories with enough articles for a stable centroid
@@ -148,13 +148,14 @@ def main() -> None:
     parser.add_argument("--days", type=int, default=7)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--out", type=Path, default=Path("outputs/nyt-sim"))
+    parser.add_argument("--slot-hours", type=parse_hours, default=SLOT_HOURS, help="comma-separated push hours, e.g. 9,11,13,15,17,19")
     args = parser.parse_args()
     scorer = LocalScorer(args.run_dir)
     objective = yaml.safe_load(Path("configs/objective.yml").read_text())
     data_dir = Path(scorer.config["data"]["dir"])
     scores, pushes, summary = run_week(scorer, data_dir / "nyt-recent.csv", args.users, pd.Timestamp(args.start),
-                                       args.days, args.seed, objective)
-    write_outputs(args.out, scores, pushes, {"run": str(args.run_dir), **summary})
+                                       args.days, args.seed, objective, args.slot_hours)
+    write_outputs(args.out, scores, pushes, {"run": str(args.run_dir), "slot_hours": list(args.slot_hours), **summary})
 
 
 if __name__ == "__main__":

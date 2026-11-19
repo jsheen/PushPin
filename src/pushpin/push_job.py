@@ -32,8 +32,7 @@ import yaml
 from pushpin.objective import push_scores, send_decisions
 from pushpin.plots import plot_reach
 
-SLOT_HOURS = (8, 13, 19)  # morning, afternoon, evening push times (New York time)
-LOOKBACK_HOURS = 13       # the first slot's candidates: articles since the previous evening
+SLOT_HOURS = (8, 13, 19)  # default push times (New York time); --slot-hours 9,11,13,15,17,19 for every two hours
 USERS_PER_REQUEST = 250
 SCORE_COLUMNS = ["impression_id", "user_id", "news_id", "p_click", "p_click_raw", "novelty", "p_return",
                  "llm_sim_click", "llm_sim_skip", "emb_sim_max", "subcat_affinity", "article_age_hours"]
@@ -56,15 +55,28 @@ def load_nyt(path: Path, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame
     }).sort_values("published", kind="stable").reset_index(drop=True)
 
 
-def slot_times(start: pd.Timestamp, days: int) -> list[pd.Timestamp]:
-    return [start + pd.Timedelta(days=d, hours=h) for d in range(days) for h in SLOT_HOURS]
+def slot_times(start: pd.Timestamp, days: int, hours: tuple[int, ...] = SLOT_HOURS) -> list[pd.Timestamp]:
+    return [start + pd.Timedelta(days=d, hours=h) for d in range(days) for h in sorted(hours)]
+
+
+def lookback_hours(hours: tuple[int, ...] = SLOT_HOURS) -> int:
+    """The first slot's candidates: articles since the previous day's last slot."""
+    return 24 - (max(hours) - min(hours))
+
+
+def parse_hours(text: str) -> tuple[int, ...]:
+    hours = tuple(sorted({int(h) for h in text.split(",")}))
+    if not hours or not all(0 <= h < 24 for h in hours):
+        raise ValueError(f"slot hours must be in 0..23, got {text!r}")
+    return hours
 
 
 def run_week(scorer, nyt_path: Path, n_users: int, start: pd.Timestamp, days: int, seed: int,
-             objective: dict) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+             objective: dict, slot_hours: tuple[int, ...] = SLOT_HOURS) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     """Ingest the week's articles, score every user at every slot, pick and gate pushes."""
-    slots = slot_times(start, days)
-    nyt = load_nyt(nyt_path, slots[0] - pd.Timedelta(hours=LOOKBACK_HOURS), slots[-1])
+    slots = slot_times(start, days, slot_hours)
+    lookback = pd.Timedelta(hours=lookback_hours(slot_hours))
+    nyt = load_nyt(nyt_path, slots[0] - lookback, slots[-1])
     print(f"{len(nyt):,} NYT articles from {nyt['published'].min()} to {nyt['published'].max()}")
     # shift NYT time to just after the user-state log, so gaps since each user's last visit stay realistic
     shift = (pd.Timestamp(scorer.info()["log_end"]).normalize() + pd.Timedelta(days=1)) - start
@@ -74,7 +86,7 @@ def run_week(scorer, nyt_path: Path, n_users: int, start: pd.Timestamp, days: in
     print(f"simulating {len(users):,} users x {len(slots)} slots")
 
     scores, latency = [], []
-    previous = slots[0] - pd.Timedelta(hours=LOOKBACK_HOURS)
+    previous = slots[0] - lookback
     for s, t in enumerate(slots):
         cand = nyt[(nyt["published"] > previous) & (nyt["published"] <= t)]
         previous = t
@@ -230,13 +242,14 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--objective", type=Path, default=Path("configs/objective.yml"))
     parser.add_argument("--out", type=Path, default=Path("outputs/nyt-sim-http"))
+    parser.add_argument("--slot-hours", type=parse_hours, default=SLOT_HOURS, help="comma-separated push hours, e.g. 9,11,13,15,17,19")
     args = parser.parse_args()
     scorer = HttpScorer(args.scorer)
     print(f"scorer at {args.scorer}: {scorer.info()}")
     objective = yaml.safe_load(args.objective.read_text())
     scores, pushes, summary = run_week(scorer, args.nyt, args.users, pd.Timestamp(args.start), args.days,
-                                       args.seed, objective)
-    write_outputs(args.out, scores, pushes, {"scorer": args.scorer, **summary})
+                                       args.seed, objective, args.slot_hours)
+    write_outputs(args.out, scores, pushes, {"scorer": args.scorer, "slot_hours": list(args.slot_hours), **summary})
 
 
 if __name__ == "__main__":
