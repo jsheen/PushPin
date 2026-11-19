@@ -1,6 +1,11 @@
 # Live scoring: what it would take
 
-Status (2026-11-03): **phases 1–3 done as an offline replay; no live endpoint or online store yet.**
+Status (2026-11-19): **live scoring runs.** The scorer service (`scorer_api.py`, `POST /score`)
+scores the notifier's live requests at every slot, locally in Docker or as a private Cloud Run
+service ([deploy-gcp.md](deploy-gcp.md)). There's no separate online store. Each request carries
+the reader's earlier pushes and taps as events, and the notifier's database is the record, so
+the scorer stays stateless ([notifier.md](notifier.md)). The sections below are the original
+plan (2026-11-03), kept for the reasoning.
 
 - `features.py` is split into `fit_globals` (shared state fitted on the log) and `features_for`
   (features for any set of events). Batch training calls both; output is unchanged.
@@ -71,7 +76,7 @@ or the live model sees different inputs than it was trained on.
 - **Complement matrix `s`** and **per-subcategory prior click rates** (`fit_complements`,
   `sub_rate` in `build_features`).
 - **Global base rates** used for shrinkage in the temporal features.
-- **The return model** (`fit_return_model` in `risk.py`): trained but never saved.
+- **The return model** (`fit_return_model` in `risk.py`): now saved as `xgb_return.json`.
 - **The exact feature list and order** the booster expects (excludes applied).
 
 These should be saved into the run folder and baked into the serving image together, so a
