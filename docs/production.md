@@ -69,19 +69,12 @@ reader.
 Pushes are naturally **batch** work: nothing has to be answered in milliseconds, decisions
 happen at set times. So the core of production is a scheduled job, not an always-on server.
 
-## What exists today (and what it stands in for)
+## What exists today
 
-| Today, in this repo | Stands in for |
-|---|---|
-| `pushpin-train` on the MIND log, run by hand (locally or in Docker) | Scheduled retraining in the cloud on our own click logs |
-| `LiveScorer` (`live.py`): features from one user's state, identical to batch | The scoring step of the push job |
-| `LiveScorer.add_articles`: embed, project text, map to a subcategory | Article ingestion from a news API |
-| `pushpin-nyt-sim` / the push job: a week of NYT articles, 1,000 MIND users, 3 or 8 slots a day | The push job itself, minus real users and delivery |
-| The notifier sending each reader's past pushes and taps with every request | The feedback loop (opens, clicks, opt-outs update state) |
-| The contextual bandit on the simulation (`bandit.py`) | A learned send decision |
-| `daily.csv`, `summary.json` | Daily monitoring and editorial insight |
-| Baked API image (`scripts/build-api-image.sh`) | A versioned, self-contained model artifact |
-| `evaluation.min_auc` quality gate | The check that stops a bad model from shipping |
+Each production piece has a stand-in here: manual `pushpin-train` runs (gated by
+`evaluation.min_auc`) for scheduled retraining, `LiveScorer` for the push job's scoring step, the
+push job on a simulated week for the real one, the notifier's per-request events for the
+feedback loop, the bandit simulation for a learned send decision, and `daily.csv` for monitoring.
 
 ## Target architecture
 
@@ -152,19 +145,15 @@ weekly or nightly   retrain job on the new logs ──▶ quality gate ──▶
 
 - **Feedback timing:** how quickly must an open or dismissal affect the next slot? Minutes
   (streaming state updates) or the next day (nightly batch)?
-- **Send policy on thin days:** in the simulation, weekends had ~half the articles but the same
-  number of sends, so the threshold effectively loosens when the pool shrinks. Should the
-  threshold or cap depend on the day's volume? (The bandit's threshold depends on the pick and
-  the reader's state, not on the pool's size, so this question carries over to it.)
-- **Breaking news:** fixed slots can't react to a major story at once. The bandit sim has
-  editorial alerts that bypass the policy ([bandit.md](bandit.md#operating-it)); live, that
-  needs an editor-triggered send, or continuous scoring with a high bar.
-- **Opt-outs:** the return model is a proxy (does the user come back within 24 h). Real
-  notification opt-outs should replace it once logged.
-- **Cold start:** new subscribers have no history; today their features are missing, which
-  XGBoost handles, but a dedicated policy (popular + diverse) may do better.
-- **Domain shift:** the model is trained on MSN News 2019. On NYT it ranks sensibly but its
-  P(click) isn't calibrated; real NYT clicks are needed both to retrain and to recalibrate.
+- **Thin days:** in the simulation, weekends had about half the articles but the same number of
+  sends. Should the bar depend on the day's volume? (The bandit's doesn't either.)
+- **Breaking news:** fixed slots can't react at once; live, editorial alerts
+  ([bandit.md](bandit.md#operating-it)) need an editor-triggered send.
+- **Opt-outs and cold start:** the return model is a proxy until real opt-outs are logged, and
+  new subscribers have no history (XGBoost handles the missing features; a popular-and-diverse
+  default may do better).
+- **Domain shift:** trained on MSN News 2019, the model ranks NYT articles sensibly but its
+  P(click) isn't calibrated; real NYT clicks are needed to retrain and recalibrate.
 
 ## Costs
 

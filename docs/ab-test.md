@@ -78,27 +78,12 @@ experiment runs end to end and what the readout looks like, not a conclusive res
 
 ## Timeline
 
-How a feature like this typically ships at a large tech or media company (not the NYT's actual
-process, which isn't public here):
-
-| Stage | Typical length | What happens |
-|-------|----------------|--------------|
-| Build | Weeks to months | Design, engineering, privacy/legal review, instrumentation |
-| Ramp | Days | Behind a feature flag to 1–5% of users, to catch bugs and check the logging |
-| Test | 1–4 weeks | The A/B test; at least a full week for weekday/weekend cycles, longer for slow effects like opt-outs or a novelty bump that fades. Many tests run at once on separate users |
-| Roll out | Weeks to months | Gradual release to everyone if it wins, often with a small holdout kept on the old version to see whether the effect lasts |
-
-Idea to full launch is usually a quarter or more. At NYT scale, ~1,000 readers enroll within
-minutes; here, enrollment is the bottleneck.
-
-For PushPin, the compressed version:
-
-| Piece | Effort |
-|-------|--------|
-| Arm assignment, hiding the papier-mâché switch, arm A sending (the same top headline to everyone, every slot) | ~1 day |
-| Readout query and per-reader analysis (bootstrap, clustered standard errors) | ~1 day |
-| Weekly retraining job (see below) | 2–3 days |
-| Running the test | 2–4 weeks |
+At a large company, a feature like this usually takes a quarter or more from idea to full launch:
+build and review, a few days' ramp to 1–5% of users behind a flag, a 1–4 week test (at least a
+full week for weekday/weekend cycles), then a gradual rollout, often keeping a small holdout. At
+NYT scale ~1,000 readers enroll within minutes; here, enrollment is the bottleneck. For PushPin:
+arm assignment and arm A sending (~1 day), the readout and per-reader analysis (~1 day), a
+retraining job (2–3 days), and 2–4 weeks of running the test.
 
 ## Retraining during the test
 

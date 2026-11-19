@@ -260,13 +260,9 @@ Users with 5+ impressions (9,725); 95% CIs resample users.
 
 ![Fatigue](fatigue.png)
 
-| Impressions in the previous 24h | 0 | 1 | 2 | 3–4 | 5+ |
-|---|---|---|---|---|---|
-| Engagement vs. usual | **1.019** | 0.994 | 0.997 | 0.991 | **0.983** |
-
-| Impressions earlier in the week | 0 | 1–2 | 3–5 | 6–10 | 11+ |
-|---|---|---|---|---|---|
-| Engagement vs. usual | 1.016 | 0.994 | 0.997 | 1.000 | 1.008 |
+Engagement vs. a user's usual, by impressions in the previous 24 h: **1.019** (none), 0.994 (1),
+0.997 (2), 0.991 (3–4), **0.983** (5+). By impressions earlier in the week: 1.016 (none), 0.994
+(1–2), 0.997 (3–5), 1.000 (6–10), 1.008 (11+).
 
 - **Short-term fatigue is real but small.** Users engage about 2% above their norm when they have
   not been seen in the past day and about 2% below it after 5+ impressions; the intervals at the
@@ -323,17 +319,10 @@ docker compose run --rm train "pushpin-compare outputs/ablation-no-llm outputs/a
 
 ### Results
 
-Test day 2019-11-14, all features (including embedding retrieval and the
-click/skip contrast group), with and without the three `llm_*` features:
-
-| Metric | Without LLM (`ablation-no-llm`) | With LLM (`ablation-with-llm`) |
-|--------|---------------------------------|--------------------------------|
-| AUC | 0.7026 (0.700–0.705) | 0.7032 (0.701–0.706) |
-| Group AUC | 0.6757 (0.673–0.679) | 0.6766 (0.673–0.680) |
-| Log loss (calibrated) | 0.1520 | 0.1520 |
-
-The separate CIs overlap, but most of their width is test-set noise the two runs share, so
-`pushpin-compare` scores both on the same resampled impressions (1,000 paired replicates):
+Test day 2019-11-14, all features, with and without the three `llm_*` features: AUC 0.7026 →
+0.7032, group AUC 0.6757 → 0.6766, log loss unchanged (0.1520). The separate CIs overlap, but most
+of their width is test-set noise the runs share, so `pushpin-compare` scores both on the same
+resampled impressions (1,000 paired replicates):
 
 | Metric | With − without | 95% CI | P(no gain) |
 |--------|----------------|--------|------------|
@@ -401,21 +390,9 @@ with the chosen params and `tuning.trials: 0`, so a rerun reproduces the model w
 
 ### Results
 
-One 25-trial Bayesian run (`outputs/tuned`), 16 minutes of search. It picked trial 17:
-
-| Parameter | Config (untuned) | Chosen |
-|-----------|------------------|--------|
-| `max_depth` | 6 | 5 |
-| `min_child_weight` | 5 | 16.5 |
-| `subsample` | 0.8 | 0.90 |
-| `colsample_bytree` | 0.8 | 0.98 |
-| `reg_lambda` | 1 | 0.53 |
-| `reg_alpha` | 0 | 0.25 |
-| `gamma` | 0 | 1.52 |
-| Trees (early stopping) | 438 | 589 |
-| Validation group AUC | 0.6810 | 0.6821 |
-
-The changes go both ways (a weaker L2 penalty and less sampling, but shallower trees, `gamma`
+One 25-trial Bayesian run (`outputs/tuned`), 16 minutes of search. It picked trial 17 (validation
+group AUC 0.6810 → 0.6821, 438 → 589 trees); the chosen values are in the
+[regularization table](model.md#regularization). The changes go both ways (a weaker L2 penalty and less sampling, but shallower trees, `gamma`
 pruning and larger leaves): fewer, sturdier splits with less-shrunk leaf weights
 ([model.md](model.md#regularization) labels each control).
 

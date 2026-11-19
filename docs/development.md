@@ -91,32 +91,22 @@ Docs at <http://localhost:8000/docs>.
 unknown impressions or articles return 404. The send decision uses `configs/objective.yml`; the
 caller enforces the daily cap.
 
-**Monitoring.**
-
-| Question | How |
-|----------|-----|
-| Is it up? | Docker `HEALTHCHECK` on `/health` every 30s; Compose restarts the process if it exits |
-| Erroring or slow? | `pushpin_requests_total{endpoint,status}` and `pushpin_request_seconds` on `/metrics` |
-| Model behaving? | Send/hold counts, `p_click` and novelty histograms, `pushpin_model_info{run}` on `/metrics` |
-| What happened on a request? | One JSON log line per request (`docker compose logs api`) |
-
-A shift in send rate or `p_click` with no change in traffic is the early warning that something
-upstream changed. Accuracy needs real push outcomes logged and joined back.
+**Monitoring.** `/health` (Docker `HEALTHCHECK` every 30 s), Prometheus counters and
+histograms on `/metrics` (requests, latency, send rate, `p_click` and novelty), and one JSON log
+line per request. A shift in send rate or `p_click` with no change in traffic is the early
+warning that something upstream changed.
 
 **Production image.** `scripts/build-api-image.sh ablation-with-llm` bakes one run (~20 MB) into
 `pushpin-api:ablation-with-llm` and smoke-tests it; deploy by tag, roll back by redeploying the
 previous tag.
 
-**Request-time scoring.** The API serves precomputed test-day scores. `pushpin-live-parity
-outputs/<run> --users 100` rescores impressions from each user's earlier events only
-(`src/pushpin/live.py`) and matches batch exactly at ~110 ms per request. `pushpin-nyt-sim
-outputs/ablation-with-llm` uses it to push a week of real NYT articles (`data/nyt-recent.csv`) to
-1,000 MIND users: 918 articles, 4,411 pushes sent (0.63 per user-day), 4.3 ms per request;
-outputs in `outputs/nyt-sim/`. The push job takes `--slot-hours` (e.g. every two hours, 7 to 21),
+**Request-time scoring and the NYT simulation.** The API serves precomputed test-day scores;
+live scoring and its parity check are in [production.md](production.md#live-scoring).
+`pushpin-nyt-sim outputs/ablation-with-llm` pushes a week of real NYT articles
+(`data/nyt-recent.csv`) to 1,000 MIND users (outputs in `outputs/nyt-sim/`). The push job takes `--slot-hours` (e.g. every two hours, 7 to 21),
 `--day-pool` (rank every unpushed article of the day, as the live notifier does) and
 `--keep-top N` (keep each decision's best N candidates plus the slot's newest article); the
 bandit replays `outputs/nyt-sim-8slot`, made that way ([bandit.md](bandit.md#running-it)).
-See [docs/production.md](production.md).
 
 ## Development
 

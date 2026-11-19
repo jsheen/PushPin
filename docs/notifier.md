@@ -163,14 +163,6 @@ Example queries:
 ```bash
 sqlite3 -header -column outputs/notifier/pushes.db \
   "SELECT slot_time, reader_name, round(p_click, 3) AS p_click, label, read, title FROM labeled ORDER BY slot_time DESC LIMIT 20"
-
-# per reader: pushes, opens, open rate, reads
-sqlite3 -header -column outputs/notifier/pushes.db \
-  "SELECT coalesce(reader_name, reader_id) AS reader, count(*) AS pushes, sum(label = 1) AS opens, round(avg(label), 3) AS open_rate, sum(read) AS reads FROM labeled GROUP BY reader_id"
-
-# open rate by predicted P(click) bucket
-sqlite3 outputs/notifier/pushes.db \
-  "SELECT round(p_click, 2) AS bucket, count(*) AS n, avg(label) AS open_rate FROM labeled WHERE label IS NOT NULL GROUP BY bucket"
 ```
 
 The non-pushed candidates are kept too (`is_top = 0`), so the table can also serve as training or

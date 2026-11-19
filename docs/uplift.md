@@ -115,27 +115,18 @@ in practice, but its error is the sum of two models' errors, and nothing correct
   treated rows appear. Likewise `E[T · μ₁(x) / e(x) | x] = μ₁(x)`, which cancels the leading μ₁.
   Same on the control side. The wrong μ's cancel and `E[Y(1) − Y(0) | x] = τ` remains.
 
-When both are a little wrong, the bias is roughly **(error in e) × (error in μ)**: a product, so
-second order. This "orthogonality" (Chernozhukov et al.'s double machine learning) is why
-flexible, imperfect learners like XGBoost can be used for μ without biasing τ̂, as long as they
-are cross-fitted.
+When both are a little wrong, the bias is roughly (error in e) × (error in μ), second order. This
+orthogonality (double machine learning, Chernozhukov et al.) is why flexible learners like
+XGBoost can be used for μ, cross-fitted, without biasing τ̂. **In pushPin, e is known**, so φ is
+unbiased however poor the μ's are (a test checks it with μ = 0.5 everywhere); the μ's buy
+**variance**: DR's standard error is 43% smaller than plain inverse propensity weighting's (IPW,
+φ with μ = 0).
 
-**In pushPin, e is known**, so φ is unbiased however poor the μ's are
-(`test_dr_is_unbiased_when_the_outcome_models_are_wrong` checks this with μ = 0.5 everywhere).
-What the μ's buy is **variance**. Plain inverse propensity weighting (IPW, φ with μ = 0) is also
-unbiased but noisy. Good μ's absorb most of the noise in Y, so the corrections stay small. In the
-benchmark below, DR's standard error is 43% smaller than IPW's on the same data.
-
-**What makes this causal ML, not ML next to causal inference.** Three things together:
-
-1. A causal estimand, τ(x), defined with potential outcomes.
-2. Identification from the design: randomization with logged propensities.
-3. ML confined to the parts that are pure prediction (μ₀, μ₁, the second-stage regression), and
-   combined through an orthogonal score so that prediction errors don't bias the causal answer.
-
-The naive alternative, putting T in the click model as a feature and differencing its predictions
-(an S-learner), uses ML and causal language too. But regularization can shrink T's effect toward
-zero, all of the model's bias flows into τ̂, and there's no valid confidence interval.
+What makes this causal ML: a causal estimand (τ(x), from potential outcomes), identification by
+design (randomization with logged propensities), and ML confined to pure prediction, combined
+through an orthogonal score. The naive alternative, T as a feature in the click model (an
+S-learner), lets regularization shrink T's effect, puts all the model's bias into τ̂, and has no
+valid interval.
 
 ## Heterogeneous effects
 
@@ -177,10 +168,9 @@ argument applied to a policy rather than a feature value. In the sim it's checke
 
 ## Results on the semi-synthetic NYT simulation
 
-**Why semi-synthetic.** No dataset pushPin has observes a no-push outcome. MIND logs only feed
-impressions, and the live system is a single ntfy broadcast with no per-reader holdout. The standard benchmark design in causal ML (as
-with IHDP or ACIC) is to keep **real covariates** and plant a **known outcome model**, then check
-that the method recovers it.
+**Why semi-synthetic.** Nothing pushPin has observes a no-push outcome (MIND logs feed
+impressions; live is one ntfy broadcast). As in the IHDP and ACIC benchmarks, the design keeps
+**real covariates** and plants a **known outcome model**, then checks the method recovers it.
 
 - **Covariates:** the 21,000 top picks of the NYT simulation (1,000 MIND users × 21 slots, Dec
   2–8 2024, `outputs/nyt-sim/pushes.parquet`), with every feature the scorer computed. Ten
@@ -196,9 +186,6 @@ y0(x) = P(return | no push) = p_return
 Y ~ Bernoulli(y0 + T · τ)
 ```
 
-So the push helps readers who wouldn't come back anyway, more when the topic is theirs, and less
-(possibly negatively) after earlier pushes that day.
-
 ![Uplift curves, GATES, and policies at the current budget](uplift.png)
 
 **Average effect.** The true ATE is 0.053 (a push raises the chance of returning by 5.3 points).
@@ -209,10 +196,8 @@ So the push helps readers who wouldn't come back anyway, more when the topic is 
 | IPW (φ with μ = 0) | 0.051 | 0.040 to 0.061 |
 | **DR** | **0.051** | **0.045 to 0.057** |
 
-The naive comparison is 2.6× too large. Eligible picks are sent 80% of the time and ineligible
-ones 10%, and eligible readers are the ones who return anyway (mean `p_return` 0.72 against 0.60
-overall). That's confounding created by the design itself, which is exactly what the logged
-propensity corrects. IPW and DR are both unbiased; DR's interval is 43% narrower.
+The naive comparison is 2.6× too large: eligible picks are sent far more often, and eligible
+readers return anyway (mean `p_return` 0.72 vs 0.60), confounding the logged propensity corrects.
 
 **Heterogeneity (GATES).** The DR effect rises steadily across τ̂ quintiles and tracks the truth:
 
@@ -224,8 +209,7 @@ propensity corrects. IPW and DR are both unbiased; DR's interval is 43% narrower
 | Q4 | 0.065 ± 0.015 | 0.072 |
 | Q5 | 0.092 ± 0.015 | 0.092 |
 
-τ̂ against the true τ, per decision: correlation 0.70 for the DR-learner (RMSE 0.035), 0.68 for
-the T-learner (RMSE 0.040).
+Per decision, τ̂ correlates 0.70 with the true τ (DR-learner) vs 0.68 (T-learner).
 
 **Policies at the current budget** (44,110 pushes each; extra returns per 1,000 pushes):
 
@@ -239,22 +223,17 @@ the T-learner (RMSE 0.040).
 | **DR-learner** | **91** | **88 ± 15** | 0.067 | 0.43 |
 | oracle | 106 | 95 ± 16 | 0.070 | 0.36 |
 
-What this shows:
-
-- **The click policy is worse than random at causing returns.** It concentrates pushes on readers
-  who come back anyway. That isn't an artifact of the planted τ: in the real simulation output,
-  the current policy's pushes go to readers with mean `p_return` 0.72 against 0.60 overall. The
-  planted τ only says that such readers have less to gain.
-- **The DR-learner causes 2.3× as many extra returns as the current policy, with the same number
-  of pushes, at a lower click rate** (0.067 against 0.114). CTR and causal impact point in
-  different directions. That's the core argument for uplift.
-- **Off-policy estimates track the truth** within their intervals for every learned policy, from
-  the log alone. That's what makes it possible to choose a new send policy without a new A/B test.
-  (The oracle's estimate is lower than its true value, within about 1.4 SE.)
-- **The structural prior is nearly as good as the learned models here.** That's partly by
-  construction: the planted τ shares its main term, `1 − p_return`. The learned models add
-  fatigue and interest, which the prior can't see. On real data, where the true τ is unknown,
-  the prior is a sensible first send rule, and the DR-learner is how you find out whether it's right.
+- **The click policy is worse than random at causing returns.** It pushes readers who come back
+  anyway; that part is real (its pushes go to mean `p_return` 0.72 vs 0.60 in the real sim
+  output), and the planted τ only says such readers have less to gain.
+- **The DR-learner causes 2.3× as many extra returns as the current policy** with the same number
+  of pushes, at a lower click rate (0.067 vs 0.114). CTR and causal impact point in different
+  directions, the core argument for uplift.
+- **Off-policy estimates track the truth** within their intervals from the log alone, which is
+  what lets a new send policy be chosen without a new A/B test.
+- **The structural prior `p_click × (1 − p_return)` is nearly as good**, partly by construction
+  (the planted τ shares its main term); on real data it's a sensible first rule, and the
+  DR-learner is how you'd check it.
 
 ## Live data
 

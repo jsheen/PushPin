@@ -5,13 +5,7 @@ How the click model, push objective and send policy are built and how they score
 ## Overview
 
 PushPin predicts whether a reader will click on a given article if it is pushed to them in a
-given time slot, `P(click | user, article, time slot)`. Slots are:
-
-| Slot      | Hours (local) |
-|-----------|---------------|
-| morning   | 05:00–11:59   |
-| afternoon | 12:00–16:59   |
-| evening   | 17:00–04:59   |
+given time slot, `P(click | user, article, time slot)`. Slots are morning (05:00–11:59), afternoon (12:00–16:59) and evening (17:00–04:59), local time.
 
 The model is an XGBoost
 classifier trained on the [Microsoft News Dataset (MIND)](https://msnews.github.io/), with
@@ -95,25 +89,19 @@ overfitting in other ways, so they are labeled by mechanism:
 
 | Control | Untuned → tuned | Type | How it is applied |
 |---------|-----------------|------|-------------------|
-| `reg_lambda` (λ) | 1 → 0.53 | **L2** | Adds ½·λ·w² per leaf. Each leaf weight becomes −G / (H + λ) (G, H: sums of the loss gradients and hessians in the leaf), so larger λ shrinks every weight toward zero. Leaves backed by little evidence (small H) shrink most |
-| `reg_alpha` (α) | 0 → 0.25 | **L1** | Adds α·\|w\| per leaf. The gradient sum is soft-thresholded before the weight is computed: −sign(G)·max(\|G\| − α, 0) / (H + λ). Leaves whose \|G\| is below α get weight exactly zero |
-| `gamma` (γ) | 0 → 1.52 | Neither: per-leaf cost (L0-style, counts leaves) | Adds γ per leaf. A split is kept only if its loss reduction exceeds γ, so weak splits are pruned |
-| `min_child_weight` | 5 → 16.5 | Neither: minimum leaf size | A split is not made if either child's hessian sum is below this. At a 3.8% click rate each row contributes about p(1 − p) ≈ 0.037, so 5 is roughly 135 rows and 16.5 roughly 450 |
-| `max_depth` | 6 → 5 | Neither: structural limit | Caps a tree's depth, and so how many features one tree can combine |
-| `subsample` | 0.8 → 0.90 | Neither: stochastic (row sampling) | Each tree sees a random share of the training rows |
-| `colsample_bytree` | 0.8 → 0.98 | Neither: stochastic (feature sampling) | Each tree sees a random share of the features |
-| `learning_rate` | 0.05 (fixed) | Neither: shrinkage | Each tree's output is scaled by 0.05 before it is added, so no single tree dominates |
-| Early stopping | 50 rounds (fixed) | Neither: stopping rule | Training stops once validation AUC hasn't improved for 50 trees; the best iteration is kept (438 untuned, 589 tuned) |
+| `reg_lambda` (λ) | 1 → 0.53 | **L2** | Leaf weight = −G / (H + λ): larger λ shrinks every weight, most where evidence (H) is thin |
+| `reg_alpha` (α) | 0 → 0.25 | **L1** | Soft-thresholds G by α, so weak leaves get weight exactly zero |
+| `gamma` (γ) | 0 → 1.52 | Per-leaf cost (L0-style) | A split is kept only if it reduces the loss by more than γ |
+| `min_child_weight` | 5 → 16.5 | Minimum leaf size | Hessian sum per child, ≈ 135 → 450 rows at a 3.8% click rate |
+| `max_depth` | 6 → 5 | Structural limit | How many features one tree can combine |
+| `subsample`, `colsample_bytree` | 0.8 → 0.90, 0.8 → 0.98 | Stochastic | Each tree sees a random share of rows / features |
+| `learning_rate` | 0.05 (fixed) | Shrinkage | Each tree's output is scaled down before it's added |
+| Early stopping | 50 rounds (fixed) | Stopping rule | Best iteration kept (438 untuned, 589 tuned) |
 
-The untuned model set no explicit penalties. It ran on XGBoost's defaults (λ = 1, α = 0,
-γ = 0), now written out in `configs/train.yml`. Tuning moved the model in both directions:
-
-- **Weaker** L2 penalty and less row and column sampling.
-- **Stronger** structural limits: shallower trees, splits pruned by γ, larger minimum leaves,
-  plus a small L1 penalty.
-
-The net effect is fewer, sturdier splits whose leaf weights are shrunk less. See
-[analysis.md](analysis.md#hyperparameter-tuning) for which of these the search found to matter.
+The untuned model ran on XGBoost's defaults (λ = 1, α = 0, γ = 0), now written out in
+`configs/train.yml`. Tuning went both ways (weaker L2 and less sampling, but shallower trees,
+γ pruning, larger leaves and a small L1 penalty): fewer, sturdier splits with less-shrunk leaf
+weights ([analysis.md](analysis.md#hyperparameter-tuning)).
 
 ### Hyperparameter tuning
 
@@ -145,17 +133,9 @@ Test day 2019-11-14 (1.22M candidates, 30,270 impressions), 95% CIs:
 | `ablation-no-llm` (all features but LLM) | 0.7026 (0.700–0.705) | 0.6757 (0.673–0.679) |
 | `ablation-with-llm` (all features) | **0.7032** (0.701–0.706) | **0.6766** (0.673–0.680) |
 
-Adding recency and user depth lifts AUC by 0.01; `article_age_hours` ranks third by gain. For the
-LLM features, `pushpin-compare` scores both runs on the same resampled impressions, so its CI is
-for the difference (1,000 paired replicates):
-
-| Metric | With − without LLM | 95% CI | P(no gain) |
-|--------|--------------------|--------|------------|
-| AUC | +0.0006 | −0.0000 to +0.0013 | 0.027 |
-| Group AUC | +0.0009 | −0.0003 to +0.0021 | 0.082 |
-
-The LLM themes add at most about a thousandth of AUC: borderline for AUC, not significant for
-group AUC. They rank 23rd, 24th and 27th of 30 by gain, well behind `emb_sim_clicked_max` and
+Adding recency and user depth lifts AUC by 0.01; `article_age_hours` ranks third by gain. The LLM
+features add +0.0006 AUC (paired 95% CI −0.0000 to +0.0013) and +0.0009 group AUC (not
+significant): at most about a thousandth. They rank 23rd, 24th and 27th of 30 by gain, well behind `emb_sim_clicked_max` and
 `emb_contrast`, which already use the same clicked/skipped evidence. Details in
 [docs/analysis.md](analysis.md#llm-reader-profiles).
 
