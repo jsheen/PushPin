@@ -7,8 +7,8 @@ conditional average treatment effect
 
     tau(x) = E[Y(1) - Y(0) | X = x]
 
-Only one of Y(1), Y(0) is ever seen, so tau is identified from a randomized design: the notifier
-holds out a share of eligible pushes (and can explore a share of ineligible ones), logging the
+Only one of Y(1), Y(0) is ever seen, so tau is identified from a randomized design: hold out
+a share of eligible pushes (and can explore a share of ineligible ones), logging the
 known probability e(x) of sending each. With that log, the DR-learner (Kennedy) estimates tau:
 
   1. Cross-fitting by reader: on each fold's complement, fit outcome models mu1(x) = E[Y | x, T=1]
@@ -20,14 +20,13 @@ known probability e(x) of sending each. With that log, the DR-learner (Kennedy) 
   3. Regress phi on x (a small, regularized XGBoost, also cross-fitted): tau_hat(x), the
      heterogeneous effect. GATES (DR effect within quintiles of tau_hat) checks it is real.
 
-Two data sources:
-  - sim (default): a semi-synthetic benchmark. Real features from the NYT simulation's top picks
-    (outputs/nyt-sim/pushes.parquet), but outcomes drawn from a planted, known tau(x), with the
-    same randomized design as the notifier. Because the truth is known, it checks that the
-    estimator recovers tau and that policies chosen by tau_hat really cause more returns.
-  - live (--live): the notifier's database, outcome = an app session within `outcome_hours`.
+Data: a semi-synthetic benchmark. Real features from the NYT simulation's top picks
+(outputs/nyt-sim/pushes.parquet), but outcomes drawn from a planted, known tau(x), with a
+randomized holdout design. Because the truth is known, it checks that the estimator recovers tau
+and that policies chosen by tau_hat really cause more returns. (A live mode read app sessions
+from the iOS app's per-reader pushes; it went with the app.)
 
-Writes <out_dir>/<sim|live>/: summary.json, gates.csv, policies.csv, uplift.png (sim), rows.parquet.
+Writes <out_dir>/sim/: summary.json, gates.csv, policies.csv, qini.csv, uplift.png, rows.parquet.
 """
 
 import argparse
@@ -240,26 +239,6 @@ def load_picks(sim_dir: Path) -> pd.DataFrame:
     return pd.read_parquet(sim_dir / "pushes.parquet").sort_values(["slot_time", "user_id"]).reset_index(drop=True)
 
 
-def live_rows(db: str, outcome_hours: float) -> pd.DataFrame:
-    """The randomized pushes in the notifier's database, with their outcome (see Store.uplift_rows)."""
-    from zoneinfo import ZoneInfo
-
-    from pushpin.store import Store  # imported here so the sim needs no database
-
-    store = Store(db, click_window_hours=24, tz=ZoneInfo("America/New_York"))
-    df = store.uplift_rows(outcome_hours)
-    store.engine.dispose()
-    if df.empty:
-        return df
-    df["slot_time"] = pd.to_datetime(df["slot_time"])
-    df["reader"] = df["user_id"] = df["for_reader"]
-    df["hour"] = df["slot_time"].dt.hour
-    df["treated"] = df["treated"].astype(int)
-    df["eligible"] = df["eligible"].astype(bool)
-    df["pushes_today"] = pushes_today(df)
-    return df
-
-
 # --- runs -----------------------------------------------------------------------------------------
 
 def run_sim(cfg: dict, out: Path) -> dict:
@@ -286,29 +265,6 @@ def run_sim(cfg: dict, out: Path) -> dict:
     return summary
 
 
-def run_live(cfg: dict, out: Path) -> dict:
-    live = cfg["live"]
-    df = live_rows(live["db"], live["outcome_hours"])
-    if df.empty:
-        raise SystemExit(f"no randomized pushes with a closed outcome window in {live['db']} yet")
-    summary = {"source": f"live: {live['db']}", "rows": len(df), "readers": int(df["reader"].nunique()),
-               "treated_share": float(df["treated"].mean()), "outcome_hours": live["outcome_hours"]}
-    arms_ok = df["treated"].nunique() == 2 and df.groupby("treated")["y"].nunique().min() == 2
-    if len(df) >= live["min_rows_dr"] and arms_ok and df["user_id"].nunique() >= cfg["folds"]:
-        df = cross_fit(df, cfg, cfg["seed"])
-        summary["average_effect"] = average_effects(df)
-        if len(df) >= live["min_rows_cate"]:
-            groups = gates(df)
-            write(out, df, summary, groups, evaluate_policies(df, cfg["daily_cap"], cfg["seed"]))
-            return summary
-    else:  # too few rows (or readers) to fit outcome models: IPW only
-        y, t, e = df["y"].to_numpy(), df["treated"].to_numpy(), df["propensity"].to_numpy()
-        est, se = cluster_mean(dr_pseudo_outcome(y, t, e, 0.0, 0.0), df["reader"])
-        summary["average_effect"] = {"ipw": {"estimate": est, "se": se, "ci95": [est - 1.96 * se, est + 1.96 * se]}}
-    write(out, df, summary)
-    return summary
-
-
 def write(out: Path, df: pd.DataFrame, summary: dict, groups: pd.DataFrame | None = None,
           policies: pd.DataFrame | None = None) -> None:
     out.mkdir(parents=True, exist_ok=True)
@@ -328,15 +284,11 @@ def write(out: Path, df: pd.DataFrame, summary: dict, groups: pd.DataFrame | Non
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--config", default="configs/uplift.yml")
-    parser.add_argument("--live", action="store_true", help="fit on the notifier's database instead of the sim")
-    parser.add_argument("--db", help="overrides live.db (a SQLite path or a Postgres URL)")
     args = parser.parse_args()
     with open(args.config) as f:
         cfg = yaml.safe_load(f)
-    if args.db:
-        cfg["live"]["db"] = args.db
-    out = Path(cfg["out_dir"]) / ("live" if args.live else "sim")
-    (run_live if args.live else run_sim)(cfg, out)
+    out = Path(cfg["out_dir"]) / "sim"
+    run_sim(cfg, out)
     print(f"written to {out}")
 
 

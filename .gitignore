@@ -10,6 +10,6 @@ outputs/*
 !outputs/.gitkeep
 .DS_Store
 
-# Apple keys (APNs .p8) for the iOS app
+# private keys (none in use; kept so one is never committed by accident)
 secrets/
 *.p8

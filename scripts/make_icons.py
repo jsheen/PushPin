@@ -2,8 +2,8 @@
 
     uv run --no-project --with pillow python scripts/make_icons.py
 
-Writes the web icons (served by the card server) to src/pushpin/assets/ and the iOS app icon to
-ios/PushPin/Assets.xcassets/AppIcon.appiconset/. Drawn at 4x and scaled down for smooth edges.
+Writes the web icons (served by the card server) to src/pushpin/assets/. Drawn at 4x and scaled
+down for smooth edges.
 """
 from pathlib import Path
 
@@ -43,8 +43,6 @@ def main() -> None:
     pin(64).save(assets / "favicon.png")
     pin(180, CREAM, scale=0.82).save(assets / "apple-touch-icon.png")   # home screen: iOS adds the rounded corners
     pin(192).save(assets / "icon.png")                                  # ntfy's notification icon (Android)
-    app = ROOT / "ios" / "PushPin" / "Assets.xcassets" / "AppIcon.appiconset"
-    pin(1024, CREAM, scale=0.82).convert("RGB").save(app / "AppIcon.png")  # App Store icons have no transparency
     print("icons written")
 
 

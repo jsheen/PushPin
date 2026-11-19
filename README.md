@@ -12,8 +12,8 @@ embeddings in a [Chroma](https://www.trychroma.com/) vector database, and Claude
 profiles. A push objective then trades engagement against novelty, and a send policy holds back
 pushes for readers at risk of opting out.
 
-Personalization works at two levels. The XGBoost model chooses which article each reader gets,
-and the reader chooses how many pushes they get a day (light, medium or heavy).
+The XGBoost model chooses which article each reader gets, and the send policy decides whether
+to push it, so how many pushes a reader gets a day is the policy's call, not a setting.
 
 ## Results
 
@@ -39,8 +39,8 @@ Details: [docs/model.md](docs/model.md) and [docs/analysis.md](docs/analysis.md)
 
 ## Real pushes
 
-The notifier scores live NYT RSS articles and pushes to phones through [ntfy](https://ntfy.sh)
-or the iOS app. Readers choose a volume: light (2 a day: morning, night), medium (4) or heavy (8).
+The notifier scores live NYT RSS articles every two hours (9 to 19) and pushes to phones through
+[ntfy](https://ntfy.sh) when the top article clears the send policy.
 Tapping a push opens the reader's profile. The first 3 articles they read each day make a small
 papier-mâché word art (a snowman, a heart, a dinosaur...) out of the articles' titles and
 abstracts. Tapping one turns it into a sticker to share in any chat. Everyone gets the same shape
@@ -53,8 +53,8 @@ GCP for about $1/month.
 | Arm | Pushes | Papier-mâché |
 |-----|--------|-----------|
 | A | NYT-style: many a day, same for everyone | — |
-| B | Selective: reader-chosen volume, model-picked | Off |
-| C | Selective: reader-chosen volume, model-picked | On |
+| B | Selective: model-picked, sent only when it clears the send policy | Off |
+| C | Selective: model-picked, sent only when it clears the send policy | On |
 
 A vs. B tests selective pushing; B vs. C tests the papier-mâché pictures. Each reader is assigned to an arm
 by a fixed rule (a hash of their id), and the outcomes are clicks per reader-day, return rate and
@@ -80,11 +80,11 @@ docker compose up -d scorer notifier cards tunnel   # real pushes (NTFY_TOPIC in
 | [model.md](docs/model.md) | Pipeline, features, evaluation, objective and send policy |
 | [analysis.md](docs/analysis.md) | Calibration, return model, exploration, fatigue, LLM ablation, hyperparameter tuning |
 | [development.md](docs/development.md) | Setup, API, tests, CI, outputs |
-| [notifier.md](docs/notifier.md) | Real pushes, cards, push volume, database |
+| [notifier.md](docs/notifier.md) | Real pushes, cards, how many pushes, database |
 | [ab-test.md](docs/ab-test.md) | The proposed A/B test and its analysis |
 | [uplift.md](docs/uplift.md) | Causal ML: doubly robust estimates of what a push causes, per reader (potential outcomes, randomized holdout, DR-learner, GATES, off-policy evaluation) |
 | [deploy-gcp.md](docs/deploy-gcp.md), [production.md](docs/production.md) | Cloud deployment |
-| [ios-app.md](docs/ios-app.md), [live-scoring.md](docs/live-scoring.md) | iOS backend; request-time scoring |
+| [live-scoring.md](docs/live-scoring.md) | Request-time scoring |
 | [demo-screens.md](docs/demo-screens.md) | What the phone shows: push, tapped push, demo profile, sharing a picture |
 
 ## Status and contact

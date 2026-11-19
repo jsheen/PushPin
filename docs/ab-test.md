@@ -1,15 +1,15 @@
 # Proposed A/B test
 
 The NYT's own push strategy appears to send many pushes a day to everyone. PushPin is more
-selective: readers opt in to a number of pushes a day (light 2, medium 4, heavy 8, spread over the
-day; see [notifier.md](notifier.md#push-volume)), and the model picks which articles fill those
-slots. The test compares three arms:
+selective: the model picks an article every two hours and the send policy pushes it only when
+it's worth it, at most a few a day (see [notifier.md](notifier.md#how-many-pushes)). Readers
+don't choose a number. The test compares three arms:
 
 | Arm | Pushes | Papier-mâché (daily pictures) |
 |-----|--------|--------------------------|
 | A | NYT-style: many a day, same for everyone | — |
-| B | Selective: the reader's chosen volume, model-picked | Off |
-| C | Selective: the reader's chosen volume, model-picked | On |
+| B | Selective: model-picked, sent only when it clears the send policy | Off |
+| C | Selective: model-picked, sent only when it clears the send policy | On |
 
 A vs. B tests the selective strategy; B vs. C tests whether the pictures add engagement on top
 of it.
@@ -26,7 +26,7 @@ every change is logged), so the server knows who saw the pictures. `/demo` is ou
 From the interactions table:
 
 - **Clicks per reader per day**: total engagement.
-- **Opt-outs and lowered push volume**: the risk the send policy manages.
+- **Opt-outs** (notifications turned off): the risk the send policy manages.
 - **Return rate**: days with at least one read.
 - **Click-through per push**: reported, but not on its own. Arm A sends far more pushes, so its
   per-push CTR looks worse even with good targeting.
@@ -56,14 +56,14 @@ Rough numbers to detect a 20% relative lift in CTR (8% → 9.6%), two-sided α =
 | Step | Value |
 |------|-------|
 | Pushes per arm if pushes were independent | ≈ 4,900 |
-| Pushes per light reader over 4 weeks | ≈ 56 (2 a day) |
+| Pushes per reader over 4 weeks | ≈ 56 (at the cap of 2 a day) |
 | Within-reader correlation (ICC, assumed) | 0.05 |
 | Design effect, 1 + (56 − 1) × 0.05 | ≈ 3.75 |
 | Pushes per arm, adjusted | ≈ 18,400 |
 | Readers per arm | ≈ 330 |
 | Readers in total (3 arms) | ≈ 1,000 |
 
-Medium and heavy readers get more pushes, which lowers this somewhat; the ICC is a guess until
+Quiet days send fewer than the cap, which raises this somewhat; the ICC is a guess until
 real data gives one. With 10 readers per arm, only a difference of about 9 points (CTR roughly
 doubling) would be detectable. So with a class-sized group this is a pilot: it shows the
 experiment runs end to end and what the readout looks like, not a conclusive result.

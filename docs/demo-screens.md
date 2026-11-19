@@ -17,15 +17,15 @@ The PushPin icon, the headline as the title and the abstract as the body.
 Tapping a push opens `/p/<push_id>`, which records the open (the click the model learns from) and
 shows the article pinned on top of the reader's profile. **Read** opens it on nytimes.com. Below
 are **Pinned** (tapped but not read yet), **Read** with the count, daily streak and
-the day's pictures (section 3), and pushes a day. This sample reader, set up on a copy of the
+the day's pictures (section 3). This sample reader, set up on a copy of the
 database, has read 6 of the 10 pushes they opened that day.
 
 <img src="screens/push-tapped.png" width="300" alt="Pinning a push: the pinned article with a Read button, then the reader's profile">
 
 ## 3. The demo profile
 
-`/demo` is a made-up Medium reader's profile, as if they'd just tapped today's push: 63 reads over
-18 days with invented titles and abstracts, Pinned, Read and pushes a day. Its buttons only change
+`/demo` is a made-up reader's profile, as if they'd just tapped today's push: 63 reads over
+18 days with invented titles and abstracts, Pinned and Read. Its buttons only change
 the page, and it stores nothing. A profile is only ever seen by its reader; there's no public page.
 
 <img src="screens/demo-owner.png" width="300" alt="Demo profile: today's pinned push with Read, Pinned, Read with Today's read 2 of 3 and a grid of daily word art (newest first), pushes a day">
@@ -52,10 +52,8 @@ the image, and **Save** saves it (on a phone, through the share sheet's Save Ima
 
 ## Before the first push: the welcome page
 
-The welcome push opens `/start`, where the reader picks how many pushes a day, then goes on to the
-profile.
-
-<img src="screens/welcome.png" width="300" alt="Welcome page: How many pushes a day? Light up to 2, Medium up to 4, Heavy up to 8">
+The welcome push opens `/start`, a short page about PushPin that links on to the profile. (Its
+screenshot, of the old page with the Light / Medium / Heavy choice, was removed with the choice.)
 
 ## Regenerating these
 

@@ -6,7 +6,7 @@ replicates: 10               # copies of the 1,000 simulated readers, each with 
 folds: 5                     # cross-fitting folds, grouped by reader
 daily_cap: 2                 # pushes per reader per day when comparing policies (as in objective.yml)
 
-# Randomized design (the notifier uses the same rule; see configs/notifier.yml)
+# Randomized design
 design:
   holdout: 0.2               # eligible picks (pass the click policy, under the cap) are withheld with this probability
   explore: 0.1               # ineligible picks are sent with this probability (positivity everywhere)
@@ -32,9 +32,3 @@ effect_model:                # the DR-learner's second stage: regress phi on x (
   min_child_weight: 200
   subsample: 0.8
   reg_lambda: 10
-
-live:
-  db: outputs/notifier/pushes.db
-  outcome_hours: 3           # outcome = an app session within this long after the slot (shorter than the gap between slots)
-  min_rows_dr: 200           # below this, IPW only (too few rows to fit outcome models)
-  min_rows_cate: 2000        # below this, the average effect only (no tau_hat, GATES or policies)

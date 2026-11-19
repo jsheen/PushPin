@@ -1,13 +1,10 @@
-"""Uplift: the DR estimator, the randomized design, the semi-synthetic benchmark, and live logging."""
+"""Uplift: the DR estimator, the randomized design and the semi-synthetic benchmark."""
 import numpy as np
 import pandas as pd
 import pytest
 
-from pushpin import notifier as nt
 from pushpin import uplift as up
-from pushpin.uplift_design import assignment_draw, propensity, pushes_today
-from tests.test_app_api import FakeApns, api, app_reader  # noqa: F401 -- fixtures
-from tests.test_notifier import setup  # noqa: F401 -- the notifier + store fixture
+from pushpin.uplift_design import propensity, pushes_today
 
 SMALL_CFG = {
     "replicates": 2, "folds": 3, "seed": 1, "daily_cap": 2,
@@ -54,10 +51,7 @@ def test_cluster_mean_widens_for_correlated_rows():
     assert se_readers == pytest.approx(se_rows * np.sqrt(10), rel=0.1)
 
 
-def test_design_is_reproducible_and_uniform():
-    assert assignment_draw("abc") == assignment_draw("abc")
-    draws = np.array([assignment_draw(f"p{i}") for i in range(20_000)])
-    assert 0 <= draws.min() and draws.max() < 1 and draws.mean() == pytest.approx(0.5, abs=0.01)
+def test_propensity_by_design():
     assert propensity(np.array([True, False]), 0.2, 0.1).tolist() == [0.8, 0.1]
 
 
@@ -101,44 +95,3 @@ def test_semi_synthetic_benchmark_recovers_the_planted_effect():
     assert policies["pushes"].nunique() == 1  # same budget for every policy
     true = policies["true_effect_per_1000"]
     assert true["oracle"] >= true["DR-learner"] > true["current (click threshold)"]
-
-
-def test_held_out_push_is_logged_not_sent_and_not_offered_again(setup, monkeypatch):  # noqa: F811
-    n, store, _sent, db = setup
-    n.cfg |= {"holdout": 0.2, "explore": 0.0, "volume_caps": {"light": 1, "medium": 2, "heavy": 4}}
-    reader = app_reader(store, "u", "ee" * 32)
-    n.apns = FakeApns({})
-    monkeypatch.setattr(nt, "assignment_draw", lambda push_id: 0.9)  # >= 0.8: withheld
-    first = n.run_slot(pd.Timestamp("2026-11-12 12:00"))["readers"][0]
-    assert first["held_out"] and not first["sent"] and n.apns.sent == []
-    top = db("SELECT * FROM scores WHERE is_top AND for_reader = :r", r=reader).iloc[0]
-    assert bool(top["eligible"]) and bool(top["held_out"]) and not bool(top["treated"])
-    assert top["propensity"] == pytest.approx(0.8) and top["decided_ts"] > 0
-    assert store.sent_on("2026-11-12", reader) == 0  # withheld pushes don't use up the cap
-    assert top["news_id"] in store.pushed_ids(reader)  # the control article isn't pushed later
-
-    # the broadcast is never randomized
-    broadcast = db("SELECT * FROM scores WHERE is_top AND for_reader IS NULL").iloc[0]
-    assert broadcast["propensity"] in (0.0, 1.0) and not bool(broadcast["held_out"])
-
-    # outcome: an app session inside the window after the decision
-    monkeypatch.setattr(nt, "assignment_draw", lambda push_id: 0.1)  # sent
-    second = n.run_slot(pd.Timestamp("2026-11-12 17:00"))["readers"][0]
-    assert second["sent"] and len(n.apns.sent) == 1
-    decided = db("SELECT decided_ts FROM scores WHERE is_top AND for_reader = :r ORDER BY decided_ts", r=reader)
-    store.add_session(reader, ts=int(decided["decided_ts"].iloc[0]) + 600)
-    rows = store.uplift_rows(outcome_hours=3, now=int(decided["decided_ts"].max()) + 4 * 3600)
-    assert len(rows) == 2 and sorted(rows["treated"].astype(bool)) == [False, True]
-    assert rows["y"].tolist() == [1, 1]  # both decisions share the same session window here
-    assert store.uplift_rows(outcome_hours=3, now=int(decided["decided_ts"].max())).empty  # windows still open
-
-
-def test_app_reports_sessions(api):  # noqa: F811
-    _n, store, _sent, call = api
-    session = call("POST", "/auth/apple", {"identity_token": "apple:s1"})[1]["session"]
-    assert call("POST", "/session", {"source": "app"})[0] == 401
-    assert call("POST", "/session", {"source": "app"}, session=session) == (200, {"ok": True})
-    rows = store._rows("SELECT reader_id, source FROM sessions")
-    assert len(rows) == 1 and rows[0]["source"] == "app"
-    reader = rows[0]["reader_id"]
-    assert store.delete_reader(reader) and store._rows("SELECT * FROM sessions") == []

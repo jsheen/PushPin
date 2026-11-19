@@ -15,9 +15,9 @@ The first push a phone opens, or the /start page (linked from the welcome push,
 does is stored under it. What they do on NYT isn't tracked.
 
 /me is the same profile without a pinned article: the articles they pinned but haven't read yet
-(tap to read, × to delete), how many articles they've read (tapped Read on) with the list (×
-deletes one) and how many pushes a day they want (light, medium or heavy). Only the reader sees
-their profile: there's no public page.
+(tap to read, × to delete) and how many articles they've read (tapped Read on) with the list (×
+deletes one). How many pushes a reader gets is the send policy's decision, not a setting. Only
+the reader sees their profile: there's no public page.
 """
 
 import argparse
@@ -33,11 +33,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-import jwt
 import yaml
 
-from pushpin import apple
-from pushpin.store import DEFAULT_VOLUME, VOLUMES, Store
+from pushpin.store import Store
 
 # the red pushpin (scripts/make_icons.py): browser tab, home screen, ntfy's notification icon
 ASSETS = Path(__file__).parent / "assets"
@@ -68,10 +66,6 @@ border-radius:8px;background:var(--bg);color:var(--fg)}.who button{font:inherit;
 border-radius:8px;background:var(--btn);color:var(--fg)}
 .list{padding:0;margin:0}.list li{list-style:none;padding:12px 0;border-bottom:1px solid var(--line)}
 .list .meta{font-size:13px;color:var(--muted);margin-top:2px}
-.volume{margin:0 0 20px;padding:14px;border:1px solid var(--line);border-radius:12px}
-.volume p{margin:0 0 4px;font-weight:600}.volume .hint{font-weight:400;font-size:14px;color:var(--muted)}
-.volume .row button[aria-pressed=true]{background:var(--fg);color:var(--bg)}
-.volume .row button small{display:block;font-weight:400;font-size:13px;opacity:.75}
 .profile header{margin-bottom:40px}.profile h1{margin:0 0 4px}.pinmark{height:1.15em;width:auto;vertical-align:-.22em;margin-left:.05em}
 .pm{display:inline-flex;align-items:center;gap:7px;font:600 11px/1 -apple-system,system-ui,sans-serif;letter-spacing:.07em;
 text-transform:uppercase;color:var(--muted);background:none;border:0;padding:6px 0;cursor:pointer;transition:color .25s ease}
@@ -111,19 +105,9 @@ box-sizing:border-box;box-shadow:0 24px 80px rgba(0,0,0,.35)}.sharecard::backdro
 .profile .readhead h2{margin:0}
 .note{font-size:14px;color:var(--on);min-height:1em;margin:0 0 8px}
 .pin{margin:0 0 40px}.pin .headline{font:700 26px/1.2 Georgia,"Times New Roman",serif;margin:6px 0 12px}
-.profile .volume{margin:24px 0 0}
 </style></head><body><main>%BODY%</main></body></html>"""
 
 OWNER_SCRIPT = """<script>
-document.querySelectorAll("button[data-volume]").forEach(b => b.addEventListener("click", async () => {
-  const r = await fetch("/volume", {method: "POST", body: b.dataset.volume}).catch(() => null);
-  if (!r || !r.ok) return;
-  document.querySelectorAll("button[data-volume]").forEach(x => x.setAttribute("aria-pressed", x === b));
-  // welcome page: show the choice for half a second, then on to the profile
-  if (location.pathname === "/start") return setTimeout(() => location.assign("/me"), 500);
-  const hint = document.querySelector(".volume .hint");
-  if (hint) hint.textContent = "Saved. You can change it on your profile.";
-}));
 const who = document.querySelector(".who");
 if (who) who.addEventListener("submit", async ev => {
   ev.preventDefault();
@@ -138,28 +122,13 @@ def page(body: str) -> str:
     return PAGE.replace("%BODY%", body)
 
 
-VOLUME_LABELS = {"light": ("Light", "up to 2"), "medium": ("Medium", "up to 4"), "heavy": ("Heavy", "up to 8")}
-
-
-def volume_picker(current: str | None, caps: dict | None = None, ask: bool = False) -> str:
-    """Light / medium / heavy buttons, the reader's choice pressed (medium until they choose).
-    `ask`: as a question, with a hint (the welcome page); nothing pressed, all three grey."""
-    e = html.escape
-    current = None if ask else current or DEFAULT_VOLUME
-    buttons = "".join(
-        f'<button data-volume="{v}" aria-pressed="{"true" if v == current else "false"}">{e(VOLUME_LABELS[v][0])}'
-        f'<small>{e(f"up to {caps[v]}" if caps else VOLUME_LABELS[v][1])}</small></button>' for v in VOLUMES)
-    if not ask:
-        return f'<div class="volume"><p>Pushes a day</p><div class="row">{buttons}</div></div>'
-    return (f'<div class="volume"><p>How many pushes a day?</p><div class="hint">Only sent when there\'s '
-            f'a story worth it, so some days get fewer. You can always change it later.</div><div class="row">{buttons}</div></div>')
-
-
-def start_page(reader: dict | None, caps: dict | None = None) -> str:
-    """The welcome push's page: pick how many pushes a day, before the first real one."""
-    return page(f"""<h1>PushPin</h1><p class="abstract">A few NYT stories a day, picked for you. Tap a
+def start_page(reader: dict | None) -> str:
+    """The welcome push's page: what PushPin does, before the first real push."""
+    return page("""<h1>PushPin</h1><p class="abstract">A few NYT stories a day, picked for you. Tap a
 push to pin it, then read it; that's how it learns what you like.</p>
-{volume_picker(None, caps, ask=True)}{OWNER_SCRIPT}""")
+<p class="abstract">Pushes come only when there's a story worth it, so some days get more and some
+fewer. If they're too many, turn notifications off; PushPin learns from that too.</p>
+<p class="foot"><a href="/me">Your profile</a></p>""")
 
 
 PROFILE_SCRIPT = """<script>
@@ -182,8 +151,6 @@ addEventListener("pageshow", ev => { if (ev.persisted) location.reload(); });  /
 
 # The demo's owner view: its buttons change the page only (nothing is sent, so no real reader changes)
 INERT_SCRIPT = """<script>
-document.querySelectorAll("button[data-volume]").forEach(b => b.addEventListener("click", () =>
-  document.querySelectorAll("button[data-volume]").forEach(x => x.setAttribute("aria-pressed", x === b))));
 // ×: gone from the list; a read one leaves its day's art too, so the pictures redraw
 document.querySelectorAll("button[data-del]").forEach(b => b.addEventListener("click", () => {
   const li = b.closest("li"), day = li.dataset.day, wasRead = !li.querySelector("a[data-read]"), title = li.querySelector("a").textContent;
@@ -225,10 +192,10 @@ def pin_panel(push: dict) -> str:
 
 
 def profile_page(reader: dict, read: list[dict], today: date | None = None, pinned: dict | None = None,
-                 caps: dict | None = None, unread: list[dict] | None = None, inert: bool = False) -> str:
+                 unread: list[dict] | None = None, inert: bool = False) -> str:
     """A reader's own profile (/me, or /p/<push_id> with that push's article `pinned` on top): the
     articles pinned but not read yet (`unread`: tap one to read it), the articles read, the delete
-    buttons and pushes a day. Only the reader sees it: there's no public page. Article links go
+    buttons. Only the reader sees it: there's no public page. Article links go
     straight to NYT. `inert`: the demo's, whose buttons only change the page and never reach the server."""
     e = html.escape
     name = reader.get("name")
@@ -270,8 +237,7 @@ def profile_page(reader: dict, read: list[dict], today: date | None = None, pinn
     articles = (f'<div class="readpanel">{head}{today_art}{hint}{lists}'
                 f'{gallery}</div>' if read
                 else '<h2>Read</h2><p class="empty">Nothing yet. Tap Read on a push to start.</p>')
-    bottom = (f'{articles}<p class="note" aria-live="polite"></p>'
-              + volume_picker(reader.get("volume"), caps))  # always at the bottom
+    bottom = f'{articles}<p class="note" aria-live="polite"></p>'
 
     whose = f"{e(name)}’s" if name else "Your"
     title = f'{whose} {PIN_MARK}'  # "Justin’s 📌", with our pin standing in for the word PushPin
@@ -982,11 +948,11 @@ def demo_data() -> list[dict]:
     return read
 
 
-def demo_page(caps: dict | None = None) -> str:
+def demo_page() -> str:
     """The demo reader's profile, as if they'd just tapped today's third push: it pinned on top,
-    then Pinned, Read with the pictures and pushes a day. The buttons only change the page."""
-    return profile_page({"name": "Justin", "volume": "medium"}, demo_data(), today=date(2026, 10, 29),
-                        pinned=DEMO_PIN, unread=DEMO_PINNED, caps=caps, inert=True)
+    then Pinned and Read with the pictures. The buttons only change the page."""
+    return profile_page({"name": "Justin"}, demo_data(), today=date(2026, 10, 29),
+                        pinned=DEMO_PIN, unread=DEMO_PINNED, inert=True)
 
 
 # today's third push, just tapped (pinned, not read yet: reading it would finish Oct 29's picture);
@@ -1082,51 +1048,26 @@ PIN_MARK = '<img class="pinmark" src="/icon.png" alt="PushPin">'
 COOKIE = "pushpin_reader"
 
 
-def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None = None,
-                verify_apple=None) -> ThreadingHTTPServer:
+def serve_cards(store: Store, port: int, block: bool = False) -> ThreadingHTTPServer:
     """The phone-facing endpoints. The reader is identified by the `pushpin_reader` cookie.
-    `caps` maps each volume to its daily cap (configs/notifier.yml), shown on the buttons.
 
       GET  /p/<push_id>        pins the push: records the open (creating the reader on first visit)
                                and shows their profile with its article on top, with Read
       POST /read/<push_id>     Read was tapped on it (sent as a beacon; the link itself goes to NYT)
-      GET  /start              the welcome page: choose light / medium / heavy (creates the reader)
-      POST /volume             body "light", "medium" or "heavy": pushes a day
+      GET  /start              the welcome page (creates the reader)
       POST /name               body: the reader's first name
-      GET  /me                 this reader's profile: pinned, articles read, pushes a day
+      GET  /me                 this reader's profile: pinned, articles read
       POST /remove/<news_id>   delete an article they pinned or read from their profile
       GET  /stats              {"readers": n} for autoscaling (KEDA), only with header
                                X-Api-Key = $CARDS_STATS_TOKEN; 404 when that isn't set
       GET  /demo               a made-up reader's profile (pinned push, Pinned, 63 reads over 18 days of
-                               pictures, pushes a day); its buttons only change the page; stores nothing
+                               pictures); its buttons only change the page; stores nothing
                                (/demo/me is the same page)
       GET  /health             liveness
 
-    The iOS app's JSON API, on when PUSHPIN_SESSION_SECRET and PUSHPIN_APPLE_BUNDLE_ID are set.
-    Every call but sign-in sends `Authorization: Bearer <session>`:
-      POST   /api/auth/apple       {"identity_token", "name"?} -> {"session", "new", "profile"}
-      GET    /api/me               the profile (same data as /me)
-      POST   /api/devices          {"token", "sandbox"?}: where to push (APNs device token)
-      POST   /api/session          {"source"?}: the app was opened (the uplift outcome) -> {"ok"}
-      DELETE /api/devices/<token>  stop pushing to a device (signing out)
-      POST   /api/open/<push_id>   a push was tapped: pins it -> {"push", "profile"}
-      POST   /api/read/<push_id>   Read was tapped
-      POST   /api/volume           {"volume": "light" | "medium" | "heavy"}
-      POST   /api/name             {"name"}
-      DELETE /api/articles/<news_id>  delete from Pinned / Read
-      DELETE /api/account          delete the account and its data
     """
 
     stats_token = os.environ.get("CARDS_STATS_TOKEN")
-    session_secret = os.environ.get("PUSHPIN_SESSION_SECRET")
-    bundle_id = os.environ.get("PUSHPIN_APPLE_BUNDLE_ID")
-    verify_apple = verify_apple or (lambda token: apple.verify_identity_token(token, bundle_id))
-
-    def profile_json(reader_id: str) -> dict:
-        reader, read = store.reader(reader_id), store.articles_read(reader_id)
-        return {"reader": {"name": reader["name"], "volume": reader["volume"] or DEFAULT_VOLUME}, "caps": caps or {},
-                "pinned": store.pinned_unread(reader_id), "read": read,
-                "streak": streak(read, date.fromisoformat(store.now()[:10]))}
 
     class Handler(BaseHTTPRequestHandler):
         def _reader_id(self) -> str | None:
@@ -1149,89 +1090,8 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
             self.wfile.write(data)
 
         def _own_profile(self, reader_id: str, pinned: dict | None = None) -> str:
-            return profile_page(store.reader(reader_id), store.articles_read(reader_id), pinned=pinned, caps=caps, today=date.fromisoformat(store.now()[:10]),
+            return profile_page(store.reader(reader_id), store.articles_read(reader_id), pinned=pinned, today=date.fromisoformat(store.now()[:10]),
                                 unread=store.pinned_unread(reader_id))
-
-        def _api(self, method: str, path: str) -> None:
-            """The iOS app's JSON API (see serve_cards)."""
-            if not (session_secret and bundle_id):
-                self._send(404, json.dumps({"error": "api off"}), "application/json")
-                return
-            reply = lambda status, obj: self._send(status, json.dumps(obj), "application/json")
-            n = int(self.headers.get("content-length") or 0)
-            try:
-                body = json.loads(self.rfile.read(min(n, 16384)) or b"{}") if n else {}
-                assert isinstance(body, dict)
-            except (ValueError, AssertionError):
-                reply(400, {"error": "bad json"})
-                return
-            what, _, arg = path.partition("/")
-            if (method, what, arg) == ("POST", "auth", "apple"):
-                try:
-                    sub = verify_apple(str(body.get("identity_token") or ""))
-                except (jwt.InvalidTokenError, jwt.PyJWKClientError) as e:
-                    reply(401, {"error": f"sign-in failed: {e}"})
-                    return
-                reader_id, new = store.reader_for_apple(sub, int(time.time()))
-                if new and body.get("name"):
-                    store.set_name(reader_id, str(body["name"]))
-                print(json.dumps({"event": "sign_in", "reader": reader_id, "new": new}))
-                reply(200, {"session": apple.make_session(reader_id, session_secret), "new": new,
-                            "profile": profile_json(reader_id)})
-                return
-            auth = self.headers.get("authorization") or ""
-            reader_id = apple.read_session(auth.removeprefix("Bearer ").strip(), session_secret)
-            if store.reader(reader_id) is None:
-                reply(401, {"error": "sign in"})
-                return
-            ok = True
-            if (method, what) == ("GET", "me"):
-                reply(200, profile_json(reader_id))
-                return
-            elif (method, what) == ("POST", "open") and store.interact(arg, reader_id, "open"):
-                print(json.dumps({"event": "open", "push_id": arg, "reader": reader_id, "app": True}))
-                push = store.push(arg, reader_id)
-                push.pop("for_reader")
-                push["read"] = bool(push["read"])  # 0/1 from SQLite
-                reply(200, {"push": push, "profile": profile_json(reader_id)})
-                return
-            elif (method, what) == ("POST", "session"):  # the app came to the front: the uplift outcome
-                store.add_session(reader_id, str(body.get("source") or "app"))
-                reply(200, {"ok": True})
-                return
-            elif (method, what) == ("POST", "devices"):
-                ok = store.add_device(reader_id, str(body.get("token") or ""), bool(body.get("sandbox")))
-            elif (method, what) == ("DELETE", "devices"):
-                ok = store.remove_device(arg, reader_id)
-            elif (method, what) == ("POST", "read"):
-                ok = store.interact(arg, reader_id, "read")
-            elif (method, what) == ("POST", "volume"):
-                ok = store.set_volume(reader_id, str(body.get("volume")))
-            elif (method, what) == ("POST", "name"):
-                ok = store.set_name(reader_id, str(body.get("name") or ""))
-            elif (method, what) == ("DELETE", "articles"):
-                ok = store.remove(reader_id, arg)
-            elif (method, what) == ("DELETE", "account"):
-                ok = store.delete_reader(reader_id)
-                print(json.dumps({"event": "delete_account", "reader": reader_id}))
-                reply(200 if ok else 404, {"ok": ok})
-                return
-            else:
-                ok = None
-            if ok is None:
-                reply(404, {"error": "unknown"})
-            elif not ok:
-                reply(404, {"error": "not found"})
-            else:
-                print(json.dumps({"event": what, "arg": arg or None, "reader": reader_id, "app": True}))
-                reply(200, profile_json(reader_id))
-
-        def do_DELETE(self):
-            route, rest = self._route()
-            if route == "api":
-                self._api("DELETE", rest)
-            else:
-                self._send(404, "", "text/plain")
 
         def _route(self) -> tuple[str, str]:
             route, _, push_id = self.path.split("?")[0].lstrip("/").partition("/")
@@ -1239,9 +1099,6 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
 
         def do_POST(self):
             route, push_id = self._route()
-            if route == "api":
-                self._api("POST", push_id)
-                return
             body = self.rfile.read(min(int(self.headers.get("content-length") or 0), 200)).decode(errors="replace")
             reader_id = self._reader_id()
             if reader_id is None:
@@ -1251,8 +1108,6 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
                 ok = store.remove(reader_id, push_id)
             elif route == "name":
                 ok = store.set_name(reader_id, body)
-            elif route == "volume":
-                ok = store.set_volume(reader_id, body.strip())
             elif route == "read":
                 ok = store.interact(push_id, reader_id, "read")
             else:
@@ -1260,8 +1115,7 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
             if not ok:
                 self._send(404, "unknown push", "text/plain")
                 return
-            print(json.dumps({"event": route, "push_id": push_id or None, "reader": reader_id,
-                              **({"volume": body.strip()} if route == "volume" else {})}))
+            print(json.dumps({"event": route, "push_id": push_id or None, "reader": reader_id}))
             self._send(200, "ok", "text/plain")
 
         def do_GET(self):
@@ -1277,7 +1131,7 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
             elif route == "health":
                 self._send(200, "ok", "text/plain")
             elif route == "demo" and push_id in ("", "me"):
-                self._send(200, demo_page(caps))
+                self._send(200, demo_page())
             elif route == "api":
                 self._api("GET", push_id)
             elif route == "stats" and stats_token and secrets.compare_digest(
@@ -1287,7 +1141,7 @@ def serve_cards(store: Store, port: int, block: bool = False, caps: dict | None 
                 reader_id, new = self._reader_id(), None
                 if reader_id is None:  # subscribed now: pushes from here on count for them
                     reader_id = new = store.new_reader(int(time.time()))
-                self._send(200, start_page(store.reader(reader_id), caps), set_reader=new)
+                self._send(200, start_page(store.reader(reader_id)), set_reader=new)
             elif route == "me":
                 reader_id = self._reader_id()
                 if reader_id is None:
@@ -1328,8 +1182,7 @@ def main() -> None:
     config = yaml.safe_load(args.config.read_text())
     port = int(os.environ.get("PORT", config["click_port"]))
     print(f"serving cards on :{port}", flush=True)
-    caps = config.get("volume_caps") or {v: len(h) for v, h in (config.get("volume_slots") or {}).items()}
-    serve_cards(open_store(config), port, block=True, caps=caps or None)
+    serve_cards(open_store(config), port, block=True)
 
 
 if __name__ == "__main__":

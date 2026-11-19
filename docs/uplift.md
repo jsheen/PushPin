@@ -8,7 +8,7 @@ doubly robust learner (DR-learner), and checks the result on a semi-synthetic ve
 simulation where the true effect is known.
 
 Code: `src/pushpin/uplift.py` (estimation, benchmark), `src/pushpin/uplift_design.py` (the
-randomized design, shared with the notifier), `configs/uplift.yml`. Plot: `docs/uplift.png`.
+randomized design), `configs/uplift.yml`. Plot: `docs/uplift.png`.
 
 ## Contents
 
@@ -19,7 +19,6 @@ randomized design, shared with the notifier), `configs/uplift.yml`. Plot: `docs/
 - [Heterogeneous effects](#heterogeneous-effects)
 - [Choosing and evaluating send policies](#choosing-and-evaluating-send-policies)
 - [Results on the semi-synthetic NYT simulation](#results-on-the-semi-synthetic-nyt-simulation)
-- [Live logging](#live-logging)
 - [Limitations](#limitations)
 - [Running it](#running-it)
 - [References](#references)
@@ -63,13 +62,13 @@ design rather than hoping they hold:
 | Overlap (positivity) | Every decision has a chance of landing in either arm: 0 < e(x) < 1 | `holdout` > 0 for eligible picks, `explore` > 0 for ineligible ones |
 | Consistency / SUTVA | A reader's outcome depends on their own treatment, and "push" means one thing | One push per slot; carryover across slots is handled with a fatigue covariate and an outcome window shorter than the gap between slots (see [Limitations](#limitations)) |
 
-The design, in `uplift_design.py` and the notifier's `_pick`:
+The design, in `uplift_design.py` (in the sim, the draw is a seeded random number):
 
 ```
 eligible = passes the click send policy and the reader is under their daily cap
 e(x)     = P(send) = 1 − holdout   if eligible       (0.8)
-                   = explore       if not eligible   (0.1 in the sim; 0 live by default)
-treated  = draw(push_id) < e(x)                       draw: a SHA-1 of the push id → [0, 1), reproducible
+                   = explore       if not eligible   (0.1)
+treated  = draw < e(x)                                draw: uniform on [0, 1)
 ```
 
 The propensity `e(x)` is **known exactly**: it's written on the pick when the decision is made.
@@ -179,7 +178,7 @@ argument applied to a policy rather than a feature value. In the sim it's checke
 ## Results on the semi-synthetic NYT simulation
 
 **Why semi-synthetic.** No dataset pushPin has observes a no-push outcome. MIND logs only feed
-impressions, and the live system has one reader. The standard benchmark design in causal ML (as
+impressions, and the live system is a single ntfy broadcast with no per-reader holdout. The standard benchmark design in causal ML (as
 with IHDP or ACIC) is to keep **real covariates** and plant a **known outcome model**, then check
 that the method recovers it.
 
@@ -257,32 +256,19 @@ What this shows:
   fatigue and interest, which the prior can't see. On real data, where the true τ is unknown,
   the prior is a sensible first send rule, and the DR-learner is how you find out whether it's right.
 
-## Live logging
+## Live data
 
-The notifier already runs the design for app readers (each has an identity, so their outcome
-can be measured). The ntfy broadcast isn't randomized.
-
-- **`configs/notifier.yml`:** `holdout: 0.2`, `explore: 0.0`. Exploration sends pushes the click
-  policy rejected, so it's off live until the reader agrees to it.
-- **`scores` table:** on each top pick, `eligible`, `treated`, `held_out`, `propensity` and
-  `decided_ts` (when the outcome window starts, sent or not). Older databases get the columns on start.
-- **Outcome:** the iOS app calls `POST /api/session` whenever it comes to the foreground, writing
-  to the `sessions` table. `y = 1` if there's a session within `outcome_hours` (3) after
-  `decided_ts`. This exists in both arms, unlike a push tap. Sessions started by tapping the push
-  count too: bringing the reader back is the effect being measured.
-- **`Store.uplift_rows`** returns the randomized picks whose windows have closed, and
-  `pushpin-uplift --live` fits on them. Below 200 rows it reports the IPW average effect only;
-  from 200 rows the DR average effect; from 2,000 rows τ̂, GATES and policies too.
-
-With one reader, live data demonstrates the pipeline rather than producing a significant
-estimate: at a few decisions a day and 20% held out, the average effect alone would take many months.
-The benchmark is where the method is validated, and the live log is how it would be measured for real.
+None yet. The live holdout ran only for readers of the iOS app: each had an identity, and the
+app reported when it was opened, which gave an outcome in both arms. The app was removed on
+2026-11-19, and with it the holdout, the `sessions` table and `pushpin-uplift --live`. The ntfy
+broadcast sends one push to everyone, so it has no per-reader control group. Measuring the
+effect live would need per-reader delivery again and an outcome observable without a push.
 
 ## Limitations
 
 - **The effect size is planted.** The benchmark shows the method recovers a known τ and that
   uplift-ranked policies beat click-ranked ones *when τ looks like this*. It doesn't measure how
-  large push effects are for real NYT readers. Only the live log can do that.
+  large push effects are for real NYT readers. Only a live randomized log can do that.
 - **Carryover.** Today's push can change behavior at later slots. `pushes_today` enters x, and the
   outcome window (3 h) is shorter than the gap between slots, but a policy that sends differently
   also changes `pushes_today` for later decisions. Policy comparisons hold each decision's history
@@ -290,29 +276,26 @@ The benchmark is where the method is validated, and the live log is how it would
 - **Short-term outcome.** "Came back within 3 hours" is a proxy for what a publisher cares about:
   retention, subscription and opt-outs. A surrogate index (Athey, Chetty, Imbens and Kang) could
   link short-term outcomes to long-term ones once there's enough history.
-- **Positivity live.** With `explore: 0`, the live log only identifies τ for picks the click policy
-  already likes. τ̂ shouldn't be trusted far outside that region until exploration is turned on.
+- **Positivity.** With `explore: 0`, a log only identifies τ for picks the click policy already
+  likes. τ̂ shouldn't be trusted far outside that region without exploration.
 - **Budget.** Policies here share one global budget. A per-reader budget with a learned shadow
   price (a Lagrangian dual: send if τ̂ > λ_reader) is the natural next step, and would replace the
-  hand-set light / medium / heavy caps.
+  fixed daily cap.
 
 ## Running it
 
 ```bash
 # semi-synthetic benchmark (needs outputs/nyt-sim from pushpin-nyt-sim or the push-job service)
 uv run pushpin-uplift                           # or: docker compose run --rm uplift
-# live: the notifier's database (SQLite path or Postgres URL)
-uv run pushpin-uplift --live --db outputs/notifier/pushes.db
 ```
 
-Outputs go to `outputs/uplift/<sim|live>/`: `summary.json`, `gates.csv`, `policies.csv`,
-`qini.csv`, `rows.parquet` (per-decision μ₀, μ₁, φ, τ̂), and `uplift.png` (sim). The sim takes
+Outputs go to `outputs/uplift/sim/`: `summary.json`, `gates.csv`, `policies.csv`,
+`qini.csv`, `rows.parquet` (per-decision μ₀, μ₁, φ, τ̂), and `uplift.png`. The sim takes
 about 15 s on a laptop. It needs XGBoost, so in Docker it runs on the `pushpin-train` image.
 
 Tests: `tests/test_uplift.py` covers double robustness with wrong outcome models, the variance
-reduction, clustered standard errors, the reproducible draw, end-to-end recovery on a small
-synthetic benchmark, the notifier's holdout (logged, not sent, not counted toward the cap, not
-re-offered), session logging, and the outcome query.
+reduction, clustered standard errors, the propensities, the fatigue covariate, and end-to-end
+recovery on a small synthetic benchmark.
 
 ## References
 

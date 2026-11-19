@@ -8,17 +8,17 @@ and so is what you did with the push. That gives you labeled push data, which MI
 NYT RSS feeds ──▶ notifier ──HTTP──▶ scorer  (model + MIND user state, from the NYT sim)
                    │
    ntfy.sh ◀───────┤          cards :8090 ◀── tunnel (https://….trycloudflare.com) ◀── a reader taps
-   (push to phones)│            │                                                    Read / pushes a day
+   (push to phones)│            │                                                    Read
                    ▼            ▼
         outputs/notifier/pushes.db, or Postgres via DATABASE_URL
-        (candidates, covariates, sends, and per reader: opens, reads, push volume)
+        (candidates, covariates, sends, and per reader: opens, reads)
 ```
 
 ## The schedule
 
 The notifier schedules itself; nothing external triggers it. Its main loop:
 
-1. Works out the next slot from `slot_hours` in `configs/notifier.yml` (every two hours from 7 to 21 by default)
+1. Works out the next slot from `slot_hours` in `configs/notifier.yml` (every two hours from 9 to 19 by default)
    and the current time in `timezone` (New York).
 2. Sleeps until that slot, waking at least every 5 minutes to recheck the clock. That way a
    Mac that was asleep notices it's past due as soon as it wakes.
@@ -35,9 +35,8 @@ Each slot:
    push goes along with the request as an impression of one article, labeled 1 if it was opened
    (see below).
 3. Picks the top article with the push objective (friction from `configs/objective.yml`).
-4. Sends it through [ntfy](https://ntfy.sh) if it passes the send policy and this is one of the
-   reader's push hours (see [Push volume](#push-volume)): 2, 4 or 8 a day for light, medium or
-   heavy, spread over the day; medium until they choose.
+4. Sends it through [ntfy](https://ntfy.sh) if it passes the send policy and the day's cap isn't
+   used up (see [How many pushes](#how-many-pushes)).
 5. Writes every candidate to the database.
 
 ## Pin, then the profile
@@ -51,14 +50,12 @@ top (headline and abstract) and a Read button:
   otherwise. Reading needs the reader's own NYT login there, as usual. The tap is recorded as a
   read (a beacon to `/read/<push_id>`); what they do on NYT isn't.
 
-After choosing on the welcome page (`/start`), the reader goes on to their profile, `/me`.
+The welcome page (`/start`) links on to their profile, `/me`.
 
 Below the pinned article is the rest of the profile, the same page as `/me`: **Pinned**, every
 other article they tapped a push for but haven't read yet (tapping one's headline reads it and
 moves it to Read, as a note there says), how many articles
-they've read (tapped Read on) and the list, and
-**Pushes a day** (Light, Medium or Heavy, see below; always at the bottom, medium until they
-choose). Only the reader sees their profile; there's no public page. The count, list, streak and "Started reading
+they've read (tapped Read on) and the list. Only the reader sees their profile; there's no public page. The count, list, streak and "Started reading
 on" date all come from reads, not opens; opens from before reads were recorded (2026-11-13) don't
 count as reads.
 
@@ -68,32 +65,17 @@ it (the click) and whether they tapped Read. ntfy's own notification buttons are
 requests carry no reader identity, and the profile keeps the buttons and the tracking in one
 place.
 
-## Push volume
+## How many pushes
 
-Each reader picks how many pushes a day they want, and each choice pushes at its own hours,
-spread over the day (`volume_slots` in `configs/notifier.yml`):
+Readers don't choose. Every slot hour (9, 11, 13, 15, 17, 19) is a chance to push, and a slot
+sends only if its top article clears the send policy (`configs/objective.yml`), at most
+`daily_cap` a day, the same for everyone. So a quiet news day sends fewer, and a skipped slot
+isn't made up later. Light / Medium / Heavy choices were removed (2026-11-19): how many pushes a
+reader gets is the policy's decision, and a reader who gets too many can turn notifications off,
+which is the signal a learned policy would use.
 
-| Choice | Pushes a day | Hours (New York) |
-|--------|--------------|------------------|
-| **Light** | up to 2 | 9 (morning), 21 (night) |
-| **Medium** | up to 4 | 9, 13 (early afternoon), 17 (late afternoon), 21 |
-| **Heavy** | up to 8 | every slot: 7, 9, 11, 13, 15, 17, 19, 21 |
-
-Until a reader chooses, they get medium (`DEFAULT_VOLUME` in `src/pushpin/store.py`).
-
-A reader is only scored at their own hours. The numbers are ceilings: an hour only sends if its
-top article clears the send policy, so a quiet news day sends fewer, and a skipped hour isn't
-made up later.
-
-- **At the start:** `python -m pushpin.notifier --welcome` sends a welcome push that opens
-  `/start`, a page with the three buttons. Opening it creates the reader, so pushes from then on
-  count for them.
-- **On the profile:** the buttons are always at the bottom, with the reader's choice (or medium)
-  pressed, to change any time.
-
-The choice is stored on the reader (`readers.volume`, `volume_at`) and each slot reads it. All
-subscribers to the ntfy topic get the same pushes, so with several readers the most recent
-choice wins; per-reader volume would need a topic per reader.
+`python -m pushpin.notifier --welcome` sends a welcome push that opens `/start`, a short page
+about PushPin. Opening it creates the reader, so pushes from then on count for them.
 
 ## Setup (once)
 
@@ -122,8 +104,8 @@ docker compose run --rm notifier "python -m pushpin.notifier --test"            
 docker compose run --rm notifier "python -m pushpin.notifier --once --dry-run"  # score one slot now, log it, send nothing
 
 docker compose up -d notifier cards tunnel   # the schedule, the card server, its public address
-docker compose run --rm notifier "python -m pushpin.notifier --welcome"   # pick light / medium / heavy
-docker compose logs -f notifier cards        # one JSON line per slot, and per open / save / volume
+docker compose run --rm notifier "python -m pushpin.notifier --welcome"   # the welcome push (opens /start)
+docker compose logs -f notifier cards        # one JSON line per slot, and per open / read
 ```
 
 The first run creates the new user's id (`new-` plus random hex) and fixes the time shift, and
@@ -165,11 +147,10 @@ the Mac is awake and Docker is running:
 
 | Table | One row per | Columns |
 |-------|-------------|---------|
-| `scores` | slot × candidate article | `slot_time`, article (`title`, `section`, `subcategory`, `url`, `published`), every model feature, `p_click`, `p_return`, `novelty`, `push_score`, `is_top`, `passes_policy`, `sent`, `push_id`, `sent_at`, `sent_ts` (Unix seconds); on the top pick, the uplift experiment's `eligible`, `treated`, `held_out`, `propensity`, `decided_ts` ([uplift.md](uplift.md#live-logging)) |
-| `readers` | phone that opened a card or `/start` | `reader_id` (the cookie), `name` (optional), `created_at`, `first_push_ts`, `volume` (`light` / `medium` / `heavy`, NULL = not chosen), `volume_at` (`slug` and `history_public` are unused, left from the removed public page) |
+| `scores` | slot × candidate article | `slot_time`, article (`title`, `section`, `subcategory`, `url`, `published`), every model feature, `p_click`, `p_return`, `novelty`, `push_score`, `is_top`, `passes_policy`, `sent`, `push_id`, `sent_at`, `sent_ts` (Unix seconds); on the top pick, `eligible`, `treated`, `propensity` (1 or 0: the policy is deterministic), `decided_ts`. `for_reader` and `held_out` are set only on rows from the removed iOS app |
+| `readers` | phone that opened a card or `/start` | `reader_id` (the cookie), `name` (optional), `created_at`, `first_push_ts` (`volume`, `volume_at`, `slug` and `history_public` are unused, left from removed features) |
 | `interactions` | push × reader × kind | `kind` (`open` = the click that pins it, `read` = Read tapped; older `save` rows are from before saves were dropped), `created_at`, `minutes_after_push` |
-| `labeled` (view) | sent push × reader | the push's `scores` row plus `reader_id`, `reader_name`, `reader_volume`, `label` (1 = opened, 0 = not opened within 24 h, NULL = pending), `read` (1 = tapped Read) |
-| `sessions` | app opened (iOS app) | `reader_id`, `ts` (Unix seconds), `source`: the uplift outcome |
+| `labeled` (view) | sent push × reader | the push's `scores` row plus `reader_id`, `reader_name`, `label` (1 = opened, 0 = not opened within 24 h, NULL = pending), `read` (1 = tapped Read) |
 | `articles` | article read from the feeds | text, URL, publish time, mapped MIND subcategory |
 | `meta` | setting | `user_id` the pushes are scored for, time anchor |
 

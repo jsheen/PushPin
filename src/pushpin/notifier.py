@@ -5,9 +5,9 @@ At each slot hour (configs/notifier.yml) it:
   2. scores the last `lookback_hours` of unpushed articles through the scorer service, with every
      model feature, for one user: a brand-new one by default (no reading history, no impressions;
      `user_id` in the config picks a MIND persona instead)
-  3. picks the top article with the push objective, gates it with the send policy
-     (configs/objective.yml) and the reader's daily cap (light / medium / heavy, chosen on the
-     card or the welcome push's start page) and, if it passes, sends it through ntfy (https://ntfy.sh) to
+  3. picks the top article with the push objective, gates it with the send policy and its daily
+     cap (configs/objective.yml, the same for every reader: how many pushes a reader gets is the
+     policy's decision, not theirs) and, if it passes, sends it through ntfy (https://ntfy.sh) to
      everyone subscribed to NTFY_TOPIC
   4. writes every candidate and its covariates to the database (see store.py)
 
@@ -26,7 +26,7 @@ Modes:
   python -m pushpin.notifier --once             # run one slot now and exit (a Cloud Run job / CronJob)
   python -m pushpin.notifier --once --dry-run   # score and log, send nothing
   python -m pushpin.notifier --test             # send a test notification
-  python -m pushpin.notifier --welcome          # send the welcome push: pick light / medium / heavy
+  python -m pushpin.notifier --welcome          # send the welcome push (opens /start)
 """
 
 import argparse
@@ -47,12 +47,10 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from pushpin.apple import Apns
 from pushpin.cards import open_store
 from pushpin.objective import push_scores, send_decisions
 from pushpin.push_job import HttpScorer
-from pushpin.store import ARTICLE_COLUMNS, DEFAULT_VOLUME, Store
-from pushpin.uplift_design import assignment_draw, propensity
+from pushpin.store import ARTICLE_COLUMNS, Store
 
 NEW_USER_PREFIX = "new-"  # MIND ids look like U12345, so these never collide
 
@@ -135,11 +133,10 @@ def new_user_id(stored: str | None) -> str:
 
 class Notifier:
     def __init__(self, scorer, store: Store, config: dict, objective: dict, topic: str | None,
-                 click_base: str | None, dry_run: bool = False, tunnel_metrics: str | None = None,
-                 apns=None):
+                 click_base: str | None, dry_run: bool = False, tunnel_metrics: str | None = None):
         self.scorer, self.store, self.cfg, self.objective = scorer, store, config, objective
         self.topic, self.click_base, self.dry_run = topic, (click_base or "").rstrip("/"), dry_run
-        self.tunnel_metrics, self.apns = tunnel_metrics, apns
+        self.tunnel_metrics = tunnel_metrics
         self.tz = ZoneInfo(config["timezone"])
         info = scorer.info()
         if store.get("anchor") is None:  # first run: map today to the day after the MIND log
@@ -173,113 +170,67 @@ class Notifier:
             self.store.add_articles(fresh.merge(mapped, on="news_id"))
         print(f"{len(fresh)} new articles from the feeds")
 
-    def audiences(self, now: pd.Timestamp | None = None) -> list[dict]:
-        """Who this slot picks for. Each app reader with a device is their own audience: their own
-        scorer user, cap, past pushes and taps, delivered to their devices only. The ntfy topic is
-        one shared audience (everyone subscribed gets the same push), kept when there's a topic,
-        or when there's nobody else (a dry run on a fresh setup). With `now`, only the audiences
-        whose volume pushes at this hour (see `push_hours`)."""
-        readers = [{"reader_id": r["reader_id"], "user_id": r["scorer_user"], "volume": r["volume"] or DEFAULT_VOLUME}
-                   for r in self.store.app_readers(lambda: new_user_id(None))]
-        if self.topic or not readers:
-            readers.insert(0, {"reader_id": None, "user_id": self.user_id, "volume": None})
-        out = []
-        for aud in readers:
-            volume = aud.pop("volume")
-            hours = self.push_hours(volume)
-            if now is None or hours is None or now.hour in hours:
-                out.append({**aud, "cap": self.daily_cap(volume)})
-        return out
-
-    def push_hours(self, volume: str | None = None) -> list[int] | None:
-        """The hours a volume pushes at, from `volume_slots`. Without a volume, the broadcast's: the
-        latest choice made on a web card or the start page, or medium if nobody has chosen. None when
-        the config doesn't set them (every slot, capped by `daily_cap`)."""
-        volume = volume or self.store.volume() or DEFAULT_VOLUME
-        slots = self.cfg.get("volume_slots") or {}
-        return [int(h) for h in slots[volume]] if volume in slots else None
-
     def run_slot(self, now: pd.Timestamp | None = None) -> dict:
-        """One slot for every audience. Returns the broadcast's result (when there is one) with
-        `readers`: one result per app reader."""
+        """One slot: pick the top unpushed article for the ntfy topic (everyone subscribed gets the
+        same push), send it if it clears the send policy and the daily cap, log every candidate."""
         now = now or self.now()
         self.sync_articles(now)
         since = now - pd.Timedelta(hours=self.cfg["lookback_hours"])
         recent = self.store.articles_since(since)
         slot_id = int(now.timestamp())
 
-        # Close the loop: every earlier push to an audience goes along as an impression of one
-        # article, labeled 1 if it was tapped. The scorer's per-user features (engagement, skips,
-        # click/skip contrast, exposure) then reflect what that reader did, as for a MIND user.
-        plans, requests, inline = [], [], [recent[["news_id", "title", "abstract", "published"]]]
-        for aud in self.audiences(now):
-            cand = recent[~recent["news_id"].isin(self.store.pushed_ids(aud["reader_id"]))]
-            if cand.empty:
-                continue
-            past = self.store.push_events(aud["user_id"])
-            past = past[pd.to_datetime(past["slot_time"]) < now]
-            events = [{"impression_id": int(p.slot_id), "time": (pd.Timestamp(p.slot_time) + self.shift).isoformat(),
-                       "impressions": f"{p.news_id}-{int(p.tapped)}"} for p in past.itertuples()]
-            requests.append({"user_id": aud["user_id"], "time": (now + self.shift).isoformat(),
-                             "news_ids": cand["news_id"].tolist(), "impression_id": slot_id, "events": events})
-            inline.append(past[["news_id", "title", "abstract", "published"]]
-                          .assign(published=pd.to_datetime(past["published"])))
-            plans.append({**aud, "cand": cand})
-        if not plans:
+        cand = recent[~recent["news_id"].isin(self.store.pushed_ids())]
+        if cand.empty:
             print(f"{now:%a %H:%M}: no new candidates")
-            return {"candidates": 0, "sent": False, "readers": []}
+            return {"candidates": 0, "sent": False}
 
-        # one call for everyone; the candidates (and pushed articles) go along, so any scorer
-        # replica can score them (one that restarted, or one that never saw /articles)
-        articles = pd.concat(inline).drop_duplicates("news_id")
-        scores = self.scorer.score(requests, features=True, articles=articles.assign(
+        # Close the loop: every earlier push goes along as an impression of one article, labeled 1
+        # if it was tapped. The scorer's per-user features (engagement, skips, click/skip contrast,
+        # exposure) then reflect what the readers did, as for a MIND user.
+        past = self.store.push_events(self.user_id)
+        past = past[pd.to_datetime(past["slot_time"]) < now]
+        events = [{"impression_id": int(p.slot_id), "time": (pd.Timestamp(p.slot_time) + self.shift).isoformat(),
+                   "impressions": f"{p.news_id}-{int(p.tapped)}"} for p in past.itertuples()]
+        request = {"user_id": self.user_id, "time": (now + self.shift).isoformat(),
+                   "news_ids": cand["news_id"].tolist(), "impression_id": slot_id, "events": events}
+        # the candidates (and pushed articles) go along, so any scorer replica can score them (one
+        # that restarted, or one that never saw /articles)
+        articles = pd.concat([recent[["news_id", "title", "abstract", "published"]],
+                              past[["news_id", "title", "abstract", "published"]]
+                              .assign(published=pd.to_datetime(past["published"]))]).drop_duplicates("news_id")
+        scores = self.scorer.score([request], features=True, articles=articles.assign(
             published=articles["published"] + self.shift))
         scores["push_score"] = push_scores(scores, scores["p_click"].to_numpy(), self.objective["friction"])
-
-        results = [self._pick(now, slot_id, plan, scores[scores["user_id"] == plan["user_id"]].copy())
-                   for plan in plans]
-        broadcast = next((r for r, p in zip(results, plans, strict=True) if p["reader_id"] is None), None)
-        apps = [r for r, p in zip(results, plans, strict=True) if p["reader_id"] is not None]
-        result = {**(broadcast or {"slot": now.isoformat(timespec="minutes"), "sent": False}), "readers": apps}
+        result = self._pick(now, slot_id, cand, scores.copy())
         print(json.dumps(result))
         return result
 
-    def _pick(self, now: pd.Timestamp, slot_id: int, plan: dict, scores: pd.DataFrame) -> dict:
-        """One audience's top article: send it if it passes the policy and their cap, log every candidate."""
-        cand, reader_id = plan["cand"], plan["reader_id"]
+    def _pick(self, now: pd.Timestamp, slot_id: int, cand: pd.DataFrame, scores: pd.DataFrame) -> dict:
+        """The top article: send it if it passes the policy and the cap, log every candidate."""
+        cap = self.daily_cap()
         scores = scores.reset_index(drop=True)
         top = scores["push_score"].idxmax()
         send = self.objective["send"]
         pick = scores.loc[[top]].assign(time=now)
-        passes = bool(send_decisions(pick, send["threshold"], send["risk_penalty"], plan["cap"])[0])
-        under_cap = self.store.sent_on(now.strftime("%Y-%m-%d"), reader_id) < plan["cap"]
+        passes = bool(send_decisions(pick, send["threshold"], send["risk_penalty"], cap)[0])
+        under_cap = self.store.sent_on(now.strftime("%Y-%m-%d")) < cap
         article = cand.set_index("news_id").loc[scores.at[top, "news_id"]]
-        push_id = hashlib.sha1(f"{slot_id}{article.name}{reader_id or ''}".encode()).hexdigest()[:12]
+        push_id = hashlib.sha1(f"{slot_id}{article.name}".encode()).hexdigest()[:12]
 
-        # Uplift experiment (app readers only; the broadcast has no reader to measure): an eligible
-        # pick is withheld with probability `holdout`, an ineligible one under the cap is explored
-        # with `explore`. The probability is logged, so the effect of a push is identified (see
-        # docs/uplift.md). Withheld pushes don't count toward the cap.
+        # The decision is deterministic: sent with probability 1 if eligible, else 0. The columns
+        # (eligible, treated, propensity, decided_ts) stay so a randomized policy can log the same way.
         eligible = passes and under_cap
-        if reader_id is None:
-            p_send = 1.0 if eligible else 0.0
-        else:
-            p_send = float(propensity(np.array([eligible]), float(self.cfg.get("holdout", 0.0)),
-                                      float(self.cfg.get("explore", 0.0)) if under_cap else 0.0)[0])
-        treated = bool(assignment_draw(push_id) < p_send)
+        p_send = 1.0 if eligible else 0.0
+        treated = eligible
         sent = treated and not self.dry_run
         if sent:
-            data = {"push_id": push_id, "news_id": str(article.name), "url": article["url"]}
-            if reader_id is None:
-                # the tap pins the push and opens the reader's profile (with Read); without
-                # a tracker, the article itself
-                base = self.base_url()
-                click = f"{base}/p/{push_id}" if base else article["url"]
-                if self.topic:
-                    send_ntfy(self.cfg["ntfy_server"], self.topic, article["title"], article["abstract"], click,
-                              icon=f"{base}/icon.png" if base else None)
-            else:
-                self.send_apns(article["title"], article["abstract"], data, reader_id)
+            # the tap pins the push and opens the reader's profile (with Read); without a tracker,
+            # the article itself
+            base = self.base_url()
+            click = f"{base}/p/{push_id}" if base else article["url"]
+            if self.topic:
+                send_ntfy(self.cfg["ntfy_server"], self.topic, article["title"], article["abstract"], click,
+                          icon=f"{base}/icon.png" if base else None)
 
         out = scores.drop(columns=["impression_id"]).merge(
             cand[["news_id", "title", "section", "subcategory", "subcat_sim", "url", "published"]], on="news_id")
@@ -298,40 +249,14 @@ class Notifier:
         out["push_id"] = out["is_top"].map({True: push_id, False: None})
         out["sent_at"] = out["sent"].map({True: self.store.now(), False: None})
         out["sent_ts"] = pd.array([int(time.time()) if x else None for x in out["sent"]], dtype="Int64")
-        out["for_reader"] = reader_id  # None: the broadcast (ntfy)
+        out["for_reader"] = None  # the broadcast (kept for older databases, which had per-reader pushes)
         self.store.add_scores(out)
-        return {"slot": now.isoformat(timespec="minutes"), "reader_id": reader_id, "candidates": len(cand),
+        return {"slot": now.isoformat(timespec="minutes"), "candidates": len(cand),
                 "title": article["title"], "p_click": float(scores.at[top, "p_click"]), "passes_policy": passes,
                 "under_cap": under_cap, "held_out": eligible and not treated, "sent": sent}
 
-    def send_apns(self, title: str, body: str, data: dict, reader_id: str) -> int:
-        """Send to one app reader's devices; drop the tokens APNs says are dead. Returns how many took it."""
-        if self.apns is None:
-            return 0
-        ok = 0
-        for device in self.store.devices(reader_id):
-            try:
-                status, reason = self.apns.send(device["token"], title, body, data, sandbox=bool(device["sandbox"]))
-            except Exception as e:  # noqa: BLE001 -- one device failing shouldn't stop the others
-                print(f"apns error for {device['token'][:8]}: {e!r}")
-                continue
-            if status == 200:
-                ok += 1
-            elif self.apns.dead(status, reason):
-                self.store.remove_device(device["token"])
-            print(json.dumps({"event": "apns", "device": device["token"][:8], "status": status, "reason": reason}))
-        return ok
-
-    def daily_cap(self, volume: str | None = None) -> int:
-        """Pushes a day: the reader's choice (light / medium / heavy) mapped through `volume_caps`,
-        else how many `push_hours` it has, else `daily_cap`. Medium until they choose. Without a
-        volume, the broadcast's: the latest choice made on a web card or the start page."""
-        volume = volume or self.store.volume() or DEFAULT_VOLUME
-        caps = self.cfg.get("volume_caps") or {}
-        if volume in caps:
-            return int(caps[volume])
-        if (hours := self.push_hours(volume)) is not None:
-            return len(hours)
+    def daily_cap(self) -> int:
+        """Pushes a day, the same for every reader: `daily_cap` in the config, else the send policy's."""
         return int(self.cfg.get("daily_cap", self.objective["send"]["daily_cap"]))
 
     def next_slot(self, now: pd.Timestamp) -> pd.Timestamp:
@@ -373,16 +298,14 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="score and log, but don't send")
     parser.add_argument("--test", action="store_true", help="send a test notification and exit")
     parser.add_argument("--welcome", action="store_true",
-                        help="send the welcome push (opens /start: pick light, medium or heavy) and exit")
+                        help="send the welcome push (opens /start) and exit")
     args = parser.parse_args()
 
     config = yaml.safe_load(args.config.read_text())
     objective = yaml.safe_load(Path(config["objective"]).read_text())
     topic = os.environ.get("NTFY_TOPIC")
-    apns = Apns.from_env()
-    if not topic and not apns and not args.dry_run:
-        raise SystemExit("set NTFY_TOPIC (in .env) to the topic your phone subscribes to, configure APNs "
-                         "(APNS_KEY_ID, APNS_TEAM_ID, APNS_KEY_FILE, PUSHPIN_APPLE_BUNDLE_ID), or use --dry-run")
+    if not topic and not args.dry_run:
+        raise SystemExit("set NTFY_TOPIC (in .env) to the topic your phone subscribes to, or use --dry-run")
     if args.test:
         send_ntfy(config["ntfy_server"], topic, "PushPin test", "If you can read this, delivery works.",
                   "https://www.nytimes.com", tags=["white_check_mark"])
@@ -394,7 +317,7 @@ def main() -> None:
         if not base:
             raise SystemExit("no card address: set CLICK_BASE_URL or run the tunnel")
         send_ntfy(config["ntfy_server"], topic, "Welcome to PushPin",
-                  "Tap to choose how many stories a day: light, medium or heavy.", f"{base}/start",
+                  "Tap to get started. Pushes come only when there's a story worth it.", f"{base}/start",
                   icon=f"{base}/icon.png")
         print(f"sent; it opens {base}/start")
         return
@@ -403,7 +326,7 @@ def main() -> None:
     scorer = HttpScorer(args.scorer, auth=os.environ.get("PUSHPIN_SCORER_AUTH"))
     wait_for(scorer)
     notifier = Notifier(scorer, store, config, objective, topic, os.environ.get("CLICK_BASE_URL"), args.dry_run,
-                        tunnel_metrics=os.environ.get("TUNNEL_METRICS_URL"), apns=apns)
+                        tunnel_metrics=os.environ.get("TUNNEL_METRICS_URL"))
     print(f"user {notifier.user_id}, scorer time shift {notifier.shift}")
     if args.once:
         notifier.run_slot()

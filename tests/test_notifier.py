@@ -202,49 +202,40 @@ def test_readers_tracked_separately(setup):
     assert pd.isna(rows[(second, me)][0])  # I haven't opened it, still inside the 24h window
 
 
-def test_volume_choice_sets_the_daily_cap(setup):
+def test_welcome_page_has_no_volume_choice_and_the_cap_is_the_policys(setup):
     n, store, _sent, db = setup
-    n.cfg["volume_caps"] = {"light": 1, "medium": 2, "heavy": 4}
-    assert n.daily_cap() == 2  # nobody has chosen: medium
-    server = cards.serve_cards(store, 0, caps=n.cfg["volume_caps"])
+    assert n.daily_cap() == n.objective["send"]["daily_cap"]  # the same for everyone: readers don't choose
+    server = cards.serve_cards(store, 0)
     get, post = phone(f"http://127.0.0.1:{server.server_address[1]}")
     try:
         start = get("/start")  # the welcome push's page creates the reader
-        assert "How many pushes a day?" in start and 'data-volume="light"' in start and "up to 4" in start
+        assert "data-volume" not in start and "How many pushes a day?" not in start
+        assert "only when there's a story worth it" in start and 'href="/me"' in start
         with pytest.raises(urllib.error.HTTPError) as e:
-            post("/volume", b"lots")
-        assert e.value.code == 404
-        assert 'aria-pressed="true"' not in start and "You can always change it later." in start  # no default
-        assert 'location.assign("/me")' in start  # choosing on the welcome page goes on to the profile
-        post("/volume", b"light")
-        assert 'aria-pressed="true"' not in get("/start")  # the welcome page always asks afresh
+            post("/volume", b"light")
+        assert e.value.code == 404  # the route is gone
         me = get("/me")  # a newcomer's profile: empty, but there
-        assert "Nothing yet. Tap Read on a push to start." in me and 'data-volume="light" aria-pressed="true"' in me
+        assert "Nothing yet. Tap Read on a push to start." in me and "data-volume" not in me
     finally:
         server.shutdown()
-    assert store.volume() == "light" and n.daily_cap() == 1
     noon = pd.Timestamp("2026-11-12 12:00")
     assert n.run_slot(noon)["sent"]
-    assert not n.run_slot(noon + pd.Timedelta(hours=5))["under_cap"]  # light: one a day
     reader = db("SELECT reader_id, first_push_ts FROM readers")
     assert len(reader) == 1 and reader["first_push_ts"].notna().all()  # pushes after /start count for them
-    assert db("SELECT reader_volume FROM labeled")["reader_volume"].tolist() == ["light"]
-    store.set_volume(reader["reader_id"].item(), "heavy")
-    assert n.daily_cap() == 4
+    assert "reader_volume" not in db("SELECT * FROM labeled").columns
 
 
-def test_store_adds_volume_columns_to_an_older_database(tmp_path):
+def test_store_opens_a_database_with_the_old_volume_columns(tmp_path):
     from sqlalchemy import create_engine
     path = tmp_path / "old.db"
     engine = create_engine(f"sqlite:///{path}")
     with engine.begin() as con:
         con.execute(text("CREATE TABLE readers (reader_id TEXT PRIMARY KEY, name TEXT, created_at TEXT, "
-                         "first_push_ts BIGINT)"))
-        con.execute(text("INSERT INTO readers VALUES ('r1', NULL, '2026-11-12T12:00:00', 0)"))
+                         "first_push_ts BIGINT, volume TEXT, volume_at TEXT)"))
+        con.execute(text("INSERT INTO readers VALUES ('r1', NULL, '2026-11-12T12:00:00', 0, 'heavy', NULL)"))
     engine.dispose()
     store = Store(path, click_window_hours=24, tz=TZ)
-    assert store.reader("r1")["volume"] is None and store.set_volume("r1", "heavy") and store.volume() == "heavy"
-
+    assert store.reader("r1") == {"reader_id": "r1", "name": None}  # a stored choice is ignored
 
 
 def test_profile_and_no_public_page(setup):
@@ -364,21 +355,6 @@ def test_reader_can_delete_pinned_and_read_articles(setup):
         server.shutdown()
 
 
-def test_profile_volume_is_at_the_bottom_and_medium_by_default(setup):
-    n, store, sent, _db = setup
-    n.run_slot(pd.Timestamp("2026-11-12 12:00"))
-    push_id = sent[0][4].rsplit("/", 1)[1]
-    reader = store.new_reader(store.push(push_id)["sent_ts"])
-    show = lambda: cards.profile_page(store.reader(reader), [], pinned=store.push(push_id, reader))
-    for volume in (None, "heavy"):  # before choosing (medium), and after
-        if volume:
-            store.set_volume(reader, volume)
-        page = show()
-        assert "How many pushes a day?" not in page and page.count('class="volume"') == 1
-        assert f'data-volume="{volume or "medium"}" aria-pressed="true"' in page
-        assert page.index('class="pin"') < page.index('class="profile"') < page.index('class="volume"')  # at the bottom
-
-
 def test_reader_not_labeled_for_pushes_before_they_joined(setup):
     n, store, sent, db = setup
     n.run_slot(pd.Timestamp("2026-11-12 12:00"))
@@ -427,7 +403,7 @@ def test_tunnel_url_reads_quicktunnel_endpoint():
 def test_pinned_profile_escapes_html():
     pinned = {"push_id": 'x"</script>', "news_id": "N1", "title": "<b>T</b>", "section": "us",
               "url": "https://www.nytimes.com/a", "abstract": "a & b", "read": 0}
-    page = cards.profile_page({"reader_id": "r", "name": "<i>x</i>", "volume": "light"}, [],
+    page = cards.profile_page({"reader_id": "r", "name": "<i>x</i>"}, [],
                               pinned=pinned)
     assert "<b>T</b>" not in page and "a &amp; b" in page and "<i>x</i>" not in page
     assert 'data-read="x&quot;&lt;/script&gt;"' in page  # the id can't close a tag or script
@@ -572,7 +548,7 @@ def test_demo_shows_what_the_reader_sees_and_stores_nothing(setup):
         server.shutdown()
     assert 'class="pin"' in page and "The Lantern Makers of the River Festival" in page  # today's push, pinned on top
     assert 'id="public"' not in page and "Always private" not in page and "Only you can see" not in page
-    assert "<h2>Pinned" in page and 'class="volume"' in page and 'id="papier-on"' in page
+    assert "<h2>Pinned" in page and 'class="volume"' not in page and 'id="papier-on"' in page
     assert 'Pinned <span class="n">5</span>' in page  # the pinned one on top isn't listed again
     assert '<ul class="list today-list">' in page and '<h3 class="past-head">Past reads</h3>' in page  # today's reads, then past ones
     assert page.index("today-list") < page.index("Past reads") < page.index("What the Tide Leaves Behind")

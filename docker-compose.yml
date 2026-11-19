@@ -33,7 +33,7 @@ services:
     command: ["pushpin-objective --config configs/objective.yml"]
 
   # Uplift: doubly robust push effect (docs/uplift.md). Needs XGBoost, so it uses the training image.
-  # Default: the semi-synthetic sim on outputs/nyt-sim. Live: add --live (reads live.db in configs/uplift.yml).
+  # The semi-synthetic sim on outputs/nyt-sim.
   uplift:
     image: pushpin-train:latest
     container_name: pushpin-uplift
@@ -140,7 +140,6 @@ services:
       - ./src:/app/src
       - ./configs:/app/configs:ro
       - ./outputs:/app/outputs
-      - ./secrets:/app/secrets:ro   # the APNs key for the iOS app (APNS_KEY_FILE=secrets/AuthKey_<id>.p8)
     depends_on:
       scorer:
         condition: service_healthy
