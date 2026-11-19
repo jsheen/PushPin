@@ -56,6 +56,9 @@ gs://pushpin-data ──sync-data.sh──▶ data/
    decides whether to send it. Its own lightweight image; no retraining needed to change it.
 6. **Serve** — `pushpin-api` exposes scores and push decisions over HTTP.
 7. **Analyze** — `pushpin-exploration` and `pushpin-fatigue` study behavior across the whole log.
+8. **Decide when** — `pushpin-bandit`: a contextual bandit that learns the send decision from
+   what pushes did (return visits, annoyance, opt-outs), tested on the NYT simulation; it would
+   replace the fixed send policy. See [bandit.md](bandit.md).
 
 **Time-based split.** Impressions before `split.fit_end` only fit complement statistics and user
 history; `[fit_end, train_end)` trains (latest `model.valid_fraction` held out for early
@@ -220,5 +223,10 @@ Other findings:
 - **Exploration.** A first click on a never-shown subcategory goes with a 2.4× higher re-click rate.
 - **Fatigue.** Engagement is ~2% below a user's norm after 5+ impressions in a day, with no
   cumulative weekly effect, supporting a daily cap.
+
+The send policy here is fixed by hand (threshold 0.07, risk penalty 0.04, cap 2). The contextual
+bandit ([bandit.md](bandit.md)) learns the send decision instead: the risk term's sign and size,
+how much to back off after recent and ignored pushes, and each reader's own best hours, with no
+daily cap.
 
 Plots, tables, caveats and what real opt-out logging would add: [docs/analysis.md](analysis.md).

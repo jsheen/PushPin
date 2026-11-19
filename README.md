@@ -9,24 +9,24 @@ Aims to push articles users want to engage with. Currently pushes New York Times
 An XGBoost model trained on the [Microsoft News Dataset (MIND)](https://msnews.github.io/)
 predicts `P(click | user, article, time slot)`. Features include past engagement, article
 embeddings in a [Chroma](https://www.trychroma.com/) vector database, and Claude-written reader
-profiles. A push objective then trades engagement against novelty, and a send policy holds back
-pushes for readers at risk of opting out.
+profiles. A push objective then trades engagement against novelty, and a send decision chooses
+whether to push the pick now: a fixed rule today, a contextual bandit in simulation.
 
-The XGBoost model chooses which article each reader gets, and the send policy decides whether
-to push it, so how many pushes a reader gets a day is the policy's call, not a setting.
+The XGBoost model chooses which article each reader gets, and the send decision whether to push
+it, so how many pushes a reader gets a day is the policy's call, not a setting.
 
 ### Two models, two jobs
 
 A **contextual bandit** learns the send decision instead of the fixed rule (simulation only so
-far; see [docs/bandit.md](docs/bandit.md)). Live still uses the fixed rule. It doesn't redo XGBoost's job. The two answer different questions
-from different inputs:
+far; see [docs/bandit.md](docs/bandit.md)); live still uses the fixed rule. It doesn't redo
+XGBoost's job. The two answer different questions from different inputs:
 
 | | XGBoost | Contextual bandit |
 |---|---|---|
 | **Question** | Which article would this reader open? | Is this pick worth sending to this reader *now*? |
 | **Learns from** | MIND feed logs (supervised, offline) | Its own send decisions and their outcomes (online) |
 | **Target** | P(click), P(return) | sessions − λ·pushes − V·opt-outs |
-| **Inputs** | Reader × article: similarity to reading history, subcategory affinity and complements, article embeddings, Claude reader profiles, article age, time-slot engagement | XGBoost's outputs (`p_click`, `1 − p_return`), plus context about *our pushes*: pushes in the last few hours, pushes ignored this week, hours since the last open, the reader's open rate on our pushes, the hours they tend to come back |
+| **Inputs** | Reader × article: similarity to reading history, subcategory affinity and complements, article embeddings, Claude reader profiles, article age, time-slot engagement | XGBoost's outputs (`p_click`, `1 − p_return`), plus context about *our pushes*: pushes in the last few hours, pushes ignored this week, hours since the last open, the reader's open rate on our pushes, whether this is one of their own best hours |
 
 **What the bandit's reward counts.** A *session* is a return visit: the reader coming back in
 that slot's window by any route (tapping the push, or opening the site on their own later).
@@ -40,7 +40,7 @@ randomized holdout would measure them.
 The bandit gets no article features (that's XGBoost's job), and XGBoost never sees what our
 pushes did: the no-push outcome, annoyance or opt-outs. XGBoost does have a few fatigue features
 (`slot_skipped_72h`, `impr_last_24h`, `hours_since_last_impr`, ...), but they're learned from
-feed visits readers chose to make, and their effect is small (about 2–3% lower engagement after
+feed visits readers chose to make, and their effect is small (about 2% lower engagement after
 5+ impressions a day; see [docs/analysis.md](docs/analysis.md)). They aren't the core of the
 model. The bandit's push-history context is what governs how often to push. λ (the cost of one
 push) and V (the cost of a reader turning notifications off) are prices set by hand. Both models
@@ -79,12 +79,13 @@ Details: [docs/model.md](docs/model.md) and [docs/analysis.md](docs/analysis.md)
 ## Real pushes
 
 The notifier scores live NYT RSS articles every two hours (7 to 21) and pushes to phones through
-[ntfy](https://ntfy.sh) when the top article clears the send policy.
+[ntfy](https://ntfy.sh) when the top article clears the send policy (the fixed rule).
 Tapping a push opens the reader's profile. The first 3 articles they read each day make a small
 papier-mâché word art (a snowman, a heart, a dinosaur...) out of the articles' titles and
 abstracts. Tapping one turns it into a sticker to share in any chat. Everyone gets the same shape
 on a given day; the words they read make it theirs. Every push and tap is logged as labeled data
-that MIND lacks. The plan is to retrain the model each week on these logs. It can also deploy to
+that MIND lacks. The plan is to retrain the model on these logs on a schedule (weekly or
+nightly), with the bandit refit nightly. It can also deploy to
 GCP for about $1/month.
 
 ## Proposed A/B test
@@ -92,12 +93,12 @@ GCP for about $1/month.
 | Arm | Pushes | Papier-mâché |
 |-----|--------|-----------|
 | A | NYT-style: many a day, same for everyone | — |
-| B | Selective: model-picked, sent only when it clears the send policy | Off |
-| C | Selective: model-picked, sent only when it clears the send policy | On |
+| B | Selective: model-picked, sent only when the send rule says so (fixed rule, or the bandit once validated) | Off |
+| C | Selective: model-picked, sent only when the send rule says so (fixed rule, or the bandit once validated) | On |
 
 A vs. B tests selective pushing; B vs. C tests the papier-mâché pictures. Each reader is assigned to an arm
-by a fixed rule (a hash of their id), and the outcomes are clicks per reader-day, return rate and
-opt-outs. Per-push CTR alone would favor sending less. Pushes from the same reader aren't
+by a fixed rule (a hash of their id). The primary outcome is return visits per reader-day (what the
+bandit maximizes), with clicks per reader-day and opt-outs alongside. Per-push CTR alone would favor sending less. Pushes from the same reader aren't
 independent, so arms are compared on per-reader numbers. Design: [docs/ab-test.md](docs/ab-test.md).
 
 ## Quick start
@@ -110,6 +111,8 @@ docker compose run --rm train                   # train
 docker compose run --rm objective               # push objective + send policy
 docker compose up -d api                        # http://localhost:8000/docs
 docker compose up -d scorer notifier cards tunnel   # real pushes (NTFY_TOPIC in .env)
+docker compose run --rm uplift                  # causal ML benchmark (needs outputs/nyt-sim)
+uv run pushpin-bandit --grid                    # contextual bandit (needs outputs/nyt-sim-8slot; docs/bandit.md)
 ```
 
 ## Docs
@@ -117,7 +120,7 @@ docker compose up -d scorer notifier cards tunnel   # real pushes (NTFY_TOPIC in
 | Doc | Covers |
 |-----|--------|
 | [model.md](docs/model.md) | Pipeline, features, evaluation, objective and send policy |
-| [analysis.md](docs/analysis.md) | Calibration, return model, exploration, fatigue, LLM ablation, hyperparameter tuning |
+| [analysis.md](docs/analysis.md) | Calibration, return model, send policy and the bandit's objective, exploration, fatigue, LLM ablation, hyperparameter tuning |
 | [development.md](docs/development.md) | Setup, API, tests, CI, outputs |
 | [notifier.md](docs/notifier.md) | Real pushes, cards, how many pushes, database |
 | [ab-test.md](docs/ab-test.md) | The proposed A/B test and its analysis |
@@ -131,4 +134,4 @@ docker compose up -d scorer notifier cards tunnel   # real pushes (NTFY_TOPIC in
 
 These programs are a work in progress, as we work to improve usability, error-catching, and speed of analysis. If you find errors, please contact Justin Sheen at justinksheen (at) gmail (dot) com
 
-Last Update: November 13, 2026
+Last Update: November 19, 2026

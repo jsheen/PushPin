@@ -5,7 +5,7 @@ Setup, the batch API, tests and outputs. Short version in the [README](../README
 ## Repository layout
 
 ```
-configs/                # train.yml, objective.yml, notifier.yml
+configs/                # train.yml, objective.yml, notifier.yml, uplift.yml, bandit.yml
 scripts/                # sync-data.sh, smoke-api.sh (CI), build-api-image.sh, deploy-gcp.sh
 deploy/                 # cloudbuild.yaml, cloudrun/ (scorer, cards, notifier job), k8s/ (scorer at scale, KEDA)
 src/pushpin/
@@ -13,10 +13,13 @@ src/pushpin/
   profile.py                        # RAG + Claude reader profiles
   features.py train.py compare.py   # features; training; paired bootstrap of two runs
   calibration.py risk.py            # Platt scaling, ECE; return model
-  objective.py                      # push objective + send policy
+  objective.py                      # push objective + (fixed) send policy
+  uplift.py uplift_design.py        # causal ML: doubly robust push effects (semi-synthetic benchmark)
+  bandit.py                         # contextual bandit for the send decision (on the NYT simulation)
   exploration.py fatigue.py         # behavior analyses
   api.py live.py                    # FastAPI app; request-time scoring + parity replay
-  nyt.py notifier.py cards.py store.py  # NYT sim; real pushes; card server; SQLite/Postgres store
+  nyt.py push_job.py scorer_api.py  # NYT sim (in one process, or push job + scorer service over HTTP)
+  notifier.py cards.py store.py     # real pushes (ntfy); card server; SQLite/Postgres store
   plots.py                          # all charts
 tests/                  # pytest suite on synthetic MIND-style data
 Dockerfile, Dockerfile.objective, Dockerfile.api   # train / objective / API images
@@ -60,6 +63,8 @@ pushpin-compare outputs/ablation-no-llm outputs/ablation-with-llm   # paired boo
 docker compose run --rm objective "pushpin-objective --run-dir outputs/recency-depth-no-emb --friction 0.3"
 docker compose run --rm train "pushpin-exploration"   # outputs/analysis/exploration.*
 docker compose run --rm train "pushpin-fatigue"       # outputs/analysis/fatigue.*
+docker compose run --rm uplift                        # causal ML benchmark: outputs/uplift/sim/
+uv run pushpin-bandit --grid                          # contextual bandit vs breaking, across λ and V: outputs/bandit/
 ```
 
 ## API
@@ -107,8 +112,11 @@ outputs/<run> --users 100` rescores impressions from each user's earlier events 
 (`src/pushpin/live.py`) and matches batch exactly at ~110 ms per request. `pushpin-nyt-sim
 outputs/ablation-with-llm` uses it to push a week of real NYT articles (`data/nyt-recent.csv`) to
 1,000 MIND users: 918 articles, 4,411 pushes sent (0.63 per user-day), 4.3 ms per request;
-outputs in `outputs/nyt-sim/`. See [docs/live-scoring.md](live-scoring.md) and
-[docs/production.md](production.md).
+outputs in `outputs/nyt-sim/`. The push job takes `--slot-hours` (e.g. every two hours, 7 to 21),
+`--day-pool` (rank every unpushed article of the day, as the live notifier does) and
+`--keep-top N` (keep each decision's best N candidates plus the slot's newest article); the
+bandit replays `outputs/nyt-sim-8slot`, made that way ([docs/bandit.md](bandit.md#running-it)).
+See [docs/live-scoring.md](live-scoring.md) and [docs/production.md](production.md).
 
 ## Development
 
@@ -119,7 +127,8 @@ uv sync --extra train --extra api --extra dev && ruff check src tests && uv run 
 The suite runs on a tiny synthetic MIND-style dataset (`tests/conftest.py`), with no real data,
 and covers metrics and the quality gate, calibration, return labels, the objective and send
 policy, no-lookahead guarantees, the analyses, an end-to-end train → objective run, every API
-endpoint, and the notifier store on SQLite and Postgres
+endpoint, the push job (including the day pool), the uplift estimator, the contextual bandit
+and its planted world, and the notifier store on SQLite and Postgres
 (`PUSHPIN_TEST_DATABASE_URL`).
 
 - **CI** (`.github/workflows/ci.yml`, every push and PR): `ruff`, `pytest`, builds of all three
@@ -146,4 +155,5 @@ Each run writes to `outputs/<run>/` (`output.dir` or `--output-dir`, default `ou
 | `objective/pushes.parquet` | The chosen push per impression with its `send` decision |
 | `objective/volume.*`, `summary.json` | Send-policy volume vs. CTR by threshold; configured-friction summary |
 
-Also `outputs/analysis/`, `outputs/nyt-sim/` and `outputs/notifier/pushes.db`.
+Also `outputs/analysis/`, `outputs/nyt-sim/` (and `nyt-sim-6slot/`, `nyt-sim-8slot/`),
+`outputs/uplift/sim/`, `outputs/bandit/` and `outputs/notifier/pushes.db`.

@@ -34,9 +34,10 @@ every few minutes   news API (e.g. NYT Times Newswire) ──▶ ingest job
                        ──▶ article catalog + vector index
 
 each push slot      Cloud Scheduler ──▶ push job (container)
-  (8:00 13:00 19:00)   load model version + user state + articles since last slot
+  (every two hours)    load model version + user state + the day's unpushed articles
                        score_many(all subscribed users, in batches)
-                       push objective (friction) + send policy (threshold, risk, daily cap)
+                       push objective (friction) + send decision (fixed policy today; the
+                       contextual bandit, refit nightly, once validated: docs/bandit.md)
                        ──▶ delivery service (Firebase Cloud Messaging / APNs) ──▶ phones
                        ──▶ log every decision (sent or held) with its features
 
@@ -45,7 +46,9 @@ continuously        opens, clicks, dismissals, opt-outs ──▶ event log
 
 daily               report job ──▶ daily.csv-style metrics + alerts (monitoring, editors)
 
-weekly              retrain job on the new logs ──▶ quality gate ──▶ new model version
+nightly             bandit refit on all send decisions so far (sufficient statistics: cheap)
+
+weekly or nightly   retrain job on the new logs ──▶ quality gate ──▶ new model version
                        ──▶ build serving image tagged with the version ──▶ deploy
 ```
 
@@ -108,7 +111,8 @@ weekly              retrain job on the new logs ──▶ quality gate ──▶
   (streaming state updates) or the next day (nightly batch)?
 - **Send policy on thin days:** in the simulation, weekends had ~half the articles but the same
   number of sends, so the threshold effectively loosens when the pool shrinks. Should the
-  threshold or cap depend on the day's volume?
+  threshold or cap depend on the day's volume? (The bandit's threshold depends on the pick and
+  the reader's state, not on the pool's size, so this question carries over to it.)
 - **Breaking news:** a fixed three slots can't react to a major story; add an editor-triggered
   slot, or score continuously and send when a story clears a high bar?
 - **Opt-outs:** the return model is a proxy (does the user come back within 24 h). Real
