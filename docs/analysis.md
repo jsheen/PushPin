@@ -53,6 +53,16 @@ Low friction buys novelty cheaply: 0 → 0.2 more than triples the never-shown s
 points of CTR. Above about 0.5 the model keeps less and less of its edge. CTR only credits logged
 clicks, so it likely understates how novel pushes would do.
 
+**These are top picks, not sent pushes.** Friction only chooses the candidate; the send step
+(the fixed rule, or the contextual bandit) then decides from its `p_click` and push context, with
+no novelty term. Novel picks have lower `p_click`, so they're skipped more often. On the test day,
+friction 0 → 0.2 raises the never-shown share of *sent* pushes from 3.7% to 16.7% (550 → 1,550
+novel pushes), less than among top picks (11% → 37%). When a slot's top pick is skipped, nothing
+is sent: there's no fallback to the runner-up, so total pushes fall 38% (15,047 → 9,260). That's
+by design: if the best-balanced pick isn't worth it now, wait. The caveat is that novel picks
+are skipped more often, which is a decision we must make: a fallback, or a novelty term in the
+send step, would keep more of them.
+
 ## Calibration
 
 A ranking only needs scores in the right order. A **send/don't-send decision** needs them to be
