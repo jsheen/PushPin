@@ -1,349 +1,215 @@
 # Contextual bandit: when to push
 
-XGBoost picks **which article** each reader gets. The send decision is the separate question
-of **whether to push it now**. Today that's a fixed rule
-(`p_click ≥ 0.07 + 0.04 × (1 − p_return)`, at most 2 a day). The contextual bandit learns that
-decision instead, from what our pushes actually did, and is tested here on the NYT simulation
-against pushing the latest breaking story at every slot.
+XGBoost picks **which article** each reader gets. The bandit decides **whether to push it now**,
+instead of the fixed rule (`p_click ≥ 0.07 + 0.04 × (1 − p_return)`, at most 2 a day), learning
+from what pushes actually did. It's tested here on the NYT simulation against pushing the latest
+breaking story at every slot. **Status:** simulation only; live still uses the fixed rule. The
+model's formulas are in [analysis.md](analysis.md#send-decision-the-contextual-bandits-objective).
 
 Code: `src/pushpin/bandit.py`, `configs/bandit.yml`, `tests/test_bandit.py`. Plots:
-`docs/bandit.png`, `docs/bandit_grid.png`. **Status:** simulation only; live still uses the fixed rule.
+`docs/bandit.png`, `docs/bandit_grid.png`.
 
 ## Contents
 
 - [Two models, two jobs](#two-models-two-jobs)
-- [Why not one bandit on all the features?](#why-not-one-bandit-on-all-the-features)
 - [The reward and its two prices](#the-reward-and-its-two-prices)
 - [The bandit](#the-bandit)
 - [The planted world](#the-planted-world)
-- [Editorial alerts](#editorial-alerts)
-- [Retraining each night](#retraining-each-night)
-- [Starting from a publisher's push history](#starting-from-a-publishers-push-history)
-- [Policies compared](#policies-compared)
-- [Results across the two prices](#results-across-the-two-prices)
+- [Results](#results)
 - [What it learned](#what-it-learned)
-- [Beyond send or skip: with much more data](#beyond-send-or-skip-with-much-more-data)
+- [Operating it](#operating-it)
+- [With much more data](#with-much-more-data)
 - [Limitations](#limitations)
 - [Running it](#running-it)
 
 ## Two models, two jobs
 
-| | XGBoost | Contextual bandit |
-|---|---|---|
-| **Question** | Which article would this reader open? | Is this pick worth sending to this reader *now*? |
-| **Learns from** | MIND feed logs (supervised, offline) | Its own send decisions and their outcomes (online) |
-| **Target** | P(click), P(return) | sessions − λ·pushes − V·opt-outs |
-| **Inputs** | Reader × article: history similarity, subcategory affinity, embeddings, Claude reader profiles, article age, slot engagement | XGBoost's outputs plus context about *our pushes* (below) |
-
-The bandit gets no article features (that's XGBoost's job). XGBoost never sees what a push
-did: the no-push outcome, annoyance or opt-outs. XGBoost's few fatigue features
+XGBoost learns **what a reader likes** from millions of MIND impressions. The bandit learns **how
+they respond to being pushed** from its own send decisions. It gets XGBoost's outputs (`p_click`,
+`1 − p_return`) and context about our pushes, but no article features, and XGBoost never sees
+what a push did (the no-push outcome, annoyance, opt-outs). XGBoost's few fatigue features
 (`slot_skipped_72h`, `impr_last_24h`, ...) come from feed visits readers chose to make, and their
-effect is small (about 2% either side of a reader's norm; [analysis.md](analysis.md)), so they
-aren't the core of the model.
+effect is small (about 2%; [analysis.md](analysis.md)).
 
-## Why not one bandit on all the features?
+**Why not one bandit on all the features?**
+1. **Far too little data, too much exploration.** The bandit sees one decision per reader per
+   slot, about 5% opened. Thompson sampling must explore to learn each weight: manageable with 9
+   inputs, far longer with hundreds, and that exploration is real readers getting pushes that
+   don't help them.
+2. **It doesn't rank.** It decides send or skip for one pick; XGBoost chooses that pick from
+   ~100 candidates. Choosing articles too is a much harder problem ([below](#with-much-more-data)).
+3. **No friction knob.** The push objective sets engagement vs. novelty explicitly (friction
+   0.2); a bandit maximizing visits would set it implicitly.
 
-The bandit sees XGBoost's similarity features only through `p_click`, so two picks with the same
-`p_click` look alike to it even if one is a close topic match and the other is broadly popular.
-Training one bandit on every user and article feature instead would lose more than it gains:
-
-1. **Far too little data, and too much exploration.** XGBoost learned content preferences from
-   millions of MIND impressions. The bandit learns only from its own sends (one decision per
-   reader per slot, about 5% opened), and Thompson sampling has to explore to learn each weight:
-   manageable with 9 inputs, far longer with hundreds. That exploration is real readers getting
-   pushes that don't help them.
-2. **It doesn't rank.** The bandit decides send or skip for one pick; XGBoost chooses that pick
-   from about 100 candidates a slot. Choosing among the articles too would need the bandit to be
-   reconceptualized as a much harder problem.
-3. **No friction knob.** The push objective sets the engagement-vs-novelty trade-off explicitly
-   (friction 0.2). One bandit maximizing visits would set it implicitly, and the planted world
-   even favors familiar topics, so discovery would have no knob left.
-
-With more data, similarity scores can be added gradually to the bandit's context, one score at
-a time (e.g. a topic-match or novelty score next to `p_click`), and kept only if they help. At
-scale, with randomized push logs, an uplift model trained offline on all the features
-([uplift.md](uplift.md)) can pass its estimate of a push's effect to the bandit as one
-more input.
+The cost: two picks with the same `p_click` look alike to the bandit, even if one is a close
+topic match and the other broadly popular. With more data, scores like topic match or novelty
+can be added to its context one at a time, and at scale an uplift model trained offline on all
+the features ([uplift.md](uplift.md)) can pass its estimate of a push's effect as one more input.
 
 ## The reward and its two prices
 
 ```
-reward = sessions − λ × pushes − V × opt-outs
+reward = session − λ × push − V × opt-out          (per reader-slot)
 ```
 
-A **session** is a return visit: the reader coming back in that slot's window by any route
-(tapping the push, or opening the site on their own later), and it's counted whether or not a
-push was sent. **Opens** (the tap on the notification) aren't in the reward: an open by a reader
-who'd have come anyway adds nothing. They matter through annoyance (an ignored push raises it,
-which lowers later effects and drives opt-outs) and as a bandit input (the reader's open rate on
-our pushes). How much a single push raises visits or opens isn't known from any data here; the
-simulation plants both (see [The planted world](#the-planted-world)).
+A **session** is a return visit: the reader coming back in that slot's window by any route,
+counted whether or not a push was sent. **Opens aren't rewarded**: an open by a reader who'd have
+come anyway adds nothing. They matter through annoyance (ignored pushes) and as an input. How much
+one push raises visits or opens isn't known from any data here, so the simulation plants it.
 
-Both prices are in sessions and are **set by hand**, not learned:
+Both prices are **set by hand**, in sessions:
+- **λ, the cost of one push:** 0.04 = a push must cause one extra visit per 25 sends.
+- **V, the cost of a reader turning notifications off:** what their future pushes would have
+  caused, ≈ 180 days × ~1 push a day × ~0.03 net ≈ 5.
 
-- **λ, the cost of one push**: how many extra visits a push must cause to be worth an
-  interruption. λ = 0.04 means one extra visit per 25 pushes.
-- **V, the cost of a reader turning notifications off**: they still visit on their own, so
-  what's lost is what their future pushes would have caused,
-  ≈ 180 days × ~1 push a day × ~0.03 net per push ≈ 5.
-
-Because both are value judgments, the result is reported across a grid,
-λ ∈ {0.02, 0.04, 0.08} × V ∈ {2, 5, 20}, not at one setting.
+Results are reported across λ ∈ {0.02, 0.04, 0.08} × V ∈ {2, 5, 20}.
 
 ## The bandit
 
-At every slot, XGBoost's top unpushed article is the candidate, and the bandit decides send or
-skip from a context vector z:
+At every slot the candidate is XGBoost's top unpushed article, and the bandit decides from a
+context z:
 
-| Feature | Why |
+| Input | Why |
 |---|---|
-| `p_click`, `1 − p_return` (risk), their product | XGBoost's outputs, as summaries |
-| recent pushes (last 4 hours) | short-term fatigue |
-| pushes ignored this week | annoyance |
-| log hours since the last open | how engaged they are right now |
-| the reader's open rate on our pushes | their own response to *us* |
-| is this their hour: their organic session rate at this hour ÷ their own average, from slots without a push | personal timing, kept separate from how often they come back at all (which risk covers) |
+| `p_click`, risk (`1 − p_return`), their product | XGBoost's outputs, as summaries |
+| recent pushes (last 4 hours), pushes ignored this week | fatigue, annoyance |
+| log hours since the last open; the reader's open rate on our pushes | how they respond to *us* |
+| is this their hour: organic session rate at this hour ÷ their own average, from slots without a push | personal timing, separate from how often they come back at all |
 
-There's no clock-time feature. An earlier version had hour of day as a sine/cosine pair, which
-can only draw one bump per day. With the true average effect flat across hours, that bump landed
-at midday on noise.
+A Bayesian linear regression on `[z, send × z]` estimates θ, the **effect of sending**.
+**Thompson sampling** draws θ once per reader-day and sends when θ · z > 0. The posterior is refit
+every night from all decisions so far. Because z contains `p_click`, the rule is a threshold on
+`p_click` that moves with context.
 
-The model is a Bayesian linear regression on `[z, send × z]`, with a Gaussian prior. The target
-is each decision's reward minus the reader's own organic session rate at that hour (estimated
-from slots without a push), so the model only has to explain what a push adds. Without that, the
-linear model's misfit of the organic baseline (which is really `p_return × preference`) leaked
-into the effect weights, because sends aren't random. The bandit then learned to push *away*
-from readers' best hours, where the true effect is 2× larger. The `send × z` weights θ are the effect of sending. **Thompson sampling** draws
-θ from the posterior once per reader-day and sends when θ · z > 0. The posterior is refit every
-simulated night from all decisions so far (a batched bandit). Because z contains `p_click`, the
-rule is a threshold on `p_click` that moves with context: it rises after recent or ignored
-pushes and falls at the hours a reader tends to come back.
+Two design fixes came from the results:
+- **No clock-time feature.** Hour of day as a sine/cosine pair can draw only one bump per day.
+  With the true average effect flat across hours, it put pushes at midday on noise.
+- **Learn on reward minus the reader's organic rate at that hour.** The organic baseline is
+  really `p_return × preference`; a linear model misfits it, and because sends aren't random the
+  misfit leaked into θ. The bandit learned to push *away* from readers' best hours, where the
+  true effect is 2× larger. Subtracting the baseline fixed it.
 
 ## The planted world
 
-There are no real no-push outcomes (see [uplift.md](uplift.md#live-data)), so outcomes are
-planted on real candidates. The 8-slot NYT simulation (`outputs/nyt-sim-8slot`: 1,000 MIND
-readers, slots every two hours from 7 to 21, each reader's top 20 candidates plus the slot's
-newest article) is replayed for 13 weeks with fresh draws and carried-over reader state. Per
-slot (`configs/bandit.yml` has the values):
+There are no real no-push outcomes ([uplift.md](uplift.md#live-data)), so outcomes are planted
+on real candidates: the 8-slot NYT simulation (`outputs/nyt-sim-8slot`: 1,000 MIND readers, slots
+every two hours from 7 to 21, each reader's top 20 candidates plus the slot's newest article),
+replayed for 13 weeks with fresh draws and carried-over reader state. Per slot
+(values in `configs/bandit.yml`):
 
 ```
 organic return  y0  = organic × p_return × pref(hour)
 push effect     tau = lift × (1 − p_return) × interest × pref(hour) × exp(−annoyance / tolerance)
                       − fatigue × recent pushes
 opened          P   = p_click × pref(hour) × exp(−annoyance / tolerance)
-opt-out         P   = hazard × ((1 − p_return) / mean)^1 × annoyance / tolerance   (after an ignored push)
+opt-out         P   = hazard × ((1 − p_return) / mean) × annoyance / tolerance   (after an ignored push)
 ```
 
-- **Annoyance** rises by 1 per ignored push and halves every 3 days.
-- **Tolerance** varies by reader and is higher for readers who click more.
-- **Preference by hour:** each reader prefers morning, midday or evening.
-- **Risk cuts both ways:** at-risk readers gain the most from a good push but also quit the
-  most easily when annoyed. The old rule fixes the sign of the risk term; the bandit has to
-  learn how to weigh it.
+Annoyance rises by 1 per ignored push and halves every 3 days. Tolerance varies by reader and is
+higher for readers who click more. Each reader prefers morning, midday or evening. **Risk cuts
+both ways:** at-risk readers gain the most from a good push and quit the most easily when
+annoyed. Every policy sees the same random draws (common random numbers).
 
-Every policy sees the same random draws (common random numbers), so differences between
-policies aren't noise from different luck.
-
-## Editorial alerts
-
-A newsroom pushes major news by editorial judgment, and a learned policy must never hold that
-back. `editorial` in `configs/bandit.yml` lists news_ids an editor marks as must-send. At the
-slot where one is the newest article, it goes to every subscribed reader who hasn't had it,
-**bypassing every policy**, the bandit included. It still counts as a push: it costs λ, adds to
-recent pushes, and if ignored, to annoyance and opt-out risk. The bandit learns from those
-outcomes like any other send, and its push-history inputs see the alert, so it can back off
-afterwards. The list is empty by default, and the results above have no alerts.
-
-A demo at λ = 0.04, V = 5, with two of the sim week's biggest stories as alerts ("The Fall of
-Assad in Syria" on Dec 7 and "After Failed Martial Law, South Koreans Ask: Who's in Charge?" on
-Dec 8, each replayed weekly):
-
-| | Bandit reward vs never | Bandit pushes/day (of which alerts) | Bandit opted out | Never: pushes/day (all alerts) |
-|---|---|---|---|---|
-| No alerts | +0.0074 | 1.00 (0) | 3.3% | 0 |
-| 2 alerts a week | −0.0069 | 1.32 (0.28) | 5.6% | 0.29 |
-
-"Never" here means never pushing *beyond* the alerts. With alerts, the bandit barely cuts its
-own pushes (1.00 → 1.05 a day), so the extra annoyance shows up as opt-outs (3.3% → 5.6%) and
-it falls below the alerts-only baseline. Two caveats point in opposite directions:
-- **The sim treats an alert like any push.** Its open rate and effect come from the same planted
-  rules (`p_click`, interest), while real breaking news is likely opened far more. That would
-  make alerts cheaper.
-- **The bandit doesn't plan around alerts.** It reacts to them after the fact through its
-  push-history inputs, but it doesn't know one is coming, or that alerts take up a reader's
-  tolerance. A production version could treat an editorial budget as reserved and lower its own
-  volume on alert-heavy days.
-
-Live, the same rule would sit in the notifier: an editor's alert is sent to everyone and logged
-with propensity 1 (it wasn't the policy's choice), so it stays separable in any evaluation.
-
-## Retraining each night
-
-Both models can be updated every night, and they don't block each other:
-
-1. **XGBoost first.** Retrain the click model (and return model) on everything logged so far:
-   MIND plus the pushes and their opens. This is the scheduled retrain, and it changes which
-   article is picked and the `p_click` / `p_return` the bandit sees.
-2. **Then the bandit.** Refit its posterior from all send decisions so far. It already does this
-   every simulated night; it needs no separate training job. Within a day, each reader keeps one
-   Thompson draw of the weights.
-
-Because the bandit takes XGBoost's outputs as inputs, a retrain shifts them: the same reader
-and article can get a different `p_click` the next day. The bandit adapts as it keeps learning,
-but every logged decision should carry the XGBoost model version, so a jump after a retrain can
-be traced to its cause (and, if needed, the bandit refit on post-retrain decisions only). In the
-simulation XGBoost is fixed, so only the bandit learns.
-
-## Starting from a publisher's push history
-
-The split is like two agents: XGBoost learns **what a reader likes** (content), and the bandit
-learns **how they respond to being pushed** (timing and volume). A publisher like the NYT already
-has push data, even though its pushes aren't chosen by an algorithm today. That data splits
-across the two:
-
-| Publisher data | Which side | How it's used |
-|---|---|---|
-| Which push headlines a reader opened (topics) | XGBoost | Content preference: more click history |
-| How often they open pushes, how many they ignore, when they open | Bandit: the reader's starting state | Fills in the bandit's inputs from day one (open rate on pushes, pushes ignored, hours since the last open, "is this their hour") instead of starting blank |
-| Past pushes, their outcomes, opt-outs | Bandit: the prior on its weights | Fit the bandit's model on the logs once, and start from that posterior |
-| Readers' own notification settings (topics, quiet hours) | Neither | Hard rules the send decision obeys, not something to learn |
-
-**The prior on the weights.** Today the bandit starts knowing nothing about what sending does:
-θ ~ N(0, τ0² I). With push logs, fit the same regression on the historical decisions and start
-from the result, with its uncertainty widened:
-
-```
-today:      θ ~ N(0, τ0² I)
-with logs:  θ ~ N(θ_logs, c · Σ_logs),   c > 1
-```
-
-c > 1 keeps the bandit from trusting the logs too much, so its own decisions can still move the
-weights. That matters here: editorial pushes go to every subscriber at once. That makes them
-unconfounded *within* subscribers (who got a push didn't depend on how they'd respond). But
-subscribers differ from non-subscribers, and everyone got the same alert at the same time, so
-the logs say little about per-reader differences. In the code this is only a different starting
-point: the posterior's `precision` and `b` (`LinearThompson`) begin from the logs instead of the
-identity and zero. Fewer early pushes are spent on exploration.
-
-**The reader's starting state.** Strictly this isn't a prior. The bandit's weights are shared,
-and what's personal is the context z. A reader with a long push history gets their real open
-rate, ignored pushes and best hours as inputs from the first day, so the shared weights already
-give them a sensible personal threshold. Separate weights per reader (a hierarchical model:
-shared weights plus a per-reader offset, which history could also initialize) are a later step,
-worth it only for very active readers.
-
-## Policies compared
+## Results
 
 | Policy | Rule |
 |---|---|
 | **Contextual bandit** | as above |
-| **Breaking** | the newest article to every reader at every slot (8 a day, no model, no cap) |
-| **Best fixed threshold** | `send if p_click ≥ c`, best of c ∈ {0.04, …, 0.30} chosen *in hindsight*: the most a rule without context could reach |
-| **Never** | the floor |
-
-## Results across the two prices
+| **Breaking** | the newest article to every reader at every slot (8 a day, no model) |
+| **Best fixed threshold** | `send if p_click ≥ c`, best of c ∈ {0.04, …, 0.30} *in hindsight* |
+| **Never** | the floor (1.169 organic visits per reader-day) |
 
 ![Contextual bandit across λ and V](bandit_grid.png)
 
 Reward relative to never pushing, per reader-day, over 13 weeks:
 
-| λ | V | Bandit | Bandit pushes/day | Bandit opted out | Best threshold (c) | Best threshold | Breaking |
-|---|---|---|---|---|---|---|---|
-| 0.02 | 2 | **+0.0130** | 1.60 | 5.3% | 0.2 | +0.0003 | −0.27 |
-| 0.02 | 5 | **+0.0160** | 1.47 | 4.5% | 0.2 | +0.0003 | −0.29 |
-| 0.02 | 20 | **+0.0107** | 1.22 | 3.9% | 0.2 | +0.0003 | −0.39 |
-| 0.04 | 2 | **+0.0018** | 0.86 | 2.9% | 0.3 | −0.0000 | −0.38 |
-| 0.04 | 5 | **+0.0074** | 1.00 | 3.3% | 0.3 | −0.0000 | −0.40 |
-| 0.04 | 20 | **+0.0042** | 0.83 | 3.5% | 0.3 | −0.0000 | −0.50 |
-| 0.08 | 2 | −0.0060 | 0.52 | 1.3% | 0.3 | −0.0002 | −0.59 |
-| 0.08 | 5 | −0.0077 | 0.55 | 1.3% | 0.3 | −0.0002 | −0.61 |
-| 0.08 | 20 | −0.0039 | 0.47 | 0.8% | 0.3 | −0.0002 | −0.71 |
+| λ | V | Bandit | Pushes/day | Opted out | Best threshold (c) | Breaking |
+|---|---|---|---|---|---|---|
+| 0.02 | 2 | **+0.0130** | 1.60 | 5.3% | +0.0003 (0.2) | −0.27 |
+| 0.02 | 5 | **+0.0160** | 1.47 | 4.5% | +0.0003 (0.2) | −0.29 |
+| 0.02 | 20 | **+0.0107** | 1.22 | 3.9% | +0.0003 (0.2) | −0.39 |
+| 0.04 | 2 | **+0.0018** | 0.86 | 2.9% | −0.0000 (0.3) | −0.38 |
+| 0.04 | 5 | **+0.0074** | 1.00 | 3.3% | −0.0000 (0.3) | −0.40 |
+| 0.04 | 20 | **+0.0042** | 0.83 | 3.5% | −0.0000 (0.3) | −0.50 |
+| 0.08 | 2 | −0.0060 | 0.52 | 1.3% | −0.0002 (0.3) | −0.59 |
+| 0.08 | 5 | −0.0077 | 0.55 | 1.3% | −0.0002 (0.3) | −0.61 |
+| 0.08 | 20 | −0.0039 | 0.47 | 0.8% | −0.0002 (0.3) | −0.71 |
 
-- **Breaking is far worse everywhere.** Over 99% of its pushes are ignored, annoyance builds, and
-  59% of readers turn notifications off.
-- **At λ = 0.02 and 0.04, the bandit is the only policy that gains:** +0.002 to +0.016 a
-  reader-day over never pushing, while the best fixed threshold gets about zero. A rule
-  without context can't find pushes worth their cost; the bandit finds them by reader and moment.
-- **At λ = 0.08, pushing doesn't pay in this world**, and the right answer is "almost never
-  push". A very high fixed threshold (0.3, under 0.01 pushes a day) gets there. The bandit pushes
-  about 0.5 a day and ends 0.004–0.008 below never.
-- **It reacts to the prices in the right direction.** It pushes less as λ rises
-  (1.2–1.6 → 0.8–1.0 a day) and as V rises.
-- **It learns within weeks.** At λ = 0.04, V = 5 it loses in week 1 (−0.014, exploring) and is
-  ahead of never pushing from week 3 on (+0.006 to +0.016 a week; left panel below).
+- **Breaking is far worse everywhere.** Over 99% of its pushes are ignored; visits fall below
+  never pushing and 59% of readers opt out.
+- **At λ = 0.02–0.04 the bandit is the only policy that gains**, +0.002 to +0.016 (about 3–4%
+  more return visits, 0.2–1.4% net of costs), while the best fixed threshold gets ~0.
+- **At λ = 0.08 pushing doesn't pay in this world.** A very high threshold (almost never push)
+  gets there; the bandit pushes ~0.5 a day and ends slightly below never.
+- **It reacts to the prices in the right direction** (fewer pushes as λ or V rises) and learns
+  within weeks: at λ = 0.04, V = 5 it's ahead of never pushing from week 3 on.
 
 ## What it learned
 
 ![Contextual bandit at λ = 0.04, V = 5](bandit.png)
 
-Posterior means of the effect-of-sending weights at λ = 0.04, V = 5:
+Weights on the effect of sending, at λ = 0.04, V = 5:
 
-- **Risk: +0.043, and p_click × risk: +0.048.** Readers at risk of leaving cut both ways: they
-  gain the most from a good push (they won't come back on their own) and quit the most easily
-  when one misses. The bandit sends them **fewer, better pushes**: their bar drops mainly for
-  appealing picks and rises after ignored or recent pushes. The old rule only protected them
-  (`+0.04 × (1 − p_return)` on the bar), giving up the gain. How the two sides balance for real
-  readers depends on numbers the simulation only plants (how much more easily they quit, and V).
-- **Push history:** recent pushes −0.044, pushes ignored this week −0.027, the reader's own open
-  rate +0.011. Back off after pushes and after ignored ones; keep pushing readers who open.
-- **Is this their hour: +0.006 per unit (± 0.001).** It pushes at readers' own best times: in
-  the last three weeks it sends 28% of decisions at a reader's best hours and 5% at their worst,
-  where the true effect is about half as large. Because of the 4-hour fatigue window, a push at
-  7 makes 9 costly, so pushes per hour alternate (middle panel).
-- **`p_click` alone: −0.017 (± 0.012), uncertain.** Its effect shows up through the
-  interaction with risk instead: an appealing pick is worth sending mainly to readers who
-  wouldn't come back on their own.
+- **Risk +0.043, `p_click × risk` +0.048: fewer, better pushes for readers at risk of leaving.**
+  Their bar drops mainly for appealing picks and rises after ignored or recent pushes. The old
+  rule only protected them (`+0.04 × risk` on the bar), giving up the gain. The real balance
+  depends on numbers the sim only plants.
+- **Push history:** recent pushes −0.044, ignored this week −0.027, own open rate +0.011.
+- **Is this their hour: +0.006 (± 0.001).** 28% of decisions at a reader's best hours are sends,
+  vs 5% at their worst. With the 4-hour fatigue window, a push at 7 makes 9 costly, so pushes per
+  hour alternate.
+- **`p_click` alone: −0.017 (± 0.012), uncertain.** Its effect comes through the interaction
+  with risk.
 
-## Beyond send or skip: with much more data
+## Operating it
 
-Today the bandit has two actions for XGBoost's pick: send or skip. With large randomized push
-logs, it could be widened in three steps, each more powerful and more complex:
+- **Editorial alerts.** `editorial` in `configs/bandit.yml` lists must-send news_ids. At the
+  slot where one is newest it goes to every subscribed reader, bypassing every policy, and counts
+  as a push. Off in the results above. In a demo with two of the week's biggest stories (the
+  fall of Assad, South Korea's martial-law aftermath), the bandit barely cut its own pushes, so
+  opt-outs rose from 3.3% to 5.6%. The sim treats an alert like any push (real breaking news is
+  probably opened far more), and the bandit reacts to alerts only afterwards; a production
+  version would reserve an editorial budget. Live, alerts would be logged with propensity 1.
+- **Retraining each night.** Retrain XGBoost first, on MIND plus the push logs; then refit the
+  bandit on all its decisions. A retrain shifts the `p_click` / `p_return` the bandit sees, so log
+  the model version with every decision.
+- **Starting from a publisher's push history.** Topics of opened pushes feed XGBoost. A reader's
+  open, ignore and timing history fills the bandit's inputs from day one. Past pushes and their
+  outcomes give the **prior** on the weights: fit the same regression on the logs and start from
+  θ ~ N(θ_logs, c · Σ_logs) with c > 1 instead of N(0, τ0² I), widening the uncertainty because
+  editorial blasts say little about per-reader differences. Readers' own notification settings
+  are hard rules, not something to learn.
 
-1. **Choose the article too.** One action per candidate plus skip: send the article with the
-   highest estimated effect of sending it now, or skip if none beats the cost of a push. That
-   needs a model of reader × article × context, i.e. the bandit absorbs XGBoost's and the uplift
-   model's jobs (typically a neural network, with an ensemble for the uncertainty). Large systems
-   first narrow the ~100 candidates to a short list with a cheap retrieval model, then choose
-   among those (e.g. YouTube's recommender, Chen et al. 2019).
-2. **Plan over the day.** A choice now changes later options (a pushed article is gone, fatigue
-   builds), so the best push now isn't always best overall. In reinforcement learning, skip's
-   value includes the best that can happen later, so "save this story for the reader's evening
-   peak" falls out of the value of skipping; it doesn't need its own action.
-3. **A cheap middle ground: one-step lookahead.** Before sending, compare the value of sending
-   now with the value at the reader's best remaining slot today (same model, with "is this their
-   hour" set for that slot), and send only if now wins by a margin. No new learning; it would
-   mainly fix pushes going out early in the day. Caveat: the story ages, and a newer pick may
-   replace it.
+## With much more data
 
-Each step trades simplicity for power, so the current split (XGBoost picks, the bandit times) is
-the right shape until the data exists.
+1. **Choose the article too:** one action per candidate plus skip. The bandit then absorbs
+   XGBoost's and the uplift model's jobs (usually a neural network with an ensemble for the
+   uncertainty, after a cheap retrieval step narrows the candidates; e.g. YouTube, Chen et al.
+   2019).
+2. **Plan over the day** (reinforcement learning): skip's value includes the best that can happen
+   later, so "save this story for the reader's evening peak" falls out of the value of skipping.
+3. **Cheap middle ground, one-step lookahead:** send only if now beats the reader's best
+   remaining slot today, using the same model. It would mainly fix pushes going out early.
+
+Each step trades simplicity for power, so the current split is the right shape until the data
+exists.
 
 ## Limitations
 
-- **Planted outcomes.** The world was set before the results and not tuned afterwards, but the
-  answer still depends on it: on these planted rules, not on real readers.
-- **Carryover isn't credited.** Each decision's reward is its own slot's session, push cost and
-  opt-out. An ignored push also lowers later effects and opens (annoyance decays over days), and
-  that later cost isn't charged to the push that caused it. This is the likely reason the bandit
-  over-pushes at λ = 0.08. Fixes: a longer reward window per decision, or pricing annoyance
-  directly (a third price), or a reinforcement-learning view of the reader's state. The longer
-  window could be implemented with little code: score each decision on the next 24 hours instead
-  of its own slot, learning it a night later. But the learning signal gets noisier. A skip shares
-  credit or blame for whatever later pushes did, and every decision's reward carries a day of
-  random visits, so it wasn't added.
-- **No positive spillover is planted.** An opened push affects only its own slot's visit; it never
-  makes a reader more likely to come back later that day or the next (a habit). Only negative
-  carryover (annoyance) exists. The evaluation counts visits in every slot, so it would capture
-  spillover if it existed, which means the reported gains may be conservative. The bandit's own
-  reward (its slot only) couldn't learn from it either way.
-- **Exploration cost.** Thompson sampling keeps trying sends while uncertain; with 1,000 readers
-  that cost is visible over 13 weeks.
-- **Linear in z.** Interactions beyond `p_click × risk` aren't modeled. The organic baseline is
-  subtracted using the bandit's own estimate, which is noisy for new readers.
-- **Live needs an outcome without a push.** The reward needs sessions in both arms. Live, that
-  means per-reader delivery (one ntfy topic per reader) and an observable visit (e.g. opening
-  `/me`); see [uplift.md](uplift.md#live-data).
+- **Planted outcomes.** Set before the results and not tuned afterwards, but the answer depends
+  on them, not on real readers.
+- **Carryover isn't credited.** A decision's reward is its own slot. An ignored push's later cost
+  (lower effects and opens for days) isn't charged to it, which is the likely reason it
+  over-pushes at λ = 0.08. A 24-hour reward window would be little code, but it makes learning
+  noisier (a skip shares credit for later pushes, and each reward carries a day of random
+  visits), so it wasn't added.
+- **No positive spillover is planted.** An opened push never makes a reader more likely to come
+  back later. The evaluation counts every slot and would capture it, so the gains may be
+  conservative.
+- **Exploration cost**, visible over 13 weeks with 1,000 readers.
+- **Linear in z**, and the organic baseline is the bandit's own estimate, noisy for new readers.
+- **Live needs an outcome without a push:** per-reader delivery and an observable visit; see
+  [uplift.md](uplift.md#live-data).
 
 ## Running it
 

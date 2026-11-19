@@ -110,150 +110,31 @@ The plan is to retrain each week, and that is part of what arms B and C are. Two
   the calibration weekly and retrain on MIND plus the logs (the `scores` table stores each
   candidate's features; the `labeled` view gives the labels).
 
-## Later arms: retention signals beyond similarity
+## Ideas for later arms
 
-*Not built; candidates for follow-up tests once arm B has a baseline.* The model learns two things
-about what a reader wants: similarity ("more of what you read") and complementarity
-(`complement_score`: across all users, people who read subcategory *a* go on to read *b*). Two more
-ideas, borrowed from social feeds, aim at keeping readers over weeks rather than winning the next
-click. Each would be an arm B′: arm B plus one bonus in the push objective.
+*Not built.* Candidates for follow-up tests once arm B has a baseline, each an arm B′ = arm B
+plus one change:
 
-### Nostalgia: bring back an interest that has gone quiet
+- **Nostalgia: bring back an interest that has gone quiet.** A bonus of roughly
+  `affinity × f(gap)` for a subcategory with strong long-run history (`subcat_affinity`) that
+  hasn't been pushed lately. It must tell *dormant* (strong history, not pushed lately: bring it
+  back) from *abandoned* (pushed lately and skipped: fatigue, leave it). `novelty` can't see this
+  today, because it counts all exposure, history included. MIND can give only a rough check (no
+  multi-week gaps); the push log has real timestamps.
+- **Bridges: one article that combines two interests** (Business + Soccer → "the economics of the
+  World Cup"). Score = max over pairs of the reader's interests of min(similarity to each), from
+  clusters of clicked-article embeddings or the LLM profile's themes; or shared entities; or
+  LLM-written bridge queries. The NYT's cross-desk pieces suit this better than MIND.
+- **The push as the first step into a chat.** Arm B-chat adds **Ask Claude** next to Read on the
+  card, as a handoff (`claude.ai/new?q=…` with the headline and abstract; free, logs only the
+  tap) or an own chat on the card (per-token cost, sees every turn). A chat after the tap can only
+  change taps if readers expect it, so the push copy should offer it, and any lift should grow
+  over the first weeks. Primary outcome: reads, not opens (opens alone would reward a chat that
+  replaces reading). Keep `ask` out of the click label. Related: learned push timing and volume
+  (Pinterest, LinkedIn, Duolingo), LLM-written push text (PushGen, WSDM '26); no test we found of
+  a push as the first step into a chat.
 
-A reader who loved a subcategory but hasn't been pushed it in weeks may welcome it back. The
-objective can't see this today. `novelty` counts all of a reader's exposure, history clicks
-included, so a well-loved subcategory always looks familiar, however long ago it was last shown.
-The signal is the gap between **long-run share** and **recent share**:
-
-- long-run: `subcat_affinity` (share of history clicks), or exposure share over all time
-- recent: share of the last N days of pushes, or `hours_since_last_shown_in_subcat` and
-  `hours_since_last_click_in_subcat`
-
-It has to tell two cases apart:
-
-| Case | Pattern | What to do |
-|------|---------|------------|
-| **Dormant** | Strong history, not pushed lately | Bring it back: rediscovery bonus |
-| **Abandoned** | Pushed lately and skipped | Leave it alone: that's fatigue (`subcat_prior_skips`, `slot_skipped_72h`) |
-
-The bonus is roughly `affinity × f(gap)`, alongside the novelty term.
-
-Before spending an arm on it, MIND can give a rough check. Its pre-period history has no timestamps
-and the log covers about a week, so real multi-week gaps aren't observable. But the
-[exploration analysis](analysis.md#do-clicks-on-unfamiliar-subcategories-stick) design carries
-over: for subcategories in a user's history, compare the click rate on the first log-period
-exposure of a **dormant** one (in history, not yet shown in the log) with a **steady** one (shown
-again and again). The push log has real timestamps, so the test itself measures actual gaps.
-
-### Bridges: one article that combines two interests
-
-Someone who reads Business and Soccer may like "the economics of the World Cup" more than either
-topic alone. This works per article and per reader. Complementarity is different: it's measured
-across all users and links pairs of subcategories. Ways to score a candidate:
-
-- **Embeddings.** Group the reader's clicks into interests (clusters of clicked-article vectors, or
-  the LLM profile's click themes). Score = the max over pairs (i, j) of min(sim to i, sim to j):
-  high only if the article is close to *both*. `llm_sim_click` uses only the best-matching theme,
-  so it can't see this.
-- **Entities.** The article mentions entities the reader has read about in two different
-  subcategories. Cheap and easy to explain.
-- **Generated queries.** The LLM writes a few bridge queries per reader from pairs of their themes,
-  and the article store retrieves matches. Closest to how social feeds do it, and the most expensive.
-
-The NYT feeds suit this better than MIND, because they carry many cross-desk pieces
-(Business × Technology, Science × Politics).
-
-### Outcomes for these arms
-
-Both are bets on long-run engagement, so offline AUC is the wrong yardstick: the
-[LLM ablation](analysis.md#results) shows how little a new signal moves AUC once similarity is
-covered. On top of the outcomes above (return rate, opt-outs, clicks per reader per day), these
-arms add:
-
-- **Later reading of the topic**: after a rediscovery or bridge push, does the reader tap that
-  subcategory again in the following weeks without the bonus?
-- **Per-push CTR of bonus pushes vs. arm B's**: the click cost paid now, to set against any gain
-  in return and opt-outs.
-
-They need longer than arm B vs. C: at least four weeks, since the effect is slow and a single
-rediscovery push per reader is rare. Analysis is per reader, as above.
-
-## Later arm: the push as the first step into a chat
-
-*Not built.* The idea: a push becomes more than a link. Tapping it can lead to a conversation
-with an AI assistant about the article ("is this worth my time?", "what's the main argument?",
-"remind me Saturday"). The test asks whether that makes readers engage with pushes more, and
-whether it leads to more reading or replaces it.
-
-| Arm | Pushes | After the tap |
-|-----|--------|---------------|
-| B | Selective, model-picked | Profile with the article pinned; Read on NYT |
-| B-chat | Same | Same, plus **Ask Claude** next to Read |
-
-Assignment works as for the other arms: a hash of `reader_id`, with B-chat drawn from readers
-who would otherwise be in B. Keep papier-mâché off in both, so only the chat differs.
-
-### Two ways to build the chat
-
-| | Handoff | Own chat |
-|---|---|---|
-| How | Ask Claude opens `claude.ai/new?q=…` with the headline, abstract and link filled in | A chat on the card page, calling the Claude API |
-| Cost | None; it runs on the reader's own Claude account | Per token (cents per conversation) |
-| What we see | Only the tap (log an `ask` interaction before redirecting) | Every turn |
-| Catch | Reader needs a Claude account; Claude can't read paywalled NYT text, so the prompt carries the headline and abstract | We pay, and we store conversations (privacy policy must say so) |
-
-The handoff is enough for a first test: the question is whether the option changes behavior,
-and the `ask` tap measures whether people use it. The own chat is needed only to study *what*
-people ask.
-
-### Can it change engagement with the push itself?
-
-A chat that appears only *after* the tap can't change whether the reader taps. It can change
-taps only if the reader expects it, so the arm has to make it visible before the tap:
-
-- push copy that offers it (e.g. ending with "Tap to ask about it"), or a notification action
-  where the platform allows one (an iOS text-reply action; buttons on Android and Web Push);
-- and time: readers learn over days that a push leads somewhere useful, so any lift in opens
-  should grow over the first weeks rather than appear on day one.
-
-If opens don't move but reads after a tap do, the chat helps after the tap, not before it.
-That is a different claim and should be reported as one.
-
-### Outcomes
-
-On top of the core outcomes (opens per reader per day, return rate, opt-outs):
-
-- **Opens per push, by week**: the push-engagement question; compare week 1 with weeks 3–4 to
-  separate a novelty bump from a learned habit.
-- **Reads per reader per day**: the guardrail. If opens rise and reads fall, the chat is
-  replacing the article.
-- **Ask rate**: share of opened pushes with an `ask`.
-- **Ask without read**: an ask with no read of that article within 24 hours. Report it on its
-  own; it may mean the chat was enough, which is neither a win nor a failure.
-- **Return rate after an ask**: do readers who chat come back on later days more than those who
-  don't (within B-chat; descriptive only, since asking isn't randomized).
-
-Decide before the test which of opens or reads is primary. Reads are the safer choice: opens
-alone would reward a chat that replaces reading.
-
-### Analysis and cautions
-
-- Per reader, as above. The comparison is B vs. B-chat; within-arm comparisons of askers and
-  non-askers are descriptive, because readers choose whether to ask.
-- **Novelty.** Run at least three to four weeks and report by week. Studies on adaptive
-  notifications have found effects that fade or vanish (e.g. Mishra et al. on receptivity), and
-  a new AI feature invites a first-week bump.
-- **Training labels.** `ask` is a new interaction kind. Keep it out of the click label (an open
-  is still the label), and keep the arm as a feature or filter when retraining, as with
-  papier-mâché, so chat-driven opens don't shift the model for arm B.
-- **Sample size.** The table above applies: a 20% relative lift in opens needs ~330 readers per
-  arm. With a class-sized group this is a pilot: does anyone use Ask Claude, and does the
-  readout work.
-
-### Related work
-
-The pieces exist separately: learned push timing and volume (Pinterest's volume control,
-LinkedIn's offline RL for notifications, Duolingo's notification bandit), LLM-written push text
-(PushGen, WSDM '26), and assistants that reach out and then converse (LLM-generated just-in-time
-adaptive interventions in health; ChatGPT Pulse, Google CC). We found no test of whether making
-a push the first step into a chat raises engagement with the pushes, or the reading they lead to.
+All three bet on long-run engagement, so offline AUC is the wrong yardstick (the
+[LLM ablation](analysis.md#results) shows how little a new signal moves it). They need at least
+four weeks, reported by week to separate a novelty bump from a lasting effect, and are analyzed
+per reader as above.

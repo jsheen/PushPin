@@ -115,7 +115,7 @@ outputs/ablation-with-llm` uses it to push a week of real NYT articles (`data/ny
 outputs in `outputs/nyt-sim/`. The push job takes `--slot-hours` (e.g. every two hours, 7 to 21),
 `--day-pool` (rank every unpushed article of the day, as the live notifier does) and
 `--keep-top N` (keep each decision's best N candidates plus the slot's newest article); the
-bandit replays `outputs/nyt-sim-8slot`, made that way ([docs/bandit.md](bandit.md#running-it)).
+bandit replays `outputs/nyt-sim-8slot`, made that way ([bandit.md](bandit.md#running-it)).
 See [docs/live-scoring.md](live-scoring.md) and [docs/production.md](production.md).
 
 ## Development
