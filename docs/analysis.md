@@ -1,4 +1,4 @@
-# Analysis: objective, calibration, send policy, user behavior, tuning
+# Analysis: objective, calibration, send policy, the bandit's objective, user behavior, tuning
 
 Deep dives behind the numbers in the [README](../README.md). Images are produced by `src/pushpin/plots.py`.
 
@@ -151,6 +151,66 @@ Raising the threshold trades volume for quality as intended. At the default, low
 0.82 pushes/day at 9.3% CTR and high-risk users 0.15/day at 5.3%. The model over-predicts
 on this slice, most for high-risk users, which is the impression-size caveat above plus a sign
 that a production calibrator should be fit per user segment.
+
+## Send decision: the contextual bandit's objective
+
+The fixed send policy above is being replaced by a contextual bandit (simulation only so far;
+full write-up and results in [bandit.md](bandit.md)). XGBoost still picks the article. The bandit
+decides, for that pick, whether to send it now.
+
+**The objective.** Maximize the expected total reward over all readers and slots:
+
+```
+maximize  E[ Σ over readers r and slots t of  reward(r, t) ]
+
+reward(r, t) = session(r, t) − λ · send(r, t) − V · optout(r, t)
+```
+
+- `session` = 1 if the reader comes back in that slot's window, whether or not a push was sent.
+- `send` = 1 if a push went out. λ is the cost of one push, in sessions (default 0.04: a push
+  must cause at least 1 extra visit per 25 sends).
+- `optout` = 1 if the reader turned notifications off then. V is the cost of losing them, in
+  sessions (default 5: about 180 days × ~1 push a day × ~0.03 net per push).
+
+λ and V are prices set by hand, not learned; results are reported across
+λ ∈ {0.02, 0.04, 0.08} × V ∈ {2, 5, 20}.
+
+**The model.** For each decision with context z (`p_click`, risk = 1 − `p_return`, their
+product, recent pushes, pushes ignored this week, log hours since the last open, the reader's
+open rate on our pushes, and whether this is their hour), a Bayesian linear regression:
+
+```
+reward − ŷ0  =  β · z  +  send · (θ · z)  +  noise,     noise ~ N(0, σ²),  (β, θ) ~ N(0, τ0² I)
+```
+
+ŷ0 is the reader's own organic session rate at that hour, estimated from slots without a push.
+Subtracting it leaves the model only what a push adds. θ · z is the **effect of sending**: the
+expected change in reward from sending rather than skipping.
+
+**The decision rule (Thompson sampling).** Once per reader-day, draw θ̃ from the posterior and
+
+```
+send  if  θ̃ · z > 0
+```
+
+The posterior is refit every night from all decisions so far (σ = 0.4, τ0 = 1). Drawing θ̃
+rather than using its mean is the exploration: uncertain weights sometimes say "send", which
+gathers the data that resolves them.
+
+**As a threshold.** Because z contains `p_click`, alone and times risk, the rule rearranges into a
+threshold on `p_click` that moves with context:
+
+```
+send  if  p_click ≥ threshold(z) = − θ̃_rest · z_rest / (θ̃_pclick + θ̃_pclick×risk · risk)
+```
+
+where `θ̃_rest · z_rest` is the sum over every other feature. It reads as a threshold only when
+the denominator is positive, i.e. a more appealing pick makes sending better for that reader.
+Compared with the fixed rule `0.07 + 0.04 · (1 − p_return)`:
+- the risk term's size and sign are learned, not fixed at +0.04;
+- the bar rises after recent and ignored pushes;
+- it falls at the reader's own best hours;
+- there is no daily cap: the weights on recent and ignored pushes take its place.
 
 ## Production: plugging in real opt-out data
 

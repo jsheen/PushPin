@@ -65,11 +65,18 @@ skip from a context vector z:
 | pushes ignored this week | annoyance |
 | log hours since the last open | how engaged they are right now |
 | the reader's open rate on our pushes | their own response to *us* |
-| the reader's session rate at this hour | when they tend to come back |
-| hour of day (sin, cos) | population timing |
+| is this their hour: their organic session rate at this hour ÷ their own average, from slots without a push | personal timing, kept separate from how often they come back at all (which risk covers) |
 
-The model is a Bayesian linear regression of each decision's reward on `[z, send × z]`, with a
-Gaussian prior. The `send × z` weights θ are the effect of sending. **Thompson sampling** draws
+There's no clock-time feature. An earlier version had hour of day as a sine/cosine pair, which
+can only draw one bump per day. With the true average effect flat across hours, that bump landed
+at midday on noise.
+
+The model is a Bayesian linear regression on `[z, send × z]`, with a Gaussian prior. The target
+is each decision's reward minus the reader's own organic session rate at that hour (estimated
+from slots without a push), so the model only has to explain what a push adds. Without that, the
+linear model's misfit of the organic baseline (which is really `p_return × preference`) leaked
+into the effect weights, because sends aren't random. The bandit then learned to push *away*
+from readers' best hours, where the true effect is 2× larger. The `send × z` weights θ are the effect of sending. **Thompson sampling** draws
 θ from the posterior once per reader-day and sends when θ · z > 0. The posterior is refit every
 simulated night from all decisions so far (a batched bandit). Because z contains `p_click`, the
 rule is a threshold on `p_click` that moves with context: it rises after recent or ignored
@@ -118,28 +125,28 @@ Reward relative to never pushing, per reader-day, over 13 weeks:
 
 | λ | V | Bandit | Bandit pushes/day | Bandit opted out | Best threshold (c) | Best threshold | Breaking |
 |---|---|---|---|---|---|---|---|
-| 0.02 | 2 | **+0.0131** | 1.76 | 7.4% | 0.2 | +0.0003 | −0.27 |
-| 0.02 | 5 | **+0.0102** | 1.72 | 8.2% | 0.2 | +0.0003 | −0.29 |
-| 0.02 | 20 | **+0.0024** | 1.39 | 6.0% | 0.2 | +0.0003 | −0.39 |
-| 0.04 | 2 | −0.0027 | 1.03 | 2.8% | 0.3 | −0.0000 | −0.38 |
-| 0.04 | 5 | −0.0038 | 1.02 | 3.5% | 0.3 | −0.0000 | −0.40 |
-| 0.04 | 20 | −0.0058 | 0.86 | 2.5% | 0.3 | −0.0000 | −0.50 |
-| 0.08 | 2 | −0.0082 | 0.25 | 0.7% | 0.3 | −0.0002 | −0.59 |
-| 0.08 | 5 | −0.0079 | 0.22 | 0.6% | 0.3 | −0.0002 | −0.61 |
-| 0.08 | 20 | −0.0096 | 0.26 | 0.5% | 0.3 | −0.0002 | −0.71 |
+| 0.02 | 2 | **+0.0130** | 1.60 | 5.3% | 0.2 | +0.0003 | −0.27 |
+| 0.02 | 5 | **+0.0160** | 1.47 | 4.5% | 0.2 | +0.0003 | −0.29 |
+| 0.02 | 20 | **+0.0107** | 1.22 | 3.9% | 0.2 | +0.0003 | −0.39 |
+| 0.04 | 2 | **+0.0018** | 0.86 | 2.9% | 0.3 | −0.0000 | −0.38 |
+| 0.04 | 5 | **+0.0074** | 1.00 | 3.3% | 0.3 | −0.0000 | −0.40 |
+| 0.04 | 20 | **+0.0042** | 0.83 | 3.5% | 0.3 | −0.0000 | −0.50 |
+| 0.08 | 2 | −0.0060 | 0.52 | 1.3% | 0.3 | −0.0002 | −0.59 |
+| 0.08 | 5 | −0.0077 | 0.55 | 1.3% | 0.3 | −0.0002 | −0.61 |
+| 0.08 | 20 | −0.0039 | 0.47 | 0.8% | 0.3 | −0.0002 | −0.71 |
 
 - **Breaking is far worse everywhere.** Over 99% of its pushes are ignored, annoyance builds, and
   59% of readers turn notifications off.
-- **When pushes are cheap (λ = 0.02), the bandit is the only policy that gains**: +0.002 to
-  +0.013 a reader-day, while the best fixed threshold gets about zero.
-- **When pushes are expensive (λ ≥ 0.04), pushing barely pays in this world.** After
-  annoyance, the average push causes about 0.04 extra sessions, so the right answer is "almost
-  never push". A very high fixed threshold (0.2–0.3, under 0.05 pushes a day) gets there; the
-  bandit keeps pushing (1.0, then 0.25 a day) and ends 0.003–0.010 below never.
-- **The bandit reacts to the prices in the right direction.** It pushes less as λ rises
-  (1.7 → 1.0 → 0.25 a day) and as V rises (fewer opt-outs).
-- **It's still learning at 13 weeks.** At λ = 0.04, V = 5, its weekly reward climbs from −0.025
-  in week 1 to around 0 from week 8 on (left panel below).
+- **At λ = 0.02 and 0.04, the bandit is the only policy that gains:** +0.002 to +0.016 a
+  reader-day over never pushing, while the best fixed threshold gets about zero. A rule
+  without context can't find pushes worth their cost; the bandit finds them by reader and moment.
+- **At λ = 0.08, pushing doesn't pay in this world**, and the right answer is "almost never
+  push". A very high fixed threshold (0.3, under 0.01 pushes a day) gets there. The bandit pushes
+  about 0.5 a day and ends 0.004–0.008 below never.
+- **It reacts to the prices in the right direction.** It pushes less as λ rises
+  (1.2–1.6 → 0.8–1.0 a day) and as V rises.
+- **It learns within weeks.** At λ = 0.04, V = 5 it loses in week 1 (−0.014, exploring) and is
+  ahead of never pushing from week 3 on (+0.006 to +0.016 a week; left panel below).
 
 ## What it learned
 
@@ -147,16 +154,18 @@ Reward relative to never pushing, per reader-day, over 13 weeks:
 
 Posterior means of the effect-of-sending weights at λ = 0.04, V = 5:
 
-- **Risk: +0.094 (± 0.023).** Push at-risk readers more, even though they quit more easily
-  when annoyed. Here the larger effect wins, which is the opposite sign to the old rule's
-  `+0.04 × (1 − p_return)` in the threshold.
-- **Push history:** recent pushes −0.024, pushes ignored this week −0.037, the reader's own open
-  rate +0.023. Back off after pushes and after ignored ones; keep pushing readers who open.
-- **Own session rate at this hour: −0.038.** It pushes less at hours a reader comes back anyway,
-  since the push has less to add then.
-- **Timing:** most pushes go out at 13–15, fewest at 7 and 21 (middle panel).
-- **`p_click`: +0.011 (± 0.009), small and uncertain.** The learned bar depends mostly on risk
-  and push history, not on how appealing the pick is.
+- **Risk: +0.043, and p_click × risk: +0.048.** Push at-risk readers more, and more so when the
+  pick is appealing, even though at-risk readers quit more easily when annoyed. Here the larger
+  effect wins: the opposite of the old rule's `+0.04 × (1 − p_return)` in the threshold.
+- **Push history:** recent pushes −0.044, pushes ignored this week −0.027, the reader's own open
+  rate +0.011. Back off after pushes and after ignored ones; keep pushing readers who open.
+- **Is this their hour: +0.006 per unit (± 0.001).** It pushes at readers' own best times: in
+  the last three weeks it sends 28% of decisions at a reader's best hours and 5% at their worst,
+  where the true effect is about half as large. Because of the 4-hour fatigue window, a push at
+  7 makes 9 costly, so pushes per hour alternate (middle panel).
+- **`p_click` alone: −0.017 (± 0.012), uncertain.** Its effect shows up through the
+  interaction with risk instead: an appealing pick is worth sending mainly to readers who
+  wouldn't come back on their own.
 
 ## Limitations
 
@@ -165,11 +174,12 @@ Posterior means of the effect-of-sending weights at λ = 0.04, V = 5:
 - **Carryover isn't credited.** Each decision's reward is its own slot's session, push cost and
   opt-out. An ignored push also lowers later effects and opens (annoyance decays over days), and
   that later cost isn't charged to the push that caused it. This is the likely reason the bandit
-  over-pushes at λ ≥ 0.04. Fixes: a longer reward window per decision, or pricing annoyance
+  over-pushes at λ = 0.08. Fixes: a longer reward window per decision, or pricing annoyance
   directly (a third price), or a reinforcement-learning view of the reader's state.
 - **Exploration cost.** Thompson sampling keeps trying sends while uncertain; with 1,000 readers
   that cost is visible over 13 weeks.
-- **Linear in z.** Interactions beyond `p_click × risk` aren't modeled.
+- **Linear in z.** Interactions beyond `p_click × risk` aren't modeled. The organic baseline is
+  subtracted using the bandit's own estimate, which is noisy for new readers.
 - **Live needs an outcome without a push.** The reward needs sessions in both arms. Live, that
   means per-reader delivery (one ntfy topic per reader) and an observable visit (e.g. opening
   `/me`); see [uplift.md](uplift.md#live-data).

@@ -58,10 +58,10 @@ On a held-out day (1.22M candidates):
 - **Contextual bandit (when to push):** on the same simulation with planted annoyance and
   opt-outs, pushing the latest breaking story at all 8 slots loses 0.27–0.71 sessions per
   reader-day vs never pushing, and 59% of readers turn notifications off. The bandit learns from
-  push history (back off after ignored pushes, push at-risk readers more). It gains when pushes
-  are cheap (λ = 0.02: +0.010 a reader-day, where any fixed threshold gets ~0). When pushes are
-  expensive it over-pushes slightly (it doesn't credit annoyance's lasting cost). See
-  [docs/bandit.md](docs/bandit.md).
+  push history and timing (back off after ignored pushes, push at-risk readers more, push at
+  each reader's own best hours). It gains +0.002 to +0.016 a reader-day when a push costs
+  λ = 0.02–0.04 sessions, where any fixed threshold gets ~0. At λ = 0.08 it over-pushes slightly
+  (it doesn't credit annoyance's lasting cost). See [docs/bandit.md](docs/bandit.md).
 
 Details: [docs/model.md](docs/model.md) and [docs/analysis.md](docs/analysis.md).
 

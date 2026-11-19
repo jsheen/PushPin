@@ -3,7 +3,8 @@
 XGBoost answers "which article?" (p_click, p_return). The bandit answers "send it now or not?"
 for the top pick at every slot, from context XGBoost doesn't model: how recently the reader was
 pushed, how many pushes they ignored this week, how long since they last opened one, their own
-open rate on our pushes, and when in the day they tend to come back. It maximizes
+open rate on our pushes, and whether this is an hour they tend to come back (relative to their
+own average, so it's separate from how often they come back at all). It maximizes
 
     reward = sessions - lambda * pushes - V * opt-outs        (lambda, V set by hand, in sessions)
 
@@ -35,7 +36,7 @@ import pandas as pd
 import yaml
 
 FEATURES = ["intercept", "p_click", "risk", "p_click x risk", "recent pushes", "ignored this week",
-            "log hours since open", "own open rate", "own session rate at hour", "hour sin", "hour cos"]
+            "log hours since open", "own open rate", "is this their hour"]
 
 
 # --- data -----------------------------------------------------------------------------------------
@@ -124,8 +125,10 @@ class LinearThompson:
 
 # --- the planted world, one policy over `weeks` -----------------------------------------------------
 
-def simulate(data: dict, traits: dict, cfg: dict, policy: str, lam: float, V: float, threshold: float | None = None):
-    """Run one policy. Returns per-slot totals (sessions, pushes, opens, opt-outs, reward) and the bandit."""
+def simulate(data: dict, traits: dict, cfg: dict, policy: str, lam: float, V: float, threshold: float | None = None,
+             trace: list | None = None):
+    """Run one policy. Returns per-slot totals (sessions, pushes, opens, opt-outs, reward) and the bandit.
+    With `trace` (a list), appends a per-decision frame for subscribed readers (diagnostics)."""
     p, seed, n = cfg["planted"], cfg["seed"], data["n"]
     slots_per_day = len(traits["day_hours"])
     days = 7 * cfg["weeks"]
@@ -175,11 +178,15 @@ def simulate(data: dict, traits: dict, cfg: dict, policy: str, lam: float, V: fl
 
             recent = (now - last_push < cfg["fatigue_hours"]).sum(axis=1)
             open_rate = (opens_n + 0.1) / (pushes_n + 2)
-            sess_rate = (sess_h[:, j] + 0.3) / (seen_h[:, j] + 2)
+            # "is this their hour?": the reader's session rate at this hour relative to their own
+            # average, from slots without a push (so our pushes don't feed back into it). It's
+            # separate from how often they come back at all, which risk already covers.
+            rate_here = (sess_h[:, j] + 0.3) / (seen_h[:, j] + 2)
+            rate_all = (sess_h.sum(axis=1) + 0.3 * slots_per_day) / (seen_h.sum(axis=1) + 2 * slots_per_day)
+            their_hour = rate_here / rate_all - 1
             z = np.column_stack([
                 np.ones(n), 10 * pc, 1 - pr, 10 * pc * (1 - pr), recent, ignored_by_day.sum(axis=1) / 10,
-                np.log1p(np.minimum(now - last_open, 168)) / 5, 10 * open_rate, 5 * sess_rate,
-                np.full(n, np.sin(2 * np.pi * hour / 24)), np.full(n, np.cos(2 * np.pi * hour / 24))])
+                np.log1p(np.minimum(now - last_open, 168)) / 5, 10 * open_rate, 2 * their_hour])
 
             can = active & avail
             if policy == "never":
@@ -203,15 +210,23 @@ def simulate(data: dict, traits: dict, cfg: dict, policy: str, lam: float, V: fl
             optout = ignored & (u_opt < p["optout_hazard"] * risk_mult * annoy / tol)
             reward = session - lam * send - V * optout
 
+            if trace is not None:
+                trace.append(pd.DataFrame({"day": day, "hour": int(hour), "reader": readers[active],
+                                           "their_hour": their_hour[active], "pref": pref[active],
+                                           "risk": 1 - pr[active], "send": send[active], "tau": tau[active],
+                                           "session": session[active], "reward": reward[active]}))
             if bandit is not None:  # learn from the decisions of readers still subscribed
-                bandit.add(z[active], send[active].astype(float), reward[active])
+                # subtract the reader's own organic session rate at this hour (estimated from slots
+                # without a push), so the model only explains what a push adds: a misfit baseline
+                # would otherwise leak into the effect weights, since sends aren't random
+                bandit.add(z[active], send[active].astype(float), (reward - rate_here)[active])
             pushed[readers[send], art[send]] = True
             last_push[send] = np.column_stack([last_push[send, 1:], np.full(send.sum(), now)])
             last_open[opened] = now
             pushes_n += send
             opens_n += opened
-            sess_h[:, j] += session
-            seen_h[:, j] += 1
+            sess_h[:, j] += session & ~send   # organic sessions only (see their_hour)
+            seen_h[:, j] += ~send
             ignored_by_day[:, day % 7] += ignored
             active &= ~optout
             rows.append({"day": day, "week": day // 7, "hour": int(hour), "sessions": int(session.sum()),
