@@ -274,7 +274,11 @@ Posterior means of the effect-of-sending weights at λ = 0.04, V = 5:
   opt-out. An ignored push also lowers later effects and opens (annoyance decays over days), and
   that later cost isn't charged to the push that caused it. This is the likely reason the bandit
   over-pushes at λ = 0.08. Fixes: a longer reward window per decision, or pricing annoyance
-  directly (a third price), or a reinforcement-learning view of the reader's state.
+  directly (a third price), or a reinforcement-learning view of the reader's state. The longer
+  window could be implemented with little code: score each decision on the next 24 hours instead
+  of its own slot, learning it a night later. But the learning signal gets noisier. A skip shares
+  credit or blame for whatever later pushes did, and every decision's reward carries a day of
+  random visits, so it wasn't added.
 - **Exploration cost.** Thompson sampling keeps trying sends while uncertain; with 1,000 readers
   that cost is visible over 13 weeks.
 - **Linear in z.** Interactions beyond `p_click × risk` aren't modeled. The organic baseline is
