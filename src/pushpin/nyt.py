@@ -148,7 +148,7 @@ def main() -> None:
     parser.add_argument("--days", type=int, default=7)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--out", type=Path, default=Path("outputs/nyt-sim"))
-    parser.add_argument("--slot-hours", type=parse_hours, default=SLOT_HOURS, help="comma-separated push hours, e.g. 9,11,13,15,17,19")
+    parser.add_argument("--slot-hours", type=parse_hours, default=SLOT_HOURS, help="comma-separated push hours, e.g. 7,9,11,13,15,17,19,21")
     parser.add_argument("--day-pool", action="store_true", help="rank every unpushed article of the day, not just the newest")
     parser.add_argument("--keep-top", type=int, help="keep only each decision's best N candidates in scores.parquet")
     args = parser.parse_args()

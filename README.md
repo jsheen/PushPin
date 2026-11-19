@@ -39,7 +39,7 @@ Details: [docs/model.md](docs/model.md) and [docs/analysis.md](docs/analysis.md)
 
 ## Real pushes
 
-The notifier scores live NYT RSS articles every two hours (9 to 19) and pushes to phones through
+The notifier scores live NYT RSS articles every two hours (7 to 21) and pushes to phones through
 [ntfy](https://ntfy.sh) when the top article clears the send policy.
 Tapping a push opens the reader's profile. The first 3 articles they read each day make a small
 papier-mâché word art (a snowman, a heart, a dinosaur...) out of the articles' titles and

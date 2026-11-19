@@ -18,7 +18,7 @@ NYT RSS feeds ──▶ notifier ──HTTP──▶ scorer  (model + MIND user 
 
 The notifier schedules itself; nothing external triggers it. Its main loop:
 
-1. Works out the next slot from `slot_hours` in `configs/notifier.yml` (every two hours from 9 to 19 by default)
+1. Works out the next slot from `slot_hours` in `configs/notifier.yml` (every two hours from 7 to 21 by default)
    and the current time in `timezone` (New York).
 2. Sleeps until that slot, waking at least every 5 minutes to recheck the clock. That way a
    Mac that was asleep notices it's past due as soon as it wakes.
@@ -67,7 +67,7 @@ place.
 
 ## How many pushes
 
-Readers don't choose. Every slot hour (9, 11, 13, 15, 17, 19) is a chance to push, and a slot
+Readers don't choose. Every slot hour (7, 9, 11, 13, 15, 17, 19, 21) is a chance to push, and a slot
 sends only if its top article clears the send policy (`configs/objective.yml`), at most
 `daily_cap` a day, the same for everyone. So a quiet news day sends fewer, and a skipped slot
 isn't made up later. Light / Medium / Heavy choices were removed (2026-11-19): how many pushes a

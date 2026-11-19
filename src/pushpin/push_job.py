@@ -32,7 +32,7 @@ import yaml
 from pushpin.objective import push_scores
 from pushpin.plots import plot_reach
 
-SLOT_HOURS = (8, 13, 19)  # default push times (New York time); --slot-hours 9,11,13,15,17,19 for every two hours
+SLOT_HOURS = (8, 13, 19)  # default push times (New York time); --slot-hours 7,9,11,13,15,17,19,21 for every two hours
 USERS_PER_REQUEST = 250
 SCORE_COLUMNS = ["impression_id", "user_id", "news_id", "p_click", "p_click_raw", "novelty", "p_return",
                  "llm_sim_click", "llm_sim_skip", "emb_sim_max", "subcat_affinity", "article_age_hours"]
@@ -284,7 +284,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--objective", type=Path, default=Path("configs/objective.yml"))
     parser.add_argument("--out", type=Path, default=Path("outputs/nyt-sim-http"))
-    parser.add_argument("--slot-hours", type=parse_hours, default=SLOT_HOURS, help="comma-separated push hours, e.g. 9,11,13,15,17,19")
+    parser.add_argument("--slot-hours", type=parse_hours, default=SLOT_HOURS, help="comma-separated push hours, e.g. 7,9,11,13,15,17,19,21")
     parser.add_argument("--day-pool", action="store_true", help="rank every unpushed article of the day, not just the newest")
     parser.add_argument("--keep-top", type=int, help="keep only each decision's best N candidates in scores.parquet")
     args = parser.parse_args()

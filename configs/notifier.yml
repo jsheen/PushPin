@@ -2,7 +2,7 @@
 # Secrets live in .env, not here: NTFY_TOPIC (your private topic name) and optionally
 # CLICK_BASE_URL (where your phone can reach this container's click tracker).
 timezone: America/New_York
-slot_hours: [9, 11, 13, 15, 17, 19]  # local push times: every two hours (the NYT sim uses the same)
+slot_hours: [7, 9, 11, 13, 15, 17, 19, 21]  # local push times: every two hours (the NYT sim uses the same)
 lookback_hours: 12              # candidates: unpushed articles published in this window
 # Every reader is eligible at every slot; a slot only sends if its top article clears the send policy
 # (configs/objective.yml), at most daily_cap a day, so a quiet day sends fewer. Readers don't choose.
