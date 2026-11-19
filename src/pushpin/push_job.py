@@ -83,10 +83,13 @@ def run_week(scorer, nyt_path: Path, n_users: int, start: pd.Timestamp, days: in
       lookback), so an article that lost an earlier slot can still win a later one. Otherwise
       only the articles published since the previous slot.
     keep_top: keep only each decision's best `keep_top` candidates in the returned scores (the
-      day pool scores several times more rows). Summary averages still use every candidate.
+      day pool scores several times more rows), plus the slot's newest article (`is_newest`, the
+      "latest breaking story" baseline). Summary averages still use every candidate.
 
     Returns scores, pushes (the top pick per user-slot, `sent` under the fixed send policy), the
-    summary, and the articles scored at each slot (slot_time, news_id).
+    summary, and the articles scored at each slot (slot_time, news_id). Scores are every scored
+    candidate (or the kept ones), not filtered by what the fixed policy pushed, so another policy
+    (e.g. a bandit) can replay the week with its own pushes.
     """
     slots = slot_times(start, days, slot_hours)
     lookback = pd.Timedelta(hours=lookback_hours(slot_hours))
@@ -120,10 +123,15 @@ def run_week(scorer, nyt_path: Path, n_users: int, start: pd.Timestamp, days: in
             latency.append((time.perf_counter() - begin) / len(batch))
         rows = pd.concat(batches, ignore_index=True).assign(slot_time=t)[columns]
         rows["push_score"] = push_scores(rows, rows["p_click"].to_numpy(), objective["friction"])
+        rows["is_newest"] = rows["news_id"] == cand.loc[cand["published"].idxmax(), "news_id"]
         n_scored += len(rows)
         means.append(rows.groupby("impression_id")[list(PROXY_COLUMNS)].mean())
-        rows = rows[~(rows["user_id"] + "|" + rows["news_id"]).isin(pushed)]
         rows = rows.sort_values(["impression_id", "push_score"], ascending=[True, False], kind="stable")
+        if keep_top:
+            scores.append(rows[(rows.groupby("impression_id").cumcount() < keep_top) | rows["is_newest"]])
+        else:
+            scores.append(rows)
+        rows = rows[~(rows["user_id"] + "|" + rows["news_id"]).isin(pushed)]
         top = rows.groupby("impression_id").head(1).copy()
         day = t.normalize()
         ok = top["p_click"].to_numpy() >= send["threshold"] + send["risk_penalty"] * (1 - top["p_return"].to_numpy())
@@ -133,7 +141,6 @@ def run_week(scorer, nyt_path: Path, n_users: int, start: pd.Timestamp, days: in
             pushed.add(f"{u}|{n}")
             sent_today[(u, day)] = sent_today.get((u, day), 0) + 1
         tops.append(top)
-        scores.append(rows.groupby("impression_id").head(keep_top) if keep_top else rows)
         print(f"  {t:%a %b %d %H:%M}  {len(cand):3d} candidates  {int(top['sent'].sum()):4d} sent")
 
     scores = pd.concat(scores, ignore_index=True).sort_values(["impression_id", "push_score"], ascending=[True, False],

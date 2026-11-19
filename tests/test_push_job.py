@@ -119,7 +119,11 @@ def test_day_pool_keeps_an_unsent_article_for_later_slots(nyt_csv):
     assert pools[0] < pools[1] < pools[2]  # each slot's pool holds the earlier slots' articles too
     assert not pushes["sent"].any()
     assert pushes["news_id"].nunique() == 1  # the 05:00 article loses no slot to newer ones: it is the pick all day
-    assert scores.groupby("impression_id").size().max() == 3
+    assert scores.groupby("impression_id").size().max() <= 4  # the best 3, plus the newest if it isn't one
+    assert scores.groupby("impression_id")["is_newest"].sum().eq(1).all()
+    newest = scores[scores["is_newest"]].merge(articles, on=["slot_time", "news_id"])
+    # the latest published by each slot: 07:40 by 08:00, 13:00 by 13:00, 18:20 by 19:00
+    assert newest.groupby("slot_time")["news_id"].first().tolist() == ["NYT-2", "NYT-6", "NYT-10"]
     assert summary["day_pool"] and summary["user_article_scores"] > len(scores)  # counts every candidate scored
 
 
