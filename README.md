@@ -58,8 +58,10 @@ On a held-out day (1.22M candidates):
   +0.002 to +0.016 a reader-day when a push costs λ = 0.02–0.04 visits, where any fixed threshold
   gets ~0. It backs off after ignored pushes, pushes at each reader's own best hours, and sends
   readers at risk of leaving fewer, better pushes (they gain the most from a good push and quit
-  the most easily after a bad one). At λ = 0.08 it over-pushes slightly. See
-  [docs/bandit.md](docs/bandit.md).
+  the most easily after a bad one). At λ = 0.08 it over-pushes slightly. These may be
+  conservative: the simulation only plants negative carryover (annoyance from ignored pushes),
+  not positive spillover. If an opened push also makes a reader more likely to come back later
+  that day or the next, real gains would be larger. See [docs/bandit.md](docs/bandit.md).
 
 Details: [docs/model.md](docs/model.md) and [docs/analysis.md](docs/analysis.md).
 

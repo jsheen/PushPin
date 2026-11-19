@@ -332,6 +332,11 @@ the right shape until the data exists.
   of its own slot, learning it a night later. But the learning signal gets noisier. A skip shares
   credit or blame for whatever later pushes did, and every decision's reward carries a day of
   random visits, so it wasn't added.
+- **No positive spillover is planted.** An opened push affects only its own slot's visit; it never
+  makes a reader more likely to come back later that day or the next (a habit). Only negative
+  carryover (annoyance) exists. The evaluation counts visits in every slot, so it would capture
+  spillover if it existed, which means the reported gains may be conservative. The bandit's own
+  reward (its slot only) couldn't learn from it either way.
 - **Exploration cost.** Thompson sampling keeps trying sends while uncertain; with 1,000 readers
   that cost is visible over 13 weeks.
 - **Linear in z.** Interactions beyond `p_click × risk` aren't modeled. The organic baseline is
