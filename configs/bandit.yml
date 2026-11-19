@@ -1,0 +1,43 @@
+# Contextual bandit for the send decision (src/pushpin/bandit.py, docs/bandit.md)
+sim_dir: outputs/nyt-sim-8slot   # pushpin-push-job --slot-hours 7,...,21 --day-pool --keep-top 20 (candidates + is_newest)
+out_dir: outputs/bandit
+seed: 7
+weeks: 13                 # the sim's 7 days, replayed with fresh outcomes and carried-over reader state
+
+# The two prices (set by hand, in sessions): the reward is sessions - lambda * pushes - V * opt-outs
+lambda: 0.04              # a push must cause at least this many extra sessions (1 per 25 pushes)
+V: 5                      # a reader turning notifications off: ~180 days x ~1 push/day x ~0.03 net per push
+grid:                     # --grid reruns the comparison at every pair
+  lambda: [0.02, 0.04, 0.08]
+  V: [2, 5, 20]
+
+thresholds: [0.04, 0.06, 0.08, 0.10, 0.12, 0.15, 0.20, 0.30]  # "send if p_click >= c": the best one in hindsight is a reference
+fatigue_hours: 4          # "recent pushes" = pushes within this many hours (the two previous slots)
+
+# Planted truth (sim only). Per slot, a reader comes back on their own with
+#   y0 = organic * p_return * pref(hour)
+# and a push adds
+#   tau = lift * (1 - p_return) * interest * pref(hour) * exp(-annoyance / tolerance) - fatigue * recent_pushes
+# A push is opened with P = p_click * pref(hour) * exp(-annoyance / tolerance). Each ignored push adds 1 to
+# annoyance (which halves every `annoyance_half_life_days`) and opts the reader out with
+# P = optout_hazard * ((1 - p_return) / mean)^optout_risk_elasticity * annoyance / tolerance.
+# So at-risk readers gain the most from a good push (tau) but also quit the most easily when
+# annoyed: the bandit has to weigh both, which a fixed sign on (1 - p_return) can't.
+planted:
+  organic: 0.25
+  lift: 0.25
+  interest_floor: 0.3       # interest rises with subcategory affinity (rank) from this floor to 1
+  fatigue: 0.04             # effect lost per push in the last `fatigue_hours`
+  peaks: [8, 13, 20]        # each reader prefers one time of day: morning, midday or evening (+- 1 h jitter)
+  pref_floor: 0.4           # preference far from the peak, relative to 1 at the peak (then scaled to mean 1)
+  pref_width_hours: 3
+  annoyance_half_life_days: 3
+  tolerance_median: 10      # ignored pushes (decayed) at which effects and opens fall to 1/e
+  tolerance_spread: 0.5     # lognormal sigma across readers
+  tolerance_open_elasticity: 0.5  # readers who click more tolerate more: tolerance ~ (their mean p_click / overall)^this
+  optout_hazard: 0.0004
+  optout_risk_elasticity: 1.0   # 1: a reader twice as at-risk as average quits twice as easily
+
+bandit:                   # Bayesian linear model of the reward, r = beta . [z, send * z]; Thompson draw per reader-day
+  prior_sd: 1.0
+  noise_sd: 0.4

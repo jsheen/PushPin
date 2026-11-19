@@ -15,10 +15,10 @@ pushes for readers at risk of opting out.
 The XGBoost model chooses which article each reader gets, and the send policy decides whether
 to push it, so how many pushes a reader gets a day is the policy's call, not a setting.
 
-### Two models, two jobs (the bandit is in progress)
+### Two models, two jobs
 
-The send policy is being replaced by a **contextual bandit** (`src/pushpin/bandit.py`, tested on
-the NYT simulation first). It doesn't redo XGBoost's job. The two answer different questions
+A **contextual bandit** learns the send decision instead of the fixed rule (simulation only so
+far; see [docs/bandit.md](docs/bandit.md)). Live still uses the fixed rule. It doesn't redo XGBoost's job. The two answer different questions
 from different inputs:
 
 | | XGBoost | Contextual bandit |
@@ -55,6 +55,13 @@ On a held-out day (1.22M candidates):
   2.3× as many extra returns as the current send policy for the same number of pushes, on a
   semi-synthetic NYT simulation with a planted, known effect. The click policy pushes readers who
   would come back anyway. See [docs/uplift.md](docs/uplift.md).
+- **Contextual bandit (when to push):** on the same simulation with planted annoyance and
+  opt-outs, pushing the latest breaking story at all 8 slots loses 0.27–0.71 sessions per
+  reader-day vs never pushing, and 59% of readers turn notifications off. The bandit learns from
+  push history (back off after ignored pushes, push at-risk readers more). It gains when pushes
+  are cheap (λ = 0.02: +0.010 a reader-day, where any fixed threshold gets ~0). When pushes are
+  expensive it over-pushes slightly (it doesn't credit annoyance's lasting cost). See
+  [docs/bandit.md](docs/bandit.md).
 
 Details: [docs/model.md](docs/model.md) and [docs/analysis.md](docs/analysis.md).
 
@@ -103,6 +110,7 @@ docker compose up -d scorer notifier cards tunnel   # real pushes (NTFY_TOPIC in
 | [development.md](docs/development.md) | Setup, API, tests, CI, outputs |
 | [notifier.md](docs/notifier.md) | Real pushes, cards, how many pushes, database |
 | [ab-test.md](docs/ab-test.md) | The proposed A/B test and its analysis |
+| [bandit.md](docs/bandit.md) | Contextual bandit for the send decision: features, reward and prices, planted world, results across λ and V |
 | [uplift.md](docs/uplift.md) | Causal ML: doubly robust estimates of what a push causes, per reader (potential outcomes, randomized holdout, DR-learner, GATES, off-policy evaluation) |
 | [deploy-gcp.md](docs/deploy-gcp.md), [production.md](docs/production.md) | Cloud deployment |
 | [live-scoring.md](docs/live-scoring.md) | Request-time scoring |

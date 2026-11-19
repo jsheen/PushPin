@@ -487,3 +487,98 @@ def plot_uplift(curves: pd.DataFrame, gates: pd.DataFrame, policies: pd.DataFram
     fig.tight_layout(rect=(0, 0, 1, 0.94))
     fig.savefig(path, dpi=200, facecolor=SURFACE)
     plt.close(fig)
+
+
+BANDIT_COLORS = [MODEL, SECOND, "#1baf7a"]  # bandit, breaking, best threshold (categorical order); never in ink
+
+
+def plot_bandit(weekly: pd.DataFrame, hours: pd.DataFrame, coefficients: pd.DataFrame, table: pd.DataFrame,
+                shown: list[str], lam: float, V: float, path: Path) -> None:
+    """Three panels: reward vs never pushing by week, pushes by hour of day, the learned effect weights."""
+    fig, axes = plt.subplots(1, 3, figsize=(17, 5.4), facecolor=SURFACE, gridspec_kw={"width_ratios": [1.2, 1, 1]})
+    styles = {name: (BANDIT_COLORS[i], "-") for i, name in enumerate(shown[:3])} | {shown[3]: (TEXT_MUTED, "--")}
+
+    ax = axes[0]
+    _clean(ax)
+    # breaking is far below the others, so it's left out of this panel and given in the subtitle
+    never = weekly[weekly["policy"] == "never"].set_index("week")["reward_per_reader_day"]
+    for name in [shown[0], shown[2], shown[3]]:
+        w = weekly[weekly["policy"] == name].set_index("week")["reward_per_reader_day"] - never
+        color, ls = styles[name]
+        ax.plot(w.index + 1, w.to_numpy(), color=color, linestyle=ls, linewidth=2, marker="o" if ls == "-" else None,
+                markersize=4, label=name + (" (best fixed threshold)" if name == shown[2] else ""))
+    ax.grid(color=GRID, linewidth=0.8)
+    ax.set_xlabel("Week", color=TEXT_MUTED)
+    ax.set_ylabel("Reward per reader-day, minus never pushing", color=TEXT_MUTED)
+    breaking = table.loc[table["policy"] == shown[1], "reward_vs_never"].item()
+    _panel_title(ax, "Reward by week, minus never pushing",
+                 f"sessions − {lam:g}·pushes − {V:g}·opt-outs; breaking ({breaking:+.2f}) is off the scale")
+    ax.legend(frameon=False, fontsize=8, labelcolor=TEXT, loc="lower right")
+
+    ax = axes[1]
+    _clean(ax)
+    for name in shown[:3]:
+        color, _ = styles[name]
+        ax.plot(hours["hour"], hours[name], color=color, linewidth=2, marker="o", markersize=5, label=name)
+    ax.grid(color=GRID, linewidth=0.8)
+    ax.set_xticks(hours["hour"], [str(h) for h in hours["hour"]])
+    ax.set_xlabel("Hour of day (New York)", color=TEXT_MUTED)
+    ax.set_ylim(bottom=0)
+    ax.set_ylabel("Pushes per reader-day at this hour", color=TEXT_MUTED)
+    _panel_title(ax, "When each policy pushes", "Breaking sends at every slot")
+    ax.legend(frameon=False, fontsize=8, labelcolor=TEXT, loc="center right")
+
+    ax = axes[2]
+    _clean(ax)
+    c = coefficients.iloc[::-1].reset_index(drop=True)
+    y = np.arange(len(c))
+    ax.errorbar(c["theta_mean"], y, xerr=1.96 * c["theta_sd"], fmt="o", color=MODEL, markersize=6, elinewidth=2,
+                capsize=0)
+    ax.axvline(0, color=TEXT_MUTED, linewidth=1)
+    ax.set_yticks(y, c["feature"], color=TEXT, fontsize=9)
+    ax.grid(axis="x", color=GRID, linewidth=0.8)
+    ax.set_xlabel("Weight (mean, 95% interval)", color=TEXT_MUTED)
+    _panel_title(ax, "What the bandit learned", "Effect of sending; send when the total is > 0")
+
+    best = table.loc[table["policy"] == shown[0]].iloc[0]
+    fig.suptitle(f"PushPin contextual bandit on the NYT simulation: {best['pushes_per_reader_day']:.2f} pushes/reader-day, "
+                 f"{100 * best['opted_out_share']:.1f}% opted out", x=0.01, ha="left", color=TEXT, fontsize=13,
+                 fontweight="bold")
+    fig.tight_layout(rect=(0, 0, 1, 0.94))
+    fig.savefig(path, dpi=200, facecolor=SURFACE)
+    plt.close(fig)
+
+
+V_SHADES = ["#9ec5f4", "#2a78d6", "#0d3f7f"]  # one hue, light to dark: V is ordered (small to large opt-out price)
+
+
+def plot_bandit_grid(grid: pd.DataFrame, path: Path) -> None:
+    """The comparison at every (lambda, V): reward vs never pushing, and pushes per reader-day."""
+    bandit = grid[grid["policy"] == "contextual bandit"]
+    best = grid[grid["best_threshold"]]
+    breaking = grid[grid["policy"] == "breaking"]["reward_vs_never"]
+    lams = sorted(grid["lambda"].unique())
+    x = np.arange(len(lams))
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5), facecolor=SURFACE)
+    for ax, col, title, sub in (
+            (axes[0], "reward_vs_never", "Reward vs never pushing",
+             f"Per reader-day. Breaking is off the scale: {breaking.max():+.2f} to {breaking.min():+.2f}"),
+            (axes[1], "pushes_per_reader_day", "How much the bandit pushes", "Pushes per reader-day")):
+        _clean(ax)
+        for color, V in zip(V_SHADES, sorted(grid["V"].unique()), strict=True):
+            b = bandit[bandit["V"] == V].set_index("lambda").loc[lams, col]
+            ax.plot(x, b.to_numpy(), color=color, linewidth=2, marker="o", markersize=7, label=f"bandit, V = {V:g}")
+        if col == "reward_vs_never":
+            t = best.groupby("lambda")[col].max().loc[lams]
+            ax.plot(x, t.to_numpy(), color=TEXT_MUTED, linestyle="--", linewidth=2, label="best fixed threshold (any V)")
+            ax.axhline(0, color=TEXT, linewidth=1)
+        ax.set_xticks(x, [f"λ = {lam:g}" for lam in lams])
+        ax.grid(color=GRID, linewidth=0.8)
+        ax.set_xlabel("Cost of one push, in sessions", color=TEXT_MUTED)
+        _panel_title(ax, title, sub)
+        ax.legend(frameon=False, fontsize=8, labelcolor=TEXT, loc="upper right")
+    fig.suptitle("Contextual bandit across the two prices (V = cost of a reader turning notifications off)",
+                 x=0.01, ha="left", color=TEXT, fontsize=13, fontweight="bold")
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
+    fig.savefig(path, dpi=200, facecolor=SURFACE)
+    plt.close(fig)
