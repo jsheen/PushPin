@@ -1,4 +1,4 @@
-"""The push job: at each slot, pick and gate one push per user from newly published articles.
+"""The push job: at each slot, pick and gate one push per user from recently published articles.
 
 It never computes features itself. It talks to a *scorer*, either in the same process
 (`nyt.LocalScorer`, used by `pushpin-nyt-sim`) or over HTTP (`HttpScorer`, which calls the
@@ -29,7 +29,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from pushpin.objective import push_scores, send_decisions
+from pushpin.objective import push_scores
 from pushpin.plots import plot_reach
 
 SLOT_HOURS = (8, 13, 19)  # default push times (New York time); --slot-hours 9,11,13,15,17,19 for every two hours
@@ -72,8 +72,22 @@ def parse_hours(text: str) -> tuple[int, ...]:
 
 
 def run_week(scorer, nyt_path: Path, n_users: int, start: pd.Timestamp, days: int, seed: int,
-             objective: dict, slot_hours: tuple[int, ...] = SLOT_HOURS) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
-    """Ingest the week's articles, score every user at every slot, pick and gate pushes."""
+             objective: dict, slot_hours: tuple[int, ...] = SLOT_HOURS, day_pool: bool = False,
+             keep_top: int | None = None) -> tuple[pd.DataFrame, pd.DataFrame, dict, pd.DataFrame]:
+    """Ingest the week's articles, score every user at every slot, pick and gate pushes.
+
+    Slots are decided in order, as the notifier does: each user's top article not yet pushed to
+    them, sent if it clears the send policy and they are under the daily cap.
+
+    day_pool: rank every article since the previous day's last slot (the live notifier's
+      lookback), so an article that lost an earlier slot can still win a later one. Otherwise
+      only the articles published since the previous slot.
+    keep_top: keep only each decision's best `keep_top` candidates in the returned scores (the
+      day pool scores several times more rows). Summary averages still use every candidate.
+
+    Returns scores, pushes (the top pick per user-slot, `sent` under the fixed send policy), the
+    summary, and the articles scored at each slot (slot_time, news_id).
+    """
     slots = slot_times(start, days, slot_hours)
     lookback = pd.Timedelta(hours=lookback_hours(slot_hours))
     nyt = load_nyt(nyt_path, slots[0] - lookback, slots[-1])
@@ -83,42 +97,68 @@ def run_week(scorer, nyt_path: Path, n_users: int, start: pd.Timestamp, days: in
     mapped = scorer.add_articles(nyt[["news_id", "title", "abstract"]].assign(published=nyt["published"] + shift))
     nyt = nyt.merge(mapped, on="news_id")
     users = scorer.users(n_users, seed)
-    print(f"simulating {len(users):,} users x {len(slots)} slots")
+    print(f"simulating {len(users):,} users x {len(slots)} slots" + (" (day pool)" if day_pool else ""))
 
-    scores, latency = [], []
+    send, columns = objective["send"], ["impression_id", "user_id", "slot_time", *SCORE_COLUMNS[2:]]
+    scores, tops, articles, means, latency, n_scored = [], [], [], [], [], 0
+    pushed, sent_today = set(), {}  # "user|news_id" already pushed; (user, day) -> pushes sent
     previous = slots[0] - lookback
     for s, t in enumerate(slots):
-        cand = nyt[(nyt["published"] > previous) & (nyt["published"] <= t)]
+        since = t.normalize() + pd.Timedelta(hours=min(slot_hours)) - lookback if day_pool else previous
+        cand = nyt[(nyt["published"] > since) & (nyt["published"] <= t)]
         previous = t
         if cand.empty:
             continue
+        articles.append(pd.DataFrame({"slot_time": t, "news_id": cand["news_id"].to_numpy()}))
+        batches = []
         for i in range(0, len(users), USERS_PER_REQUEST):
             batch = users[i:i + USERS_PER_REQUEST]
             requests = [{"user_id": u, "time": (t + shift).isoformat(), "news_ids": cand["news_id"].tolist(),
                          "impression_id": s * 1_000_000 + i + j} for j, u in enumerate(batch)]
             begin = time.perf_counter()
-            rows = scorer.score(requests)
+            batches.append(scorer.score(requests))
             latency.append((time.perf_counter() - begin) / len(batch))
-            scores.append(rows.assign(slot_time=t))
-        print(f"  {t:%a %b %d %H:%M}  {len(cand):3d} candidates")
+        rows = pd.concat(batches, ignore_index=True).assign(slot_time=t)[columns]
+        rows["push_score"] = push_scores(rows, rows["p_click"].to_numpy(), objective["friction"])
+        n_scored += len(rows)
+        means.append(rows.groupby("impression_id")[list(PROXY_COLUMNS)].mean())
+        rows = rows[~(rows["user_id"] + "|" + rows["news_id"]).isin(pushed)]
+        rows = rows.sort_values(["impression_id", "push_score"], ascending=[True, False], kind="stable")
+        top = rows.groupby("impression_id").head(1).copy()
+        day = t.normalize()
+        ok = top["p_click"].to_numpy() >= send["threshold"] + send["risk_penalty"] * (1 - top["p_return"].to_numpy())
+        under = np.array([sent_today.get((u, day), 0) < send["daily_cap"] for u in top["user_id"]])
+        top["sent"] = ok & under
+        for u, n in zip(top.loc[top["sent"], "user_id"], top.loc[top["sent"], "news_id"]):
+            pushed.add(f"{u}|{n}")
+            sent_today[(u, day)] = sent_today.get((u, day), 0) + 1
+        tops.append(top)
+        scores.append(rows.groupby("impression_id").head(keep_top) if keep_top else rows)
+        print(f"  {t:%a %b %d %H:%M}  {len(cand):3d} candidates  {int(top['sent'].sum()):4d} sent")
 
-    scores = pd.concat(scores, ignore_index=True)[["impression_id", "user_id", "slot_time", *SCORE_COLUMNS[2:]]]
-    scores["push_score"] = push_scores(scores, scores["p_click"].to_numpy(), objective["friction"])
-    top = scores.loc[scores.groupby("impression_id")["push_score"].idxmax()].merge(
-        nyt[["news_id", "title", "section", "subsection", "subcategory", "published", "url"]], on="news_id")
-    top["time"] = top["slot_time"]  # send policy caps pushes per user per calendar day
-    send = objective["send"]
-    top["sent"] = send_decisions(top, send["threshold"], send["risk_penalty"], send["daily_cap"])
-    return scores, top.drop(columns="time"), summarize(scores, top, nyt, latency, objective)
+    scores = pd.concat(scores, ignore_index=True).sort_values(["impression_id", "push_score"], ascending=[True, False],
+                                                              kind="stable").reset_index(drop=True)
+    top = pd.concat(tops, ignore_index=True)
+    sent = top.pop("sent")
+    top = top.merge(nyt[["news_id", "title", "section", "subsection", "subcategory", "published", "url"]],
+                    on="news_id", how="left").assign(sent=sent.to_numpy())
+    articles = pd.concat(articles, ignore_index=True)
+    summary = summarize(scores, top, nyt, latency, objective, pd.concat(means), n_scored)
+    return scores, top, summary | {"day_pool": day_pool}, articles
+
+
+PROXY_COLUMNS = ("p_click", "llm_sim_click", "llm_sim_skip", "emb_sim_max", "novelty")
 
 
 def summarize(scores: pd.DataFrame, top: pd.DataFrame, nyt: pd.DataFrame, latency: list[float],
-              objective: dict) -> dict:
+              objective: dict, candidate_means: pd.DataFrame | None = None, n_scored: int | None = None) -> dict:
+    """candidate_means: per-decision means of PROXY_COLUMNS over every candidate (default: from scores)."""
     sent = top[top["sent"]]
-    by_imp = scores.groupby("impression_id")
+    if candidate_means is None:
+        candidate_means = scores.groupby("impression_id")[list(PROXY_COLUMNS)].mean()
     return {
         "users": int(scores["user_id"].nunique()), "slots": int(scores["slot_time"].nunique()),
-        "nyt_articles": len(nyt), "user_article_scores": len(scores), "decisions": len(top),
+        "nyt_articles": len(nyt), "user_article_scores": n_scored or len(scores), "decisions": len(top),
         "pushes_sent": len(sent), "send_rate": float(top["sent"].mean()),
         "pushes_per_user_per_day": float(len(sent) / scores["user_id"].nunique()
                                          / top["slot_time"].dt.normalize().nunique()),
@@ -126,8 +166,8 @@ def summarize(scores: pd.DataFrame, top: pd.DataFrame, nyt: pd.DataFrame, latenc
         "latency_ms_per_request": 1000 * float(np.mean(latency)),
         # proxy checks, since there are no clicks: is the pick closer to the user than the average candidate?
         "pick_vs_average_candidate": {
-            col: {"pick": float(top[col].mean()), "average": float(by_imp[col].mean().mean())}
-            for col in ("p_click", "llm_sim_click", "llm_sim_skip", "emb_sim_max", "novelty")},
+            col: {"pick": float(top[col].mean()), "average": float(candidate_means[col].mean())}
+            for col in PROXY_COLUMNS},
         "distinct_sections_pushed_per_user": float(sent.groupby("user_id")["section"].nunique().mean()),
         "section_share_sent": sent["section"].value_counts(normalize=True).round(4).to_dict(),
         "section_share_published": nyt["section"].value_counts(normalize=True).round(4).to_dict(),
@@ -174,11 +214,13 @@ def daily_report(scores: pd.DataFrame, pushes: pd.DataFrame) -> pd.DataFrame:
     return out.rename_axis("day").reset_index()
 
 
-def write_outputs(out: Path, scores: pd.DataFrame, pushes: pd.DataFrame, summary: dict) -> None:
+def write_outputs(out: Path, scores: pd.DataFrame, pushes: pd.DataFrame, summary: dict,
+                  articles: pd.DataFrame | None = None) -> None:
+    """articles: (slot_time, news_id) scored at each slot, for daily.csv's article counts (default: scores)."""
     out.mkdir(parents=True, exist_ok=True)
     scores.to_parquet(out / "scores.parquet", index=False)
     pushes.to_parquet(out / "pushes.parquet", index=False)
-    daily = daily_report(scores, pushes)
+    daily = daily_report(scores if articles is None else articles, pushes)
     daily.to_csv(out / "daily.csv", index=False, float_format="%.4g")
     (out / "summary.json").write_text(json.dumps(summary, indent=2))
     plot_reach(pushes, daily, summary["section_share_published"], summary["users"], summary["nyt_articles"],
@@ -243,13 +285,16 @@ def main() -> None:
     parser.add_argument("--objective", type=Path, default=Path("configs/objective.yml"))
     parser.add_argument("--out", type=Path, default=Path("outputs/nyt-sim-http"))
     parser.add_argument("--slot-hours", type=parse_hours, default=SLOT_HOURS, help="comma-separated push hours, e.g. 9,11,13,15,17,19")
+    parser.add_argument("--day-pool", action="store_true", help="rank every unpushed article of the day, not just the newest")
+    parser.add_argument("--keep-top", type=int, help="keep only each decision's best N candidates in scores.parquet")
     args = parser.parse_args()
     scorer = HttpScorer(args.scorer)
     print(f"scorer at {args.scorer}: {scorer.info()}")
     objective = yaml.safe_load(args.objective.read_text())
-    scores, pushes, summary = run_week(scorer, args.nyt, args.users, pd.Timestamp(args.start), args.days,
-                                       args.seed, objective, args.slot_hours)
-    write_outputs(args.out, scores, pushes, {"scorer": args.scorer, "slot_hours": list(args.slot_hours), **summary})
+    scores, pushes, summary, articles = run_week(scorer, args.nyt, args.users, pd.Timestamp(args.start), args.days,
+                                                 args.seed, objective, args.slot_hours, args.day_pool, args.keep_top)
+    write_outputs(args.out, scores, pushes, {"scorer": args.scorer, "slot_hours": list(args.slot_hours), **summary},
+                  articles)
 
 
 if __name__ == "__main__":

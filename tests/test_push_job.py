@@ -85,6 +85,51 @@ def test_push_job_over_http_matches_in_process(nyt_csv, server):
     assert remote[1]["sent"].any()
 
 
+def test_slot_pool_matches_the_batch_send_policy(nyt_csv):
+    """Deciding slot by slot gives the same sends as the batch rule (earliest first, cap per day)."""
+    from pushpin.objective import send_decisions
+
+    scores, pushes, _, _ = run_week(FakeScorer(), nyt_csv, 6, pd.Timestamp("2024-12-02"), 1, 0, OBJECTIVE)
+    best = scores.loc[scores.groupby("impression_id")["push_score"].idxmax(), "news_id"].to_numpy()
+    assert (pushes["news_id"].to_numpy() == best).all()
+    send = OBJECTIVE["send"]
+    batch = send_decisions(pushes.assign(time=pushes["slot_time"]), send["threshold"], send["risk_penalty"],
+                           send["daily_cap"])
+    assert (pushes["sent"].to_numpy() == batch).all()
+
+
+class OldestFirstScorer(FakeScorer):
+    """Every user likes older articles more: the earliest article of the day always ranks first."""
+
+    def score(self, requests):
+        rows = super().score(requests)
+        rows["p_click"] = 1 / (1 + rows["news_id"].str.extract(r"(\d+)$")[0].astype(int))
+        return rows
+
+
+def day_pool_run(nyt_csv, threshold, scorer=None):
+    objective = {"friction": 0.0, "send": {"threshold": threshold, "risk_penalty": 0.0, "daily_cap": 3}}
+    return run_week(scorer or OldestFirstScorer(), nyt_csv, 6, pd.Timestamp("2024-12-02"), 1, 0, objective,
+                    (8, 13, 19), day_pool=True, keep_top=3)
+
+
+def test_day_pool_keeps_an_unsent_article_for_later_slots(nyt_csv):
+    scores, pushes, summary, articles = day_pool_run(nyt_csv, threshold=2.0)  # nothing clears it: nothing sent
+    pools = articles.groupby("slot_time")["news_id"].apply(set).to_list()
+    assert pools[0] < pools[1] < pools[2]  # each slot's pool holds the earlier slots' articles too
+    assert not pushes["sent"].any()
+    assert pushes["news_id"].nunique() == 1  # the 05:00 article loses no slot to newer ones: it is the pick all day
+    assert scores.groupby("impression_id").size().max() == 3
+    assert summary["day_pool"] and summary["user_article_scores"] > len(scores)  # counts every candidate scored
+
+
+def test_day_pool_never_pushes_an_article_twice(nyt_csv):
+    _, pushes, _, _ = day_pool_run(nyt_csv, threshold=0.0)  # everything clears it, up to the cap of 3
+    assert pushes["sent"].all()
+    assert not pushes.duplicated(["user_id", "news_id"]).any()
+    assert pushes.groupby("user_id")["news_id"].apply(list).iloc[0] == ["NYT-0", "NYT-1", "NYT-2"]  # oldest unpushed
+
+
 def test_scorer_api_endpoints():
     client = TestClient(create_app(FakeScorer()))
     assert client.get("/health").json()["status"] == "ok"

@@ -149,13 +149,17 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--out", type=Path, default=Path("outputs/nyt-sim"))
     parser.add_argument("--slot-hours", type=parse_hours, default=SLOT_HOURS, help="comma-separated push hours, e.g. 9,11,13,15,17,19")
+    parser.add_argument("--day-pool", action="store_true", help="rank every unpushed article of the day, not just the newest")
+    parser.add_argument("--keep-top", type=int, help="keep only each decision's best N candidates in scores.parquet")
     args = parser.parse_args()
     scorer = LocalScorer(args.run_dir)
     objective = yaml.safe_load(Path("configs/objective.yml").read_text())
     data_dir = Path(scorer.config["data"]["dir"])
-    scores, pushes, summary = run_week(scorer, data_dir / "nyt-recent.csv", args.users, pd.Timestamp(args.start),
-                                       args.days, args.seed, objective, args.slot_hours)
-    write_outputs(args.out, scores, pushes, {"run": str(args.run_dir), "slot_hours": list(args.slot_hours), **summary})
+    scores, pushes, summary, articles = run_week(scorer, data_dir / "nyt-recent.csv", args.users, pd.Timestamp(args.start),
+                                                 args.days, args.seed, objective, args.slot_hours, args.day_pool,
+                                                 args.keep_top)
+    write_outputs(args.out, scores, pushes, {"run": str(args.run_dir), "slot_hours": list(args.slot_hours), **summary},
+                  articles)
 
 
 if __name__ == "__main__":
