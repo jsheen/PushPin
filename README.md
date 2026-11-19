@@ -47,6 +47,30 @@ push) and V (the cost of a reader turning notifications off) are prices set by h
 can be updated every night: XGBoost retrained on the new push logs, then the bandit refit on all
 its decisions so far.
 
+### Why not one bandit on all the features?
+
+The bandit sees XGBoost's similarity features only through `p_click`, so two picks with the same
+`p_click` look alike to it even if one is a close topic match and the other is broadly popular.
+Training one bandit on every user and article feature instead would lose more than it gains:
+
+1. **Far too little data, and too much exploration.** XGBoost learned content preferences from
+   millions of MIND impressions. The bandit learns only from its own sends (one decision per
+   reader per slot, about 5% opened), and Thompson sampling has to explore to learn each weight:
+   manageable with 9 inputs, far longer with hundreds. That exploration is real readers getting
+   pushes that don't help them.
+2. **It doesn't rank.** The bandit decides send or skip for one pick; XGBoost chooses that pick
+   from about 100 candidates a slot. Choosing among the articles too would need the bandit to be
+   reconceptualized as a much harder problem.
+3. **No friction knob.** The push objective sets the engagement-vs-novelty trade-off explicitly
+   (friction 0.2). One bandit maximizing visits would set it implicitly, and the planted world
+   even favors familiar topics, so discovery would have no knob left.
+
+With more data, similarity scores can be added gradually to the bandit's context, one score at
+a time (e.g. a topic-match or novelty score next to `p_click`), and kept only if they help. At
+scale, with randomized push logs, an uplift model trained offline on all the features
+([docs/uplift.md](docs/uplift.md)) can pass its estimate of a push's effect to the bandit as one
+more input.
+
 ## Results
 
 On a held-out day (1.22M candidates):
