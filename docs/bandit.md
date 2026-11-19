@@ -15,6 +15,7 @@ Code: `src/pushpin/bandit.py`, `configs/bandit.yml`, `tests/test_bandit.py`. Plo
 - [The reward and its two prices](#the-reward-and-its-two-prices)
 - [The bandit](#the-bandit)
 - [The planted world](#the-planted-world)
+- [Retraining each night](#retraining-each-night)
 - [Policies compared](#policies-compared)
 - [Results across the two prices](#results-across-the-two-prices)
 - [What it learned](#what-it-learned)
@@ -107,6 +108,23 @@ opt-out         P   = hazard × ((1 − p_return) / mean)^1 × annoyance / toler
 
 Every policy sees the same random draws (common random numbers), so differences between
 policies aren't noise from different luck.
+
+## Retraining each night
+
+Both models can be updated every night, and they don't block each other:
+
+1. **XGBoost first.** Retrain the click model (and return model) on everything logged so far:
+   MIND plus the pushes and their opens. This is the scheduled retrain, and it changes which
+   article is picked and the `p_click` / `p_return` the bandit sees.
+2. **Then the bandit.** Refit its posterior from all send decisions so far. It already does this
+   every simulated night; it needs no separate training job. Within a day, each reader keeps one
+   Thompson draw of the weights.
+
+Because the bandit takes XGBoost's outputs as inputs, a retrain shifts them: the same reader
+and article can get a different `p_click` the next day. The bandit adapts as it keeps learning,
+but every logged decision should carry the XGBoost model version, so a jump after a retrain can
+be traced to its cause (and, if needed, the bandit refit on post-retrain decisions only). In the
+simulation XGBoost is fixed, so only the bandit learns.
 
 ## Policies compared
 

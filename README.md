@@ -34,7 +34,9 @@ pushes did: the no-push outcome, annoyance or opt-outs. XGBoost does have a few 
 feed visits readers chose to make, and their effect is small (about 2–3% lower engagement after
 5+ impressions a day; see [docs/analysis.md](docs/analysis.md)). They aren't the core of the
 model. The bandit's push-history context is what governs how often to push. λ (the cost of one
-push) and V (the cost of a reader turning notifications off) are prices set by hand.
+push) and V (the cost of a reader turning notifications off) are prices set by hand. Both models
+can be updated every night: XGBoost retrained on the new push logs, then the bandit refit on all
+its decisions so far.
 
 ## Results
 

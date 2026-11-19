@@ -193,7 +193,7 @@ expected change in reward from sending rather than skipping.
 send  if  θ̃ · z > 0
 ```
 
-The posterior is refit every night from all decisions so far (σ = 0.4, τ0 = 1). Drawing θ̃
+The posterior is refit every night from all decisions so far (σ = 0.4, τ0 = 1). XGBoost can be retrained the same night, first; see [bandit.md](bandit.md#retraining-each-night). Drawing θ̃
 rather than using its mean is the exploration: uncertain weights sometimes say "send", which
 gathers the data that resolves them.
 
