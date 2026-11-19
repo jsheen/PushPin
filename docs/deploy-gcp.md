@@ -6,7 +6,7 @@ The same pipeline, deployed on Cloud Run, with the database on Neon's free Postg
 |-------|---------|-----------|
 | Scorer | **Cloud Run** service, private (`deploy/cloudrun/scorer.yaml`) | Busy only at the eight slots, so it scales to zero between them. A cold start loads the state in ~35 s (measured locally, 1.1 GB). The bucket is mounted read-only; Chroma is copied to the in-memory disk because its SQLite files don't like network filesystems. |
 | Card server | **Cloud Run** service, public (`deploy/cloudrun/cards.yaml`) | Bursty: scales with taps, down to zero. Its `run.app` HTTPS address replaces the tunnel and never changes. |
-| Notifier slot | **Cloud Run job** (`deploy/cloudrun/notifier-job.yaml`) + **Cloud Scheduler** | Runs four times a day and exits. It calls the private scorer with an ID token (`PUSHPIN_SCORER_AUTH=gcp`). |
+| Notifier slot | **Cloud Run job** (`deploy/cloudrun/notifier-job.yaml`) + **Cloud Scheduler** | Runs eight times a day (every two hours, 7 to 21) and exits. It calls the private scorer with an ID token (`PUSHPIN_SCORER_AUTH=gcp`). |
 | Database | **Neon** Postgres (free tier) | Shared by the card server and the job; replicas can't share a SQLite file. |
 | Images | **Artifact Registry**, built by **Cloud Build** (`deploy/cloudbuild.yaml`) | x86 images from the ARM Mac, without building locally. |
 
@@ -56,7 +56,7 @@ the printed commands.
 
 | | Monthly |
 |---|---|
-| Scorer: ~4 cold starts a day plus scoring, 1 vCPU / 4 GiB; Cloud Run's free tier is 180k vCPU-s and 360k GiB-s | ~$0 |
+| Scorer: up to 8 cold starts a day plus scoring, 1 vCPU / 4 GiB; Cloud Run's free tier is 180k vCPU-s and 360k GiB-s | ~$0 |
 | Card server, notifier job, Scheduler (3 jobs free), Cloud Build (2,500 min free) | ~$0 at this traffic |
 | Neon free tier (0.5 GB; suspends after 5 idle minutes, wakes in about a second) | $0 |
 | Artifact Registry (~5 GB of images) and the bucket (~2 GB) | ~$1 |
