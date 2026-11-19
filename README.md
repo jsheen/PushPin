@@ -73,6 +73,13 @@ On a held-out day (1.22M candidates):
   each reader's own best hours). It gains +0.002 to +0.016 a reader-day when a push costs
   λ = 0.02–0.04 sessions, where any fixed threshold gets ~0. At λ = 0.08 it over-pushes slightly
   (it doesn't credit annoyance's lasting cost). See [docs/bandit.md](docs/bandit.md).
+- **Readers at risk of leaving cut both ways.** They gain the most from a good push (they won't
+  come back on their own) and quit the most easily when one misses. The old fixed rule only
+  protects them: it raises their bar (`+0.04 × (1 − P(return))`), giving up the gain. The bandit
+  learned to send them **fewer, better pushes**. Their bar drops mainly for appealing picks
+  (weights: risk +0.043, `p_click × risk` +0.048) and rises after ignored or recent pushes. How
+  the two sides balance for real readers depends on numbers the simulation only plants (how much
+  more easily they quit, and V).
 
 Details: [docs/model.md](docs/model.md) and [docs/analysis.md](docs/analysis.md).
 
