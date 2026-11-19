@@ -17,6 +17,7 @@ Code: `src/pushpin/bandit.py`, `configs/bandit.yml`, `tests/test_bandit.py`. Plo
 - [The planted world](#the-planted-world)
 - [Editorial alerts](#editorial-alerts)
 - [Retraining each night](#retraining-each-night)
+- [Starting from a publisher's push history](#starting-from-a-publishers-push-history)
 - [Policies compared](#policies-compared)
 - [Results across the two prices](#results-across-the-two-prices)
 - [What it learned](#what-it-learned)
@@ -167,6 +168,44 @@ and article can get a different `p_click` the next day. The bandit adapts as it 
 but every logged decision should carry the XGBoost model version, so a jump after a retrain can
 be traced to its cause (and, if needed, the bandit refit on post-retrain decisions only). In the
 simulation XGBoost is fixed, so only the bandit learns.
+
+## Starting from a publisher's push history
+
+The split is like two agents: XGBoost learns **what a reader likes** (content), and the bandit
+learns **how they respond to being pushed** (timing and volume). A publisher like the NYT already
+has push data, even though its pushes aren't chosen by an algorithm today. That data splits
+across the two:
+
+| Publisher data | Which side | How it's used |
+|---|---|---|
+| Which push headlines a reader opened (topics) | XGBoost | Content preference: more click history |
+| How often they open pushes, how many they ignore, when they open | Bandit: the reader's starting state | Fills in the bandit's inputs from day one (open rate on pushes, pushes ignored, hours since the last open, "is this their hour") instead of starting blank |
+| Past pushes, their outcomes, opt-outs | Bandit: the prior on its weights | Fit the bandit's model on the logs once, and start from that posterior |
+| Readers' own notification settings (topics, quiet hours) | Neither | Hard rules the send decision obeys, not something to learn |
+
+**The prior on the weights.** Today the bandit starts knowing nothing about what sending does:
+θ ~ N(0, τ0² I). With push logs, fit the same regression on the historical decisions and start
+from the result, with its uncertainty widened:
+
+```
+today:      θ ~ N(0, τ0² I)
+with logs:  θ ~ N(θ_logs, c · Σ_logs),   c > 1
+```
+
+c > 1 keeps the bandit from trusting the logs too much, so its own decisions can still move the
+weights. That matters here: editorial pushes go to every subscriber at once. That makes them
+unconfounded *within* subscribers (who got a push didn't depend on how they'd respond). But
+subscribers differ from non-subscribers, and everyone got the same alert at the same time, so
+the logs say little about per-reader differences. In the code this is only a different starting
+point: the posterior's `precision` and `b` (`LinearThompson`) begin from the logs instead of the
+identity and zero. Fewer early pushes are spent on exploration.
+
+**The reader's starting state.** Strictly this isn't a prior. The bandit's weights are shared,
+and what's personal is the context z. A reader with a long push history gets their real open
+rate, ignored pushes and best hours as inputs from the first day, so the shared weights already
+give them a sensible personal threshold. Separate weights per reader (a hierarchical model:
+shared weights plus a per-reader offset, which history could also initialize) are a later step,
+worth it only for very active readers.
 
 ## Policies compared
 
