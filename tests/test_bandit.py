@@ -89,3 +89,18 @@ def test_compare_scores_every_policy(data):
     b8 = again.set_index("policy").loc["breaking"]
     assert b8["pushes_per_reader_day"] == b4["pushes_per_reader_day"]
     assert b8["reward_per_reader_day"] == pytest.approx(b4["reward_per_reader_day"] - 0.04 * b4["pushes_per_reader_day"])
+
+
+def test_editorial_alert_bypasses_every_policy(data):
+    traits = bd.reader_traits(data, CFG["planted"], CFG["seed"])
+    alert = data["news_ids"][data["newest_article"][0][0]]  # the newest article at the first slot (day 0, 9:00)
+    cfg = {**CFG, "editorial": [alert, "NYT-not-in-the-sim"]}
+    for policy in ("never", "bandit", "threshold"):
+        log, _ = bd.simulate(data, traits, cfg, policy, 0.04, 5, threshold=0.5)
+        first = log[(log["day"] % 7 == 0) & (log["hour"] == 9)]
+        assert (first["editorial_pushes"] == first["active"] + first["optouts"]).all()  # everyone subscribed, each week
+        assert (first["pushes"] >= first["editorial_pushes"]).all()
+        assert log["editorial_pushes"].sum() == first["editorial_pushes"].sum()  # only at that slot
+    plain, _ = bd.simulate(data, traits, CFG, "never", 0.04, 5)
+    assert plain["editorial_pushes"].sum() == 0  # off by default
+

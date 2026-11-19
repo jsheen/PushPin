@@ -12,6 +12,10 @@ grid:                     # --grid reruns the comparison at every pair
   V: [2, 5, 20]
 
 thresholds: [0.04, 0.06, 0.08, 0.10, 0.12, 0.15, 0.20, 0.30]  # "send if p_click >= c": the best one in hindsight is a reference
+# Editorial alerts: news_ids an editor marks as must-send (e.g. "NYT-<id>"). Each goes to every
+# subscribed reader at the slot where it's the newest article, bypassing the policy (the bandit
+# never suppresses it), and counts as a push. Empty: no overrides (the default runs).
+editorial: []
 fatigue_hours: 4          # "recent pushes" = pushes within this many hours (the two previous slots)
 
 # Planted truth (sim only). Per slot, a reader comes back on their own with

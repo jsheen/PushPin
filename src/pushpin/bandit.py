@@ -19,6 +19,10 @@ planted world (configs/bandit.yml): organic sessions, the push effect, opens, a 
 annoyance per reader that lowers both and drives opt-outs, per-reader tolerance and preferred
 time of day. Every policy sees the same random draws (common random numbers).
 
+Editorial alerts (`editorial` in the config, a list of news_ids, empty by default) are pushed
+to every subscribed reader at the slot where they are newest, bypassing every policy: an editor's
+must-send news is never held back by the bandit.
+
 Policies compared: the bandit; "breaking" (the newest article to everyone at every slot);
 "send if p_click >= c" for each c in `thresholds` (the best one in hindsight is a reference a
 non-contextual policy could at most reach); never push.
@@ -58,7 +62,8 @@ def load_candidates(sim_dir: Path, interest_floor: float) -> dict:
     s = s.sort_values(["slot", "reader", "push_score"], ascending=[True, True, False], kind="stable")
     s["k"] = s.groupby(["slot", "reader"]).cumcount()
     n_slots, n, k = len(slots), len(users), int(s["k"].max()) + 1
-    out = {"n_slots": n_slots, "n": n, "users": users, "slot_times": pd.to_datetime(slots), "n_articles": len(articles)}
+    out = {"n_slots": n_slots, "n": n, "users": users, "slot_times": pd.to_datetime(slots), "n_articles": len(articles),
+           "news_ids": articles}
     for col, fill, dtype in (("article", -1, np.int32), ("p_click", 0.0, np.float32), ("interest", 0.0, np.float32)):
         arr = np.full((n_slots, n, k), fill, dtype=dtype)
         arr[s["slot"], s["reader"], s["k"]] = s[col].to_numpy()
@@ -136,6 +141,11 @@ def simulate(data: dict, traits: dict, cfg: dict, policy: str, lam: float, V: fl
     tol, pref_all = traits["tolerance"], traits["pref"]
     readers = np.arange(n)
     risk_mean = float(1 - data["p_return"].mean())
+    # editorial alerts: articles an editor marks as must-send. At the slot where one is newest, it
+    # goes to every subscribed reader who hasn't had it, whatever the policy says (it bypasses the
+    # bandit), and it counts as a push: cost, fatigue, annoyance and opt-out risk all apply.
+    editorial_ids = data["news_ids"].get_indexer(pd.Index(cfg.get("editorial") or []))
+    editorial_ids = set(editorial_ids[editorial_ids >= 0].tolist())
 
     active = np.ones(n, bool)
     annoy = np.zeros(n)
@@ -175,6 +185,14 @@ def simulate(data: dict, traits: dict, cfg: dict, policy: str, lam: float, V: fl
                 art = cand[readers, k]
                 pc = data["p_click"][s][readers, k].astype(float)
                 interest = data["interest"][s][readers, k].astype(float)
+            forced = np.zeros(n, bool)
+            if editorial_ids and int(data["newest_article"][s][0]) in editorial_ids:
+                alert = data["newest_article"][s]
+                forced = active & ~pushed[readers, alert]
+                art = np.where(forced, alert, art)
+                pc = np.where(forced, data["newest_p_click"][s], pc)
+                interest = np.where(forced, data["newest_interest"][s], interest)
+                avail = avail | forced
 
             recent = (now - last_push < cfg["fatigue_hours"]).sum(axis=1)
             open_rate = (opens_n + 0.1) / (pushes_n + 2)
@@ -197,6 +215,7 @@ def simulate(data: dict, traits: dict, cfg: dict, policy: str, lam: float, V: fl
                 send = can & (pc >= threshold)
             else:
                 send = can & ((theta * z).sum(axis=1) > 0)
+            send |= forced  # an editorial alert overrides the policy (the bandit still learns from it)
 
             factor = np.exp(-annoy / tol)
             y0 = np.clip(p["organic"] * pr * pref, 0, 0.95)
@@ -230,7 +249,8 @@ def simulate(data: dict, traits: dict, cfg: dict, policy: str, lam: float, V: fl
             ignored_by_day[:, day % 7] += ignored
             active &= ~optout
             rows.append({"day": day, "week": day // 7, "hour": int(hour), "sessions": int(session.sum()),
-                         "pushes": int(send.sum()), "opens": int(opened.sum()), "optouts": int(optout.sum()),
+                         "pushes": int(send.sum()), "editorial_pushes": int(forced.sum()),
+                         "opens": int(opened.sum()), "optouts": int(optout.sum()),
                          "true_effect": float((send * tau).sum()), "active": int(active.sum())})
         annoy *= decay
         if bandit is not None:
@@ -244,6 +264,7 @@ def score(log: pd.DataFrame, n: int, lam: float, V: float) -> dict:
     sessions, pushes, optouts = log["sessions"].sum(), log["pushes"].sum(), log["optouts"].sum()
     return {"reward_per_reader_day": (sessions - lam * pushes - V * optouts) / reader_days,
             "sessions_per_reader_day": sessions / reader_days, "pushes_per_reader_day": pushes / reader_days,
+            "editorial_per_reader_day": log["editorial_pushes"].sum() / reader_days,
             "open_rate": log["opens"].sum() / max(pushes, 1), "opted_out_share": optouts / n,
             "caused_sessions_per_reader_day": log["true_effect"].sum() / reader_days}
 

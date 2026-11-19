@@ -15,6 +15,7 @@ Code: `src/pushpin/bandit.py`, `configs/bandit.yml`, `tests/test_bandit.py`. Plo
 - [The reward and its two prices](#the-reward-and-its-two-prices)
 - [The bandit](#the-bandit)
 - [The planted world](#the-planted-world)
+- [Editorial alerts](#editorial-alerts)
 - [Retraining each night](#retraining-each-night)
 - [Policies compared](#policies-compared)
 - [Results across the two prices](#results-across-the-two-prices)
@@ -116,6 +117,39 @@ opt-out         P   = hazard × ((1 − p_return) / mean)^1 × annoyance / toler
 
 Every policy sees the same random draws (common random numbers), so differences between
 policies aren't noise from different luck.
+
+## Editorial alerts
+
+A newsroom pushes major news by editorial judgment, and a learned policy must never hold that
+back. `editorial` in `configs/bandit.yml` lists news_ids an editor marks as must-send. At the
+slot where one is the newest article, it goes to every subscribed reader who hasn't had it,
+**bypassing every policy**, the bandit included. It still counts as a push: it costs λ, adds to
+recent pushes, and if ignored, to annoyance and opt-out risk. The bandit learns from those
+outcomes like any other send, and its push-history inputs see the alert, so it can back off
+afterwards. The list is empty by default, and the results above have no alerts.
+
+A demo at λ = 0.04, V = 5, with two of the sim week's biggest stories as alerts ("The Fall of
+Assad in Syria" on Dec 7 and "After Failed Martial Law, South Koreans Ask: Who's in Charge?" on
+Dec 8, each replayed weekly):
+
+| | Bandit reward vs never | Bandit pushes/day (of which alerts) | Bandit opted out | Never: pushes/day (all alerts) |
+|---|---|---|---|---|
+| No alerts | +0.0074 | 1.00 (0) | 3.3% | 0 |
+| 2 alerts a week | −0.0069 | 1.32 (0.28) | 5.6% | 0.29 |
+
+"Never" here means never pushing *beyond* the alerts. With alerts, the bandit barely cuts its
+own pushes (1.00 → 1.05 a day), so the extra annoyance shows up as opt-outs (3.3% → 5.6%) and
+it falls below the alerts-only baseline. Two caveats point in opposite directions:
+- **The sim treats an alert like any push.** Its open rate and effect come from the same planted
+  rules (`p_click`, interest), while real breaking news is likely opened far more. That would
+  make alerts cheaper.
+- **The bandit doesn't plan around alerts.** It reacts to them after the fact through its
+  push-history inputs, but it doesn't know one is coming, or that alerts take up a reader's
+  tolerance. A production version could treat an editorial budget as reserved and lower its own
+  volume on alert-heavy days.
+
+Live, the same rule would sit in the notifier: an editor's alert is sent to everyone and logged
+with propensity 1 (it wasn't the policy's choice), so it stays separable in any evaluation.
 
 ## Retraining each night
 
