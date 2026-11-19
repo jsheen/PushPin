@@ -12,6 +12,7 @@ Code: `src/pushpin/bandit.py`, `configs/bandit.yml`, `tests/test_bandit.py`. Plo
 ## Contents
 
 - [Two models, two jobs](#two-models-two-jobs)
+- [Why not one bandit on all the features?](#why-not-one-bandit-on-all-the-features)
 - [The reward and its two prices](#the-reward-and-its-two-prices)
 - [The bandit](#the-bandit)
 - [The planted world](#the-planted-world)
@@ -39,6 +40,30 @@ did: the no-push outcome, annoyance or opt-outs. XGBoost's few fatigue features
 (`slot_skipped_72h`, `impr_last_24h`, ...) come from feed visits readers chose to make, and their
 effect is small (about 2% either side of a reader's norm; [analysis.md](analysis.md)), so they
 aren't the core of the model.
+
+## Why not one bandit on all the features?
+
+The bandit sees XGBoost's similarity features only through `p_click`, so two picks with the same
+`p_click` look alike to it even if one is a close topic match and the other is broadly popular.
+Training one bandit on every user and article feature instead would lose more than it gains:
+
+1. **Far too little data, and too much exploration.** XGBoost learned content preferences from
+   millions of MIND impressions. The bandit learns only from its own sends (one decision per
+   reader per slot, about 5% opened), and Thompson sampling has to explore to learn each weight:
+   manageable with 9 inputs, far longer with hundreds. That exploration is real readers getting
+   pushes that don't help them.
+2. **It doesn't rank.** The bandit decides send or skip for one pick; XGBoost chooses that pick
+   from about 100 candidates a slot. Choosing among the articles too would need the bandit to be
+   reconceptualized as a much harder problem.
+3. **No friction knob.** The push objective sets the engagement-vs-novelty trade-off explicitly
+   (friction 0.2). One bandit maximizing visits would set it implicitly, and the planted world
+   even favors familiar topics, so discovery would have no knob left.
+
+With more data, similarity scores can be added gradually to the bandit's context, one score at
+a time (e.g. a topic-match or novelty score next to `p_click`), and kept only if they help. At
+scale, with randomized push logs, an uplift model trained offline on all the features
+([uplift.md](uplift.md)) can pass its estimate of a push's effect to the bandit as one
+more input.
 
 ## The reward and its two prices
 
@@ -254,9 +279,12 @@ Reward relative to never pushing, per reader-day, over 13 weeks:
 
 Posterior means of the effect-of-sending weights at λ = 0.04, V = 5:
 
-- **Risk: +0.043, and p_click × risk: +0.048.** Push at-risk readers more, and more so when the
-  pick is appealing, even though at-risk readers quit more easily when annoyed. Here the larger
-  effect wins: the opposite of the old rule's `+0.04 × (1 − p_return)` in the threshold.
+- **Risk: +0.043, and p_click × risk: +0.048.** Readers at risk of leaving cut both ways: they
+  gain the most from a good push (they won't come back on their own) and quit the most easily
+  when one misses. The bandit sends them **fewer, better pushes**: their bar drops mainly for
+  appealing picks and rises after ignored or recent pushes. The old rule only protected them
+  (`+0.04 × (1 − p_return)` on the bar), giving up the gain. How the two sides balance for real
+  readers depends on numbers the simulation only plants (how much more easily they quit, and V).
 - **Push history:** recent pushes −0.044, pushes ignored this week −0.027, the reader's own open
   rate +0.011. Back off after pushes and after ignored ones; keep pushing readers who open.
 - **Is this their hour: +0.006 per unit (± 0.001).** It pushes at readers' own best times: in

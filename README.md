@@ -18,58 +18,20 @@ it, so how many pushes a reader gets a day is the policy's call, not a setting.
 ### Two models, two jobs
 
 A **contextual bandit** learns the send decision instead of the fixed rule (simulation only so
-far; see [docs/bandit.md](docs/bandit.md)); live still uses the fixed rule. It doesn't redo
-XGBoost's job. The two answer different questions from different inputs:
+far; live still uses the fixed rule). It doesn't redo XGBoost's job:
 
 | | XGBoost | Contextual bandit |
 |---|---|---|
 | **Question** | Which article would this reader open? | Is this pick worth sending to this reader *now*? |
 | **Learns from** | MIND feed logs (supervised, offline) | Its own send decisions and their outcomes (online) |
-| **Target** | P(click), P(return) | sessions − λ·pushes − V·opt-outs |
-| **Inputs** | Reader × article: similarity to reading history, subcategory affinity and complements, article embeddings, Claude reader profiles, article age, time-slot engagement | XGBoost's outputs (`p_click`, `1 − p_return`), plus context about *our pushes*: pushes in the last few hours, pushes ignored this week, hours since the last open, the reader's open rate on our pushes, whether this is one of their own best hours |
+| **Target** | P(click), P(return) | return visits − λ·pushes − V·opt-outs |
+| **Inputs** | Reader × article: history similarity, subcategory affinity, embeddings, Claude reader profiles, article age, slot engagement | XGBoost's outputs (`p_click`, `1 − p_return`) plus context about *our pushes*: recent and ignored pushes, hours since the last open, the reader's open rate on our pushes, whether this is one of their best hours |
 
-**What the bandit's reward counts.** A *session* is a return visit: the reader coming back in
-that slot's window by any route (tapping the push, or opening the site on their own later).
-Opens, the tap on the notification, aren't rewarded directly: a push opened by a reader who'd
-have come back anyway adds nothing. Opens matter indirectly. Ignored pushes build annoyance and
-opt-outs (the V term), and the reader's open rate on our pushes is one of the bandit's inputs.
-**How much one push raises visits or opens isn't known.** No dataset here observes a reader with
-and without a push, so the simulation plants both effects (`configs/bandit.yml`). Only a live
-randomized holdout would measure them.
-
-The bandit gets no article features (that's XGBoost's job), and XGBoost never sees what our
-pushes did: the no-push outcome, annoyance or opt-outs. XGBoost does have a few fatigue features
-(`slot_skipped_72h`, `impr_last_24h`, `hours_since_last_impr`, ...), but they're learned from
-feed visits readers chose to make, and their effect is small (about 2% lower engagement after
-5+ impressions a day; see [docs/analysis.md](docs/analysis.md)). They aren't the core of the
-model. The bandit's push-history context is what governs how often to push. λ (the cost of one
-push) and V (the cost of a reader turning notifications off) are prices set by hand. Both models
-can be updated every night: XGBoost retrained on the new push logs, then the bandit refit on all
-its decisions so far.
-
-### Why not one bandit on all the features?
-
-The bandit sees XGBoost's similarity features only through `p_click`, so two picks with the same
-`p_click` look alike to it even if one is a close topic match and the other is broadly popular.
-Training one bandit on every user and article feature instead would lose more than it gains:
-
-1. **Far too little data, and too much exploration.** XGBoost learned content preferences from
-   millions of MIND impressions. The bandit learns only from its own sends (one decision per
-   reader per slot, about 5% opened), and Thompson sampling has to explore to learn each weight:
-   manageable with 9 inputs, far longer with hundreds. That exploration is real readers getting
-   pushes that don't help them.
-2. **It doesn't rank.** The bandit decides send or skip for one pick; XGBoost chooses that pick
-   from about 100 candidates a slot. Choosing among the articles too would need the bandit to be
-   reconceptualized as a much harder problem.
-3. **No friction knob.** The push objective sets the engagement-vs-novelty trade-off explicitly
-   (friction 0.2). One bandit maximizing visits would set it implicitly, and the planted world
-   even favors familiar topics, so discovery would have no knob left.
-
-With more data, similarity scores can be added gradually to the bandit's context, one score at
-a time (e.g. a topic-match or novelty score next to `p_click`), and kept only if they help. At
-scale, with randomized push logs, an uplift model trained offline on all the features
-([docs/uplift.md](docs/uplift.md)) can pass its estimate of a push's effect to the bandit as one
-more input.
+The reward counts return visits, not opens: an open by a reader who'd have come back anyway adds
+nothing. λ (the cost of a push) and V (the cost of a reader turning notifications off) are prices
+set by hand, and how much one push really moves visits isn't known, so the simulation plants it.
+Both models can be updated every night. Why the split, rather than one bandit on all the
+features, and the rest: [docs/bandit.md](docs/bandit.md).
 
 ## Results
 
@@ -90,20 +52,14 @@ On a held-out day (1.22M candidates):
   2.3× as many extra returns as the current send policy for the same number of pushes, on a
   semi-synthetic NYT simulation with a planted, known effect. The click policy pushes readers who
   would come back anyway. See [docs/uplift.md](docs/uplift.md).
-- **Contextual bandit (when to push):** on the same simulation with planted annoyance and
-  opt-outs, pushing the latest breaking story at all 8 slots loses 0.27–0.71 sessions per
-  reader-day vs never pushing, and 59% of readers turn notifications off. The bandit learns from
-  push history and timing (back off after ignored pushes, push at-risk readers more, push at
-  each reader's own best hours). It gains +0.002 to +0.016 a reader-day when a push costs
-  λ = 0.02–0.04 sessions, where any fixed threshold gets ~0. At λ = 0.08 it over-pushes slightly
-  (it doesn't credit annoyance's lasting cost). See [docs/bandit.md](docs/bandit.md).
-- **Readers at risk of leaving cut both ways.** They gain the most from a good push (they won't
-  come back on their own) and quit the most easily when one misses. The old fixed rule only
-  protects them: it raises their bar (`+0.04 × (1 − P(return))`), giving up the gain. The bandit
-  learned to send them **fewer, better pushes**. Their bar drops mainly for appealing picks
-  (weights: risk +0.043, `p_click × risk` +0.048) and rises after ignored or recent pushes. How
-  the two sides balance for real readers depends on numbers the simulation only plants (how much
-  more easily they quit, and V).
+- **Contextual bandit (when to push):** on the same simulation, with planted annoyance and
+  opt-outs, pushing the latest breaking story at all 8 slots loses 0.27–0.71 visits per
+  reader-day vs never pushing, and 59% of readers turn notifications off. The bandit gains
+  +0.002 to +0.016 a reader-day when a push costs λ = 0.02–0.04 visits, where any fixed threshold
+  gets ~0. It backs off after ignored pushes, pushes at each reader's own best hours, and sends
+  readers at risk of leaving fewer, better pushes (they gain the most from a good push and quit
+  the most easily after a bad one). At λ = 0.08 it over-pushes slightly. See
+  [docs/bandit.md](docs/bandit.md).
 
 Details: [docs/model.md](docs/model.md) and [docs/analysis.md](docs/analysis.md).
 
