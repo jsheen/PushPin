@@ -15,6 +15,27 @@ pushes for readers at risk of opting out.
 The XGBoost model chooses which article each reader gets, and the send policy decides whether
 to push it, so how many pushes a reader gets a day is the policy's call, not a setting.
 
+### Two models, two jobs (the bandit is in progress)
+
+The send policy is being replaced by a **contextual bandit** (`src/pushpin/bandit.py`, tested on
+the NYT simulation first). It doesn't redo XGBoost's job. The two answer different questions
+from different inputs:
+
+| | XGBoost | Contextual bandit |
+|---|---|---|
+| **Question** | Which article would this reader open? | Is this pick worth sending to this reader *now*? |
+| **Learns from** | MIND feed logs (supervised, offline) | Its own send decisions and their outcomes (online) |
+| **Target** | P(click), P(return) | sessions − λ·pushes − V·opt-outs |
+| **Inputs** | Reader × article: similarity to reading history, subcategory affinity and complements, article embeddings, Claude reader profiles, article age, time-slot engagement | XGBoost's outputs (`p_click`, `1 − p_return`), plus context about *our pushes*: pushes in the last few hours, pushes ignored this week, hours since the last open, the reader's open rate on our pushes, the hours they tend to come back |
+
+The bandit gets no article features (that's XGBoost's job), and XGBoost never sees what our
+pushes did: the no-push outcome, annoyance or opt-outs. XGBoost does have a few fatigue features
+(`slot_skipped_72h`, `impr_last_24h`, `hours_since_last_impr`, ...), but they're learned from
+feed visits readers chose to make, and their effect is small (about 2–3% lower engagement after
+5+ impressions a day; see [docs/analysis.md](docs/analysis.md)). They aren't the core of the
+model. The bandit's push-history context is what governs how often to push. λ (the cost of one
+push) and V (the cost of a reader turning notifications off) are prices set by hand.
+
 ## Results
 
 On a held-out day (1.22M candidates):
