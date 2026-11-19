@@ -140,9 +140,8 @@ weekly or nightly   retrain job on the new logs ──▶ quality gate ──▶
 - **Machines are disposable; state lives in storage.** Jobs read data, models and images from
   GCS, Artifact Registry and git, so any machine can be thrown away. No long-lived VM that
   slowly drifts into a configuration nobody can recreate.
-- **One feature implementation.** Batch training and live scoring call the same
-  `features_for`; the parity test (`pushpin-live-parity`) guards it. Keep it that way for every
-  new feature.
+- **One feature implementation** for batch and live (above); keep it that way for every new
+  feature.
 - **Training happens in the cloud** even though it fits on a laptop: user data shouldn't leave
   managed storage, every model must be reproducible from recorded inputs, and retraining has to
   run unattended.
