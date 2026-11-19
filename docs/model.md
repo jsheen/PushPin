@@ -179,39 +179,17 @@ calibrated P(click) ≥ threshold + risk_penalty · (1 − P(return))
 
 and the user is under `daily_cap` (defaults 0.07, 0.04, 2 in `configs/objective.yml`).
 
-**Trade-off.** Clicks are rare: 3.8% of candidates are clicked, a random pick per impression
-clicks 9.1% (the fair baseline, since MIND only logs impressions with a click), the newest
-candidate per impression clicks 12.5%, and the model's top pick clicks 16.7%. Sweeping friction
-(`recency-depth-no-emb`; dashed = random engagement, dotted = newest first):
+**Results** (tables and plots in [analysis.md](analysis.md#push-objective)):
 
-![Push objective trade-off](tradeoff.png)
-
-| Friction | CTR of top pick | …with random engagement | …with most-recent engagement | Top pick from a never-shown subcategory |
-|----------|-----------------|-------------------------|------------------------------|-----------------------------------------|
-| 0 | 16.7% | 9.1% | 12.5% | 11% |
-| 0.1 | 15.4% | 8.8% | 11.8% | 23% |
-| 0.2 (default) | 13.9% | 8.5% | 11.2% | 37% |
-| 0.3 | 12.6% | 8.2% | 10.4% | 48% |
-| 0.5 | 11.0% | 8.0% | 9.2% | 64% |
-| 1 | 8.1% | 8.1% | 8.1% | 87% |
-
-Low friction buys novelty cheaply: 0 → 0.2 more than triples the never-shown share for about 3
-points of CTR.
-
-**Send policy.** On impressions with 50+ candidates:
-
-| Threshold | Pushes per active user-day | CTR of pushes sent | Predicted CTR |
-|-----------|----------------------------|--------------------|---------------|
-| 0 (send all, cap 2) | 1.15 | 5.3% | 8.1% |
-| 0.05 | 0.72 | 6.4% | 9.4% |
-| **0.07 (default)** | **0.41** | **7.9%** | 10.9% |
-| 0.10 | 0.14 | 10.3% | 13.9% |
-
-Raising the threshold trades volume for quality as intended; the model over-predicts the level on
-this slice (an artifact of MIND's impression sizes, explained in the analysis doc). At the
-default, low-risk users get 0.82 pushes/day at 9.3% CTR and high-risk users 0.15/day at 5.3%.
-
-![Send policy](volume.png)
+- **Trade-off.** A random pick per impression clicks 9.1% (the fair baseline, since MIND only
+  logs impressions with a click), the newest candidate 12.5%, the model's top pick 16.7%.
+  Friction 0.2 (the default) more than triples the share of top picks from a never-shown
+  subcategory (11% → 37%) for about 3 points of CTR (16.7% → 13.9%).
+- **Send policy.** On impressions with 50+ candidates, the default threshold sends 0.41 pushes
+  per active user-day at 7.9% CTR, vs. 5.3% for sending everything; raising it to 0.10 sends
+  0.14 at 10.3%. Low-risk users get 0.82 pushes a day, high-risk users 0.15. The model
+  over-predicts the level on this slice, an artifact of MIND's impression sizes
+  ([analysis.md](analysis.md#send-policy)).
 
 Other findings:
 

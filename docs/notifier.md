@@ -182,34 +182,22 @@ off-policy data later. In pandas: `pd.read_sql("SELECT * FROM labeled", sqlite3.
 feeds, ntfy server and click window. The threshold, risk penalty and friction come from
 `configs/objective.yml`.
 
-- **Pushes are picked for a brand-new user.** By default the scorer sees a user it has never
-  met: no click history and no impressions, like a MIND user on their first visit. The
-  personal features (similarity to history, subcategory affinity, LLM themes) are missing, so
-  the pick rests on the article (age, its subcategory's overall click rate) and the time of
-  day. Every subscriber gets the same pushes. Setting `user_id` to a MIND id (e.g. `U12345`)
-  scores for that reader's history instead.
-- **Pushes feed back as impressions.** Each slot sends the user's earlier pushes to the scorer
-  as one-article impressions, labeled 1 if any reader opened the card (a push still inside the
-  24 h window counts as 0 until it's opened). The scorer uses them exactly as training used a
-  MIND user's earlier impressions, so the per-user features move: slot and subcategory
-  engagement, skips, the click/skip embedding contrast, and exposure (`impr_last_24h`,
-  `hours_since_last_impr`, which now count pushes). The scorer keeps no state for this; the
-  database is the record, so a restarted or second scorer replica gives the same scores.
-- **The pre-period history doesn't grow.** In MIND that history is fixed before the log starts,
-  and the model learned in-log clicks only through the features above. So taps don't enter it:
-  `user_history_len` stays 0 and the history-similarity features (`sim_text`,
-  `subcat_affinity`, embedding retrieval, LLM themes) stay missing for the new user.
-- **Only opens are fed back.** Reads are stored but not used: an open means "curious", a read
-  means they went on to the article. MIND has only clicks, so the model can't use reads until
-  it's retrained on push data.
-- **Exposure features learned from feed visits.** MIND impressions are visits users chose to
-  make; pushes aren't. The model's exposure effect is small (about 2–3% lower engagement after
-  5+ impressions a day; see analysis.md), so it won't do much to stop over-pushing on its own.
-- **Cookies are per browser.** A reader who clears cookies, or opens a card in another browser,
-  becomes a new reader. Pins and reads live in this database, not in the reader's NYT
-  account.
-- **The feeds are RSS.** RSS needs no API key, but it only lists what editors put in each
-  section's feed. The NYT Times Wire API would cover every article in one call.
+- **Pushes are picked for a brand-new user** by default: no history, so the pick rests on the
+  article and the time of day, and every subscriber gets the same pushes. `user_id` set to a
+  MIND id (e.g. `U12345`) scores for that reader's history instead.
+- **Pushes feed back as impressions.** Each slot sends the user's earlier pushes to the scorer as
+  one-article impressions, labeled 1 if opened (0 once 24 h pass unopened), used exactly as
+  training used a MIND user's earlier impressions, so engagement, skip and exposure features
+  move. The scorer keeps no state; the database is the record.
+- **The pre-period history doesn't grow** (as in MIND): taps don't enter it, so the
+  history-similarity features stay missing for the new user.
+- **Only opens are fed back.** Reads are stored but unused until the model is retrained on push
+  data.
+- **Exposure features come from feed visits**, which users chose; their effect is small (about
+  2%), so they won't stop over-pushing on their own. That's the contextual bandit's job
+  ([bandit.md](bandit.md)).
+- **Cookies are per browser**, so clearing them makes a new reader. **The feeds are RSS**, which
+  lists only what editors put in each section's feed (the Times Wire API would cover everything).
 - **P(click) is a ranking signal here, not a rate.** The model was trained on another outlet
   and era, so the 0.07 send threshold is in MIND feed units. Logged opens are what would
   recalibrate it.

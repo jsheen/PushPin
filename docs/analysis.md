@@ -228,6 +228,8 @@ A user-level opt-out model drops straight into the send policy in place of `p_re
 and opt-outs shortly after a specific push are what an **article-level** risk term would need,
 added to the score as `(1 − f) · engagement + f · novelty − λ · risk`; MIND has nothing comparable,
 so that term is not built here.
+The same logs would also give the contextual bandit its starting state and prior
+([bandit.md](bandit.md#operating-it)).
 
 ## Do clicks on unfamiliar subcategories stick?
 
@@ -398,37 +400,16 @@ early-stops on the validation slice (the latest 20% of the training day), and is
 **group AUC** on that slice, since the push objective ranks candidates within an impression.
 The test day is never seen during the search, so its AUC stays an honest estimate.
 
-**The search: Bayesian optimization.** Specifically a Gaussian process with expected improvement
-(GP-EI; Snoek, Larochelle & Adams 2012):
-
-1. **Trial 0** is the config's own params, so the run shows what tuning gained over them.
-2. **Trials 1–8** are random draws, which give the model a first picture of the space.
-3. **Trials 9+** each start by fitting a Gaussian process to every trial so far: a smooth model of
-   score as a function of the seven parameters, with an uncertainty at every point. The next
-   trial goes where *expected improvement* over the best score so far is highest: either the GP
-   predicts a high score there (exploitation), or it is still unsure (exploration). It scores
-   5,000 random candidate points and picks the best.
-
-Random search (`method: random`) spends every trial blind. Bayesian optimization uses earlier
-trials to aim later ones, so later trials concentrate in promising regions. A grid would waste
-trials: a 3×3×3 grid tests only three values of each parameter.
-
-**Choosing the winner.** Once all trials are in, a final GP is fit to them, and the chosen trial
-is the one with the highest *predicted* score, not the highest observed one. Trials here differ
-by about a thousandth of AUC, so the observed best is partly the luckiest draw, and the
-prediction averages over its neighbors.
-
-**Which parameters matter.** The GP has one *length scale* per parameter (automatic relevance
-determination), measured on a 0–1 scale per parameter. A short length scale means the score
-changes quickly along that parameter. A value at the upper bound (100) means the GP found no
-effect. `tuning.png` shows the same thing visually: validation group AUC against each parameter,
-where a flat cloud means the parameter barely matters.
-
-**Why not cross-validation.** Random k-fold would train on later hours to predict earlier
-ones. Rolling time folds would need earlier `fit_end` dates, which means rebuilding features with
-less history, and MIND-small has only six days. One validation slice is used instead. Choosing
-by the GP's prediction rather than the observed best covers part of what CV would (selection
-noise), and the paired test-day comparison is the final check.
+**The search: Bayesian optimization** (a Gaussian process with expected improvement, GP-EI;
+Snoek, Larochelle & Adams 2012). Trial 0 is the config's own params; trials 1–8 are random draws;
+each later trial fits a GP to all trials so far and goes where the expected improvement over the
+best score is highest, either because the GP predicts a high score there or because it's still
+unsure. Unlike random search, earlier trials aim later ones. **The winner** is the trial with the
+highest score *predicted* by a final GP, not the highest observed one: trials differ by about a
+thousandth of AUC, so the observed best is partly luck. The GP's per-parameter **length scales**
+show which parameters matter (a value at the upper bound, 100, means no effect); `tuning.png`
+shows the same visually. **No cross-validation:** random folds would train on later hours to
+predict earlier ones, and rolling time folds need more history than MIND-small's six days.
 
 **Caveat.** The validation slice now does three jobs: early stopping, Platt calibration and model
 selection. Validation scores of the chosen trial are therefore slightly optimistic. Only the
