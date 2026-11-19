@@ -1,6 +1,6 @@
 # PushPin
 
-[![CI](https://github.com/jsheen/PushPin/actions/workflows/ci.yml/badge.svg)](https://github.com/jsheen/PushPin/actions/workflows/ci.yml)
+[![CI](https://github.com/jsheen/PushPin/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/jsheen/PushPin/actions/workflows/ci.yml)
 
 Aims to push articles users want to engage with. Currently pushes New York Times articles. Balances engagement, discovery, and opt-out risk. Built as final project for AC215: MLOps and LLMOps: Production AI Systems at Harvard. Utilized Anthropic's Claude Code Pro.
 
