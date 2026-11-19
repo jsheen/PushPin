@@ -101,8 +101,7 @@ uv run pushpin-bandit --grid                    # contextual bandit (needs outpu
 | [ab-test.md](docs/ab-test.md) | The proposed A/B test and its analysis |
 | [bandit.md](docs/bandit.md) | Contextual bandit for the send decision: reward, planted world, results |
 | [uplift.md](docs/uplift.md) | Causal ML: doubly robust estimates of what a push causes |
-| [deploy-gcp.md](docs/deploy-gcp.md), [production.md](docs/production.md) | Cloud deployment |
-| [live-scoring.md](docs/live-scoring.md) | Request-time scoring |
+| [production.md](docs/production.md), [deploy-gcp.md](docs/deploy-gcp.md) | Live scoring and the production design; the demo's cloud deployment |
 | [demo-screens.md](docs/demo-screens.md) | What the phone shows: push, tapped push, demo profile, sharing a picture |
 
 ## Status and contact
