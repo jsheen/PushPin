@@ -28,6 +28,15 @@ from different inputs:
 | **Target** | P(click), P(return) | sessions − λ·pushes − V·opt-outs |
 | **Inputs** | Reader × article: similarity to reading history, subcategory affinity and complements, article embeddings, Claude reader profiles, article age, time-slot engagement | XGBoost's outputs (`p_click`, `1 − p_return`), plus context about *our pushes*: pushes in the last few hours, pushes ignored this week, hours since the last open, the reader's open rate on our pushes, the hours they tend to come back |
 
+**What the bandit's reward counts.** A *session* is a return visit: the reader coming back in
+that slot's window by any route (tapping the push, or opening the site on their own later).
+Opens, the tap on the notification, aren't rewarded directly: a push opened by a reader who'd
+have come back anyway adds nothing. Opens matter indirectly. Ignored pushes build annoyance and
+opt-outs (the V term), and the reader's open rate on our pushes is one of the bandit's inputs.
+**How much one push raises visits or opens isn't known.** No dataset here observes a reader with
+and without a push, so the simulation plants both effects (`configs/bandit.yml`). Only a live
+randomized holdout would measure them.
+
 The bandit gets no article features (that's XGBoost's job), and XGBoost never sees what our
 pushes did: the no-push outcome, annoyance or opt-outs. XGBoost does have a few fatigue features
 (`slot_skipped_72h`, `impr_last_24h`, `hours_since_last_impr`, ...), but they're learned from

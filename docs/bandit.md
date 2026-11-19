@@ -43,6 +43,14 @@ aren't the core of the model.
 reward = sessions − λ × pushes − V × opt-outs
 ```
 
+A **session** is a return visit: the reader coming back in that slot's window by any route
+(tapping the push, or opening the site on their own later), and it's counted whether or not a
+push was sent. **Opens** (the tap on the notification) aren't in the reward: an open by a reader
+who'd have come anyway adds nothing. They matter through annoyance (an ignored push raises it,
+which lowers later effects and drives opt-outs) and as a bandit input (the reader's open rate on
+our pushes). How much a single push raises visits or opens isn't known from any data here; the
+simulation plants both (see [The planted world](#the-planted-world)).
+
 Both prices are in sessions and are **set by hand**, not learned:
 
 - **λ, the cost of one push**: how many extra visits a push must cause to be worth an
