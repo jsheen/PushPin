@@ -21,6 +21,7 @@ Code: `src/pushpin/bandit.py`, `configs/bandit.yml`, `tests/test_bandit.py`. Plo
 - [Policies compared](#policies-compared)
 - [Results across the two prices](#results-across-the-two-prices)
 - [What it learned](#what-it-learned)
+- [Beyond send or skip: with much more data](#beyond-send-or-skip-with-much-more-data)
 - [Limitations](#limitations)
 - [Running it](#running-it)
 
@@ -265,6 +266,30 @@ Posterior means of the effect-of-sending weights at λ = 0.04, V = 5:
 - **`p_click` alone: −0.017 (± 0.012), uncertain.** Its effect shows up through the
   interaction with risk instead: an appealing pick is worth sending mainly to readers who
   wouldn't come back on their own.
+
+## Beyond send or skip: with much more data
+
+Today the bandit has two actions for XGBoost's pick: send or skip. With large randomized push
+logs, it could be widened in three steps, each more powerful and more complex:
+
+1. **Choose the article too.** One action per candidate plus skip: send the article with the
+   highest estimated effect of sending it now, or skip if none beats the cost of a push. That
+   needs a model of reader × article × context, i.e. the bandit absorbs XGBoost's and the uplift
+   model's jobs (typically a neural network, with an ensemble for the uncertainty). Large systems
+   first narrow the ~100 candidates to a short list with a cheap retrieval model, then choose
+   among those (e.g. YouTube's recommender, Chen et al. 2019).
+2. **Plan over the day.** A choice now changes later options (a pushed article is gone, fatigue
+   builds), so the best push now isn't always best overall. In reinforcement learning, skip's
+   value includes the best that can happen later, so "save this story for the reader's evening
+   peak" falls out of the value of skipping; it doesn't need its own action.
+3. **A cheap middle ground: one-step lookahead.** Before sending, compare the value of sending
+   now with the value at the reader's best remaining slot today (same model, with "is this their
+   hour" set for that slot), and send only if now wins by a margin. No new learning; it would
+   mainly fix pushes going out early in the day. Caveat: the story ages, and a newer pick may
+   replace it.
+
+Each step trades simplicity for power, so the current split (XGBoost picks, the bandit times) is
+the right shape until the data exists.
 
 ## Limitations
 
