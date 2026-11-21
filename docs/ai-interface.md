@@ -171,3 +171,31 @@ Open questions:
    token, and the brief exposes the reader profile, so it should be opt-in.
 4. **Keeping the bandit's data clean.** Agent fetches should be logged as their own event type,
    not mixed into the open-rate and ignored features.
+
+## Future opportunity: developing stories as threads
+
+**Status:** an idea, not built. iOS 27 already merges related alerts into one summary, so
+PushPin could treat a developing story as one thread instead of sending a series of separate
+pushes:
+
+1. **Group articles into threads.** A new article whose embedding is very close to a recent one,
+   in the same section and within a few hours, joins that article's thread. Neither NYT RSS nor
+   MIND labels threads, so the grouping has to be ours.
+2. **Push the first article normally**, through the send policy.
+3. **Make each follow-up its own send decision.** A reader who opened the first push has shown
+   interest, and one who ignored it probably shouldn't get more on that story. The bandit could
+   learn this from an "opened earlier in this thread" feature, with each follow-up still costing λ.
+4. **Link every push to one card that stays current.** The reader gets an accurate running
+   summary from PushPin rather than relying on the merged lock-screen summary. Fast-moving news
+   is where that summary went wrong in the BBC case.
+
+Notes:
+
+- Follow-ups are the opposite of novelty, so threads would need an exemption from friction.
+  Otherwise the objective steers readers away from stories they're following.
+- This gives the [A/B test](ab-test.md) a clear contrast: arm A pushes every update of a
+  developing story to everyone, and a threaded arm follows it only for readers who engaged.
+- The polished iOS version of this is a Live Activity, which ntfy can't send. Whether ntfy can
+  replace a push already on the phone hasn't been checked.
+- MIND has no threads, so the follow-up effect would come from live logs or be planted in the
+  simulation.
