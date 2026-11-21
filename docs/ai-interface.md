@@ -42,6 +42,17 @@ The agent is selective in the same way PushPin is, so a push now has to get thro
 2. **The agent on the phone** decides whether the push it received gets surfaced, demoted, or
    folded into a summary or digest.
 
+The second gate is personalized as well. The agent ranks notifications by what it learns about
+this particular reader: which apps and senders they open, what they dismiss, and when they
+check their phone. So a push now goes through two personalization layers, each of which sees
+things the other doesn't:
+
+| | PushPin | Lock-screen agent |
+|---|---|---|
+| **Personalizes on** | Reading history, article content and embeddings, Claude reader profiles, the reader's responses to PushPin's own pushes | The reader's taps and dismissals across every app, plus on-device context (Focus, time of day, what else is waiting) |
+| **Can't see** | Everything outside PushPin: other apps, other news sources, how busy the reader's lock screen is | Why this article fits this reader; it only sees the text of the push |
+| **Decides** | Whether to send, which article, and when | Whether the push gets surfaced, and how |
+
 What this means for PushPin:
 
 - **The gates mostly agree.** Both reward pushes that are few, personal, and timely. A
