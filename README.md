@@ -105,6 +105,7 @@ uv run pushpin-bandit --grid                    # contextual bandit (needs outpu
 | [uplift.md](docs/uplift.md) | Causal ML: doubly robust estimates of what a push causes |
 | [production.md](docs/production.md), [deploy-gcp.md](docs/deploy-gcp.md) | Live scoring and the production design; the demo's cloud deployment |
 | [demo-screens.md](docs/demo-screens.md) | What the phone shows: push, tapped push, demo profile, sharing a picture |
+| [ai-interface.md](docs/ai-interface.md) | Lock-screen AI summaries: extra friction, and readers informed without opening |
 
 ## Status and contact
 
