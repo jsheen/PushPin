@@ -34,6 +34,29 @@ a guess from the features' direction, not something Apple has said. If it's righ
 [second gate](#a-second-gate-the-agents-own-selectivity) matters more over time than
 summaries do.
 
+**What iOS 27 has changed so far.** iOS 27 shipped in September 2026. These are the reported
+changes that bear on pushes:
+
+- **Related alerts merge.** Summaries now update in real time and combine related alerts into
+  one, instead of showing them separately
+  ([MacRumors](https://www.macrumors.com/roundup/ios-27/)). Senders who push several related
+  stories, such as arm A following a developing story, will get merged and summarized more
+  often. Most PushPin pushes arrive alone, so this mostly doesn't apply to them.
+- **Readers can turn off ranking per app.** iOS 27 removed the master Apple Intelligence switch
+  but kept the per-feature ones. A reader can swipe left on a single notification and choose
+  Turn Off Prioritization
+  ([iThinkDiff](https://www.ithinkdiff.com/how-to-turn-off-apple-intelligence-features-ios-27/),
+  [Tech Nerdiness](https://www.technerdiness.com/iphone/priority-notifications-on-iphone/)).
+- **China gets these features.** iOS 27.3, expected in December 2026, brings notification
+  summaries and Priority Notifications to China
+  ([MacRumors](https://www.macrumors.com/2026/10/30/ios-27-3-apple-intelligence-china/)), a
+  large new group of users.
+- **The model change is unconfirmed.** The new Siri runs on an Apple Foundation Model trained
+  with Google's Gemini team
+  ([MacRumors](https://www.macrumors.com/2026/06/02/ios-27-siri-features/)). Nothing confirms
+  that notification ranking or summaries use it, or what changed in the model behind them.
+  Nothing reported so far reveals the ranking signals.
+
 **There's no measured data.** No one has published how these features change push engagement
 (Courier, November 7, 2026). The closest numbers are for email: Validity saw some senders'
 Gmail open rates fall 30% or more quarter over quarter, with AI summaries a "likely but
