@@ -6,9 +6,46 @@ long one. A summary changes what the lock screen **shows**, but the original not
 still there and can still be opened. Tapping a summarized stack expands it, and tapping an
 individual push inside opens it as usual.
 
+## What's known so far (November 2026)
+
+**Summaries had a public setback.** In January 2025, Apple paused summaries for news and
+entertainment apps in iOS 18.3 after they produced false headlines, including one falsely
+attributed to the BBC ([TechCrunch](https://techcrunch.com/2025/01/16/apple-pauses-ai-notification-summaries-for-news-after-generating-false-alerts)).
+They came back in iOS 26 with safeguards. Summarized text is italic and labeled "Summarized by
+Apple Intelligence," and users can turn summaries on or off for each category of app
+([MacRumors](https://www.macrumors.com/2025/07/22/ios-26-beta-4-notification-summaries/),
+[9to5Mac](https://9to5mac.com/2025/10/27/ios-26-brought-back-a-controversial-ai-feature-heres-whats-new/)).
+Users choose which apps are summarized, and a sender can't opt out
+([Courier](https://www.courier.com/blog/ios-27-notifications-marketers)). For news in
+particular, summarization is still on probation: it's opt-in, labeled, and comes with a warning.
+
+**Apple's attention may be moving to reranking.** Ordering notifications is lower risk than
+rewriting them, because a wrong order is an inconvenience and a wrong summary is a false
+headline. The features Apple has added since point that way. According to Courier, they are:
+
+- **Prioritize Notifications** (iOS 18.4) reorders the lock-screen stack by what the model
+  thinks matters, without hiding or rewriting anything.
+- **Reduce Interruptions** filters further, letting through only what it judges urgent.
+- **iOS 27** changes the model behind both.
+
+How Apple ranks isn't public, and the only sender-side control it documents is the
+interruption level ("time-sensitive" can break through Focus and scheduled summaries). That's
+a guess from the features' direction, not something Apple has said. If it's right, the
+[second gate](#a-second-gate-the-agents-own-selectivity) matters more over time than
+summaries do.
+
+**There's no measured data.** No one has published how these features change push engagement
+(Courier, November 7, 2026). The closest numbers are for email: Validity saw some senders'
+Gmail open rates fall 30% or more quarter over quarter, with AI summaries a "likely but
+unproven" cause, and clicks fell less than opens (via Courier). Everything below is reasoning,
+not measurement. We also haven't seen what these features do to PushPin's own pushes. ntfy
+can't report it, and we haven't tested on a phone.
+
+## How summaries affect opens
+
 Summaries don't block opens. They make an open less likely in two ways.
 
-## 1. Extra friction
+### 1. Extra friction
 
 A push inside a summarized stack is one tap further away: first expand the stack, then open
 the push. That cost lands mostly on high-volume senders whose pushes pile up. PushPin's send
@@ -16,7 +53,7 @@ policy averages 0.41 pushes per active reader-day, so most of its pushes arrive 
 skip this cost. Arm A of the [A/B test](ab-test.md) (NYT-style, many a day) is the arm most
 likely to get stacked.
 
-## 2. Informed without opening
+### 2. Informed without opening
 
 If the summary tells the reader what happened, some of them won't tap. They got value from
 the push, but the log records it as **ignored**. For PushPin this matters more than the
@@ -70,7 +107,7 @@ What this means for PushPin:
   agreeing that they're important.
 - **The second gate can't be observed.** ntfy reports delivery, not whether the push was
   surfaced, demoted, or summarized. A demoted push and an ignored push look the same in the
-  logs, which adds to the "ignored" ambiguity in section 2.
+  logs, which adds to the "ignored" ambiguity under [informed without opening](#2-informed-without-opening).
 
 None of these effects has solid public numbers. Apple doesn't publish them, and reports from
 publishers are anecdotal. Any simulation of the effect would need to plant an "absorbed"
