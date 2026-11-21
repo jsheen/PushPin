@@ -75,3 +75,39 @@ What this means for PushPin:
 None of these effects has solid public numbers. Apple doesn't publish them, and reports from
 publishers are anecdotal. Any simulation of the effect would need to plant an "absorbed"
 probability and sweep it over a range, the same way the push effect is handled now.
+
+## Future opportunity: an API for personal agents
+
+**Status:** an idea, not built. Lock-screen agents are new, and many readers don't have them yet
+because they need a recent phone and have to be turned on. This is worth building only if they
+become common.
+
+Right now an agent summarizes a push from its text alone. Instead, PushPin could offer an API
+that a reader's personal agent calls to get the summary and PushPin's judgment directly. The
+agent then has things it can't produce on its own:
+
+- **A summary PushPin wrote and stands behind**, not the agent's rewrite of a headline.
+- **Why the story fits this reader:** subcategory similarity and the Claude reader profile.
+- **How much it matters and when:** `p_click`, whether it passes the send policy, the editorial
+  override flag, and whether it's a novelty pick. The agent could use these to decide between
+  showing it now and holding it for a digest.
+- **A link to the `/p/{push_id}` card**, so taps are still logged.
+
+Most of this is already computed. The notifier's store holds each reader's picks, push IDs and
+taps, and `src/pushpin/api.py` already serves `/score` and `/push`. A `GET /readers/{id}/brief`
+endpoint would repackage the current pick or picks, and an MCP wrapper would let tool-using
+agents call it.
+
+It would also partly solve the measurement problem above. Each agent fetch is logged on
+PushPin's side, unlike what happens to a push after ntfy delivers it.
+
+Open questions:
+
+1. **Which agents could use it.** Agents that call tools (for example over MCP) could. Whether
+   Apple Intelligence lets outside services feed its lock-screen summaries is unverified.
+2. **Rights.** Serving NYT RSS abstracts again is different from writing and distributing
+   summaries of full articles.
+3. **Auth and privacy.** Readers are identified by cookie now. An agent would need a per-reader
+   token, and the brief exposes the reader profile, so it should be opt-in.
+4. **Keeping the bandit's data clean.** Agent fetches should be logged as their own event type,
+   not mixed into the open-rate and ignored features.
